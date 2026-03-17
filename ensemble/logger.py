@@ -90,10 +90,17 @@ class PetLogger:
         Parameters:
             **kwargs: Keyword arguments to consider for adjusting the space width.
         '''
+        self.ns = 12
         for key, value in kwargs.items():
+            value_len = 0
             try:
-                if (len(key) > self.ns) or (len(f'{value:.3e}') > self.ns):
-                    self.ns = max(len(key), len(f'{value:.3e}')) + 2
+                if isinstance(value, int) or isinstance(value, str):
+                    value_len = len(str(value))
+                elif '%' in key:
+                    value_len = len(f'{value:.1f}')
+                else:
+                    value_len = len(f'{value:.3e}')
             except:
-                if len(key) > self.ns:
-                    self.ns = len(key) + 2
+                value_len = 0
+
+            self.ns = max(self.ns, len(key) + 2, value_len + 2)
