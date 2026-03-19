@@ -22,6 +22,7 @@ import pipt.misc_tools.extract_tools as extract
 import pipt.misc_tools.ensemble_tools as entools
 import pipt.misc_tools.data_tools as dtools
 from misc.system_tools.environ_var import OpenBlasSingleThread  # Single threaded OpenBLAS runs
+from misc.structures.structures import PETDataFrame, PETStateArray
 
 # Settings
 #######################################################################################################
@@ -344,8 +345,8 @@ class Ensemble:
             if getattr(self.sim, 'compute_adjoints', False):
                 en_pred, en_adj = zip(*en_pred)
                 
-                # Each adjoint in en_adj is a DataFram with mulit-index columns (data type, param)
-                self.adjoints = [dtools.multilevel_to_singlelevel_columns(a) for a in en_adj]
+                # Merge adjoint to ensemble adjoint dataframe (PETDataFrame)
+                self.adjoints = PETDataFrame.merge_dataframes(list(en_adj))
 
             # Combine ensemble predictions into pred_data structure  
             # TODO: In the long run, pred_data should also be made into a DataFrame!

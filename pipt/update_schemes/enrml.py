@@ -5,7 +5,7 @@ EnRML type schemes
 import pipt.misc_tools.analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
 import pipt.misc_tools.ensemble_tools as entools
-import pipt.misc_tools.data_tools as dtools
+from misc.structures.structures import PETDataFrame
 
 from geostat.decomp import Cholesky
 from pipt.loop.ensemble import Ensemble
@@ -150,8 +150,7 @@ class lmenrmlMixIn(Ensemble):
 
             # Check for adjoint
             if hasattr(self, 'adjoints'):
-                enAdj = dtools.merge_dataframes(self.adjoints)
-                enAdj = dtools.dataframe_to_matrix(enAdj) # Shape (nd, nx, ne)
+                enAdj = self.adjoints.to_matrix() # Shape (nd, nx, ne)
             else:
                 enAdj = None
 

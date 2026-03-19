@@ -11,8 +11,7 @@ from geostat.decomp import Cholesky
 # Internal imports
 from pipt.loop.ensemble import Ensemble
 import pipt.misc_tools.analysis_tools as at
-import pipt.misc_tools.ensemble_tools as entools
-import pipt.misc_tools.data_tools as dtools
+from misc.structures.structures import PETDataFrame
 
 # import update schemes
 from pipt.update_schemes.update_methods_ns.approx_update import approx_update
@@ -162,8 +161,7 @@ class esmdaMixIn(Ensemble):
 
             # Check for adjoint
             if hasattr(self, 'adjoints'):
-                enAdj = dtools.merge_dataframes(self.adjoints)
-                enAdj = dtools.dataframe_to_matrix(enAdj) # Shape (nd, nx, ne)
+                enAdj = self.adjoints.to_matrix() # Shape (nd, nx, ne)
             else:
                 enAdj = None
 
