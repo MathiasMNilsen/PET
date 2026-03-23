@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy  as np
 
+from geostat.decomp import Cholesky
 from pandas._typing import Axes, Dtype
 from numpy._typing  import ArrayLike
 
@@ -244,7 +245,93 @@ class PETStateArray(np.ndarray):
                 data[start:end, member_index] = values
 
         return cls(data.squeeze(), indices=indices)
-    
+
+
+    @classmethod
+    def generate_from_prior_info(cls, prior_info: dict[str, np.ndarray], ne: int, save: bool = True) -> "PETStateArray":
+        '''
+        Generate a prior ensemble based on the provided prior_info dictionary.
+        
+        Parameters
+        ----------
+        prior_info : dict
+            Dictionary containing prior information for each state variable.
+        
+        ne : int
+            Number of ensemble members to generate.
+        
+        save : bool, optional
+            Whether to save the generated ensemble to a file. Default is True.
+        
+        Returns
+        -------
+        PETStateArray
+            Generated prior ensemble as a PETStateArray.
+        '''
+        # Initialize empty array and indices
+        enX = None
+        idX = {}
+
+        # Loop over each variable in prior_info
+        for name, info in prior_info.items():
+            mean = info['mean']
+            var  = info['variance'] 
+            nx = info.get('nx', 0)
+            ny = info.get('ny', 0)
+            nz = info.get('nz', 0)
+            
+            # If no dimensions are given, nothing is generated for this variable
+            if nx == ny == 0:
+                break
+
+            j = 0
+            for z in range(nz):
+
+                if isinstance(mean, (list, np.ndarray)) and len(mean) > 1:
+                    # Generate covariance matrix
+                    cov = Cholesky().gen_cov2d(
+                        x_size = nx, 
+                        y_size = ny, 
+                        variance = var[z], 
+                        var_range = info['corr_length'][z], 
+                        aspect = info['aniso'][z], 
+                        angle = info['angle'][z], 
+                        var_type = info['vario'][z],
+                    )
+                else:
+                    cov = np.array(var[z])
+
+                i = j
+                j = int((z + 1)*(len(mean)/nz))
+                meanz = mean[i:j]
+
+                # Generate ensemble members for this variable
+                if info.get('limits', None) is None:
+                    fieldz = Cholesky.gen_real(meanz, cov, ne)
+                else:
+                    fieldz = Cholesky.gen_real_truncated(meanz, cov, ne, limits=info['limits'][z])
+
+                if z == 0:
+                    field = fieldz
+                else:
+                    field = np.vstack((field, fieldz))
+        
+            # Fill in the StateArray data and indices
+            if enX is None:
+                enX = field
+                idX[name] = (0, field.shape[0])
+            else:
+                enX = np.vstack((enX, field))
+                idX[name] = (idX[name][0], idX[name][0] + field.shape[0])
+
+        # Make StateArray and save
+        enX = cls(enX, indices=idX)
+        
+        if save:
+            np.savez('prior_ensemble.npz', **enX.to_dict())
+
+        return enX
+
 
     # --- shape-changing ops with updated indices/state_axis ---
     @property
