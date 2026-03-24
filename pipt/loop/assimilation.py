@@ -124,7 +124,7 @@ class Assimilate:
                     # set updated prediction, state and lam
                     qaqc.set(
                         self.ensemble.pred_data, 
-                        entools.matrix_to_dict(self.ensemble.enX, self.ensemble.idX), 
+                        self.ensemble.enX.to_dict(), 
                         self.ensemble.lam
                     )
 
@@ -179,7 +179,7 @@ class Assimilate:
                         # set updated prediction, state and lam
                         qaqc.set(
                             self.ensemble.pred_data,
-                            entools.matrix_to_dict(self.ensemble.enX, self.ensemble.idX), 
+                            self.ensemble.enX.to_dict(), 
                             self.ensemble.lam
                         )
                         qaqc.calc_da_stat()  # Compute statistics for updated parameters
@@ -187,7 +187,7 @@ class Assimilate:
                         # set updated prediction, state and lam
                         qaqc.set(
                             self.ensemble.pred_data,
-                            entools.matrix_to_dict(self.ensemble.enX, self.ensemble.idX), 
+                            self.ensemble.enX.to_dict(), 
                             self.ensemble.lam
                         )
                         qaqc.calc_mahalanobis(
@@ -217,11 +217,11 @@ class Assimilate:
         # always store posterior forcast and state, unless specifically told not to
         if 'nosave' not in self.ensemble.keys_da:
             try: # first try to save as npz file
-                np.savez(f'{self.save_folder}/posterior_state_estimate.npz', **entools.matrix_to_dict(self.ensemble.enX, self.ensemble.idX))
+                np.savez(f'{self.save_folder}/posterior_state_estimate.npz', **self.ensemble.enX.to_dict())
                 np.savez(f'{self.save_folder}/posterior_forecast.npz', **{'pred_data': self.ensemble.pred_data})
             except: # If this fails, store as pickle
                 with open(f'{self.save_folder}/posterior_state_estimate.p', 'wb') as file:
-                    pickle.dump(entools.matrix_to_dict(self.ensemble.enX, self.ensemble.idX), file)
+                    pickle.dump(self.ensemble.enX.to_dict(), file)
                 with open(f'{self.save_folder}/posterior_forecast.p', 'wb') as file:
                     pickle.dump(self.ensemble.pred_data, file)
 
@@ -349,7 +349,7 @@ class Assimilate:
                 save_dict[save_typ] = eval('self.ensemble.{}'.format(save_typ))
             # Save with key equal variable name and the actual variable
             elif save_typ == 'state':
-                save_dict['state'] = entools.matrix_to_dict(self.ensemble.enX, self.ensemble.idX)
+                save_dict['state'] = self.ensemble.enX.to_dict()
             else:
                 print(f'Cannot save {save_typ}, because it is a local variable!\n\n')
 

@@ -145,32 +145,15 @@ class Ensemble:
                     self.ne = int(self.ne)
 
                 # Generate prior ensemble
-                self.enX, self.idX, self.cov_prior = entools.generate_prior_ensemble(
-                    prior_info = self.prior_info, 
-                    size = self.ne,
-                    save = self.keys_en.get('save_prior', True)
+                self.enX = PETStateArray.generate_from_prior_info(
+                    self.prior_info, 
+                    self.ne, 
+                    save=self.keys_en.get('save_prior', True)
                 )
-
             else:
                 # State variable imported as a Numpy save file
-                tmp_load = np.load(self.keys_en['importstaticvar'], allow_pickle=True)
-
-                if self.ne is None:
-                    self.ne = tmp_load[key].shape[1]
-                else:
-                    self.ne = int(self.ne)
-
-                # We assume that the user has saved the state dict. as **state (effectively saved all keys in state
-                # individually).
-                for key in self.keys_en['staticvar']:
-                    if self.enX is None:
-                        self.enX = tmp_load[key][:,:self.ne]
-                    else:
-                        self.enX = np.vstack((self.enX, tmp_load[key][:,:self.ne]))
-
-                    # fill in indices
-                    self.idX[key] = (self.enX.shape[0] - tmp_load[key].shape[0], self.enX.shape[0])
-                
+                file = np.load(self.keys_en['importstaticvar'], allow_pickle=True)
+                self.enX = PETStateArray.from_dict({key: file[key] for key in file.files}, ne=self.ne)
                 self.list_states = list(self.keys_en['staticvar'])
 
         if 'multilevel' in self.keys_en:
@@ -227,12 +210,10 @@ class Ensemble:
         one_state = False
 
         # Use input state if given
-        if enX is None: 
-            use_input_ensemble = False
+        restore_internal_ensemble = enX is None
+        if restore_internal_ensemble:
             enX = self.enX
             self.enX = None # free memory
-        else:
-            use_input_ensemble = True
 
         if isinstance(enX,list) and hasattr(self, 'multilevel'): # assume multilevel is used if state is a list
             success = self.calc_ml_prediction(enX)
@@ -262,7 +243,10 @@ class Ensemble:
                 enX = np.tile(enX, (1, self.ne))
             
             # Convert ensemble matrix to list of dictionaries
-            enX = entools.matrix_to_list(enX, self.idX)
+            try:
+                enX = enX.to_list_of_dicts()
+            except AttributeError:
+                enX = PETStateArray(enX).to_list_of_dicts()
                 
             if not (self.aux_input is None): 
                 for n in range(self.ne):
@@ -293,16 +277,11 @@ class Ensemble:
             ######################################################################################################################
 
             # Convert state enemble back to matrix form
-            enX = entools.list_to_matrix(enX, self.idX)
+            enX = PETStateArray.from_list_of_dicts(enX)
 
             # If only one state was inputted, keep only that state
             if one_state and self.ne > 1:
                 enX = enX[:,0][:,np.newaxis]
-            
-            # restore state ensemble if it was not inputted
-            if not use_input_ensemble:
-                self.enX = enX
-                enX = None # free memory
             
             # List successful runs and crashes
             success = True
@@ -319,42 +298,41 @@ class Ensemble:
                     self.logger.info(
                         '\n\033[1;31mERROR: All started simulations has failed! We dump all information and exit!\033[1;m')
                     sys.exit(1)
-                return success
+            else:
+                # Check crashed runs
+                if list_crash:
+                    # Replace crashed runs with (random) successful runs. If there are more crashed runs than successful once,
+                    # we draw with replacement.
+                    if len(list_crash) < len(list_success):
+                        copy_member = np.random.choice(list_success, size=len(list_crash), replace=False)
+                    else:
+                        copy_member = np.random.choice(list_success, size=len(list_crash), replace=True)
 
-            # Check crashed runs
-            if list_crash:
-                # Replace crashed runs with (random) successful runs. If there are more crashed runs than successful once,
-                # we draw with replacement.
-                if len(list_crash) < len(list_success):
-                    copy_member = np.random.choice(list_success, size=len(list_crash), replace=False)
-                else:
-                    copy_member = np.random.choice(list_success, size=len(list_crash), replace=True)
-
-                # Insert the replaced runs in prediction list
-                for index, element in enumerate(copy_member):
-                    msg = (
-                        f"\033[92m--- Ensemble member {list_crash[index]} failed, "
-                        f"has been replaced by ensemble member {element}! ---\033[92m"
-                    )
-                    print(msg)
-                    self.logger.info(msg)
-                    if enX.shape[1] > 1:
-                        enX[:, list_crash[index]] = deepcopy(self.enX[:, element])
-                    en_pred[list_crash[index]] = deepcopy(en_pred[element])
-            
-            if getattr(self.sim, 'compute_adjoints', False):
-                en_pred, en_adj = zip(*en_pred)
+                    # Insert the replaced runs in prediction list
+                    for index, element in enumerate(copy_member):
+                        msg = (
+                            f"\033[92m--- Ensemble member {list_crash[index]} failed, "
+                            f"has been replaced by ensemble member {element}! ---\033[92m"
+                        )
+                        print(msg)
+                        self.logger.info(msg)
+                        if enX.shape[1] > 1:
+                            enX[:, list_crash[index]] = deepcopy(enX[:, element])
+                        en_pred[list_crash[index]] = deepcopy(en_pred[element])
                 
-                # Merge adjoint to ensemble adjoint dataframe (PETDataFrame)
-                self.adjoints = PETDataFrame.merge_dataframes(list(en_adj))
+                if getattr(self.sim, 'compute_adjoints', False):
+                    en_pred, en_adj = zip(*en_pred)
+                    
+                    # Merge adjoint to ensemble adjoint dataframe (PETDataFrame)
+                    self.adjoints = PETDataFrame.merge_dataframes(list(en_adj))
 
-            # Combine ensemble predictions into pred_data structure  
-            # TODO: In the long run, pred_data should also be made into a DataFrame!
-            self.pred_data = dtools.en_pred_to_pred_data(en_pred)
+                # Combine ensemble predictions into pred_data structure  
+                # TODO: In the long run, pred_data should also be made into a DataFrame!
+                self.pred_data = dtools.en_pred_to_pred_data(en_pred)
 
         # some predicted data might need to be adjusted (e.g. scaled or compressed if it is 4D seis data). Do not
         # include this here.
-        if enX is not None:
+        if restore_internal_ensemble and enX is not None:
             self.enX = enX
             enX = None  # free memory
 

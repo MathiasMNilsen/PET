@@ -603,7 +603,7 @@ class Ensemble(PETEnsemble):
     def _ext_scaling(self):
         # get vector of scaling
         self.state_scaling = at.calc_scaling(
-            self.prior_enX, self.idX, self.prior_info)
+            self.prior_enX, self.prior_enX.indices, self.prior_info)
         
         self.Am = None
 

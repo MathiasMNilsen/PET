@@ -11,7 +11,7 @@ from geostat.decomp import Cholesky
 # Internal imports
 from pipt.loop.ensemble import Ensemble
 import pipt.misc_tools.analysis_tools as at
-from misc.structures.structures import PETDataFrame
+from misc.structures.structures import PETDataFrame, PETStateArray
 
 # import update schemes
 from pipt.update_schemes.update_methods_ns.approx_update import approx_update
@@ -185,7 +185,7 @@ class esmdaMixIn(Ensemble):
 
             # Ensure limits are respected
             limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.idX.keys()}
-            self.enX_temp = entools.clip_matrix(self.enX_temp, limits, self.idX)
+            self.enX_temp.clip_matrix(limits)
 
     def check_convergence(self):
         """
@@ -238,23 +238,18 @@ class esmdaMixIn(Ensemble):
         '''
         Log the update results in a formatted table.
         '''
-        iteration_str = f'{0 if prior_run else self.iteration}/{self.max_iter}'
-        
-        log_data = {
-            "Iteration": iteration_str,
-            "Status": "Success" if (prior_run or success) else "Failed",
-            "Data Misfit": self.data_misfit
+        info = {
+            "Iteration"     : f'{0 if prior_run else self.iteration}',
+            "Status"        : "Success" if (prior_run or success) else "Failed",
+            "Data Misfit"   : self.data_misfit,
+            "Change (%)"    : '',
+            "α"             : self.alpha[self.iteration - 1] if not prior_run else '',
         }
-        
         if not prior_run:
-            if success:
-                log_data["Reduction (%)"] = 100 * (1 - self.data_misfit / self.prev_data_misfit)
-            else:
-                log_data["Increase (%)"] = 100 * (self.data_misfit / self.prev_data_misfit - 1)
-        else:
-            log_data["Reduction (%)"] = 'N/A'
+            delta = 100*(self.data_misfit / self.prev_data_misfit - 1)
+            info["Change (%)"] = delta
         
-        self.logger(**log_data)
+        self.logger(**info)
             
     def _ext_inflation_param(self):
         r"""

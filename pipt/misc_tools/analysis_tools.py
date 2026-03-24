@@ -1260,13 +1260,14 @@ def calc_scaling(enX, idX, prior_info):
     for elem in idX.keys():
         # more than single value. This is for multiple layers. Assume all values are active
         if len(prior_info[elem]['variance']) > 1:
-            scaling.append(np.concatenate(tuple(np.sqrt(prior_info[elem]['variance'][z]) *
-                                                np.ones(
-                                                    prior_info[elem]['ny']*prior_info[elem]['nx'])
-                                                for z in range(prior_info[elem]['nz']))))
+            ny = prior_info[elem]['ny']
+            nx = prior_info[elem]['nx']
+            scaling.append(np.tile(np.sqrt(prior_info[elem]['variance']), ny*nx))
         else:
-            scaling.append(tuple(np.sqrt(prior_info[elem]['variance']) *
-                                 np.ones(enX[idX[elem][0]:idX[elem][1]].shape[0])))
+            i = idX[elem][0]
+            j = idX[elem][1]
+            ones = np.ones(enX[i:j].shape[0])
+            scaling.append(np.sqrt(prior_info[elem]['variance']) * ones)
 
     return np.concatenate(scaling)
 

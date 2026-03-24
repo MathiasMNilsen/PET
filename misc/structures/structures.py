@@ -85,7 +85,7 @@ class PETDataFrame(pd.DataFrame):
         out.attrs = first.attrs.copy()
         return out
     
-
+    
     def to_series(self) -> pd.Series:
         mult_index = []
         for idx in self.index:
@@ -307,9 +307,9 @@ class PETStateArray(np.ndarray):
 
                 # Generate ensemble members for this variable
                 if info.get('limits', None) is None:
-                    fieldz = Cholesky.gen_real(meanz, cov, ne)
+                    fieldz = Cholesky().gen_real(meanz, cov, ne)
                 else:
-                    fieldz = Cholesky.gen_real_truncated(meanz, cov, ne, limits=info['limits'][z])
+                    fieldz = Cholesky().gen_real(meanz, cov, ne, limits=info['limits'][z])
 
                 if z == 0:
                     field = fieldz
@@ -326,7 +326,6 @@ class PETStateArray(np.ndarray):
 
         # Make StateArray and save
         enX = cls(enX, indices=idX)
-        
         if save:
             np.savez('prior_ensemble.npz', **enX.to_dict())
 
@@ -408,3 +407,38 @@ class PETStateArray(np.ndarray):
             ne = array.shape[0]
             slices = {key: array[:, start:end] for key, (start, end) in self.indices.items()}
             return [{key: slices[key][n] for key in slices} for n in range(ne)]
+
+
+    def clip_matrix(self, limits) -> None:
+        '''
+        Clip the values in the StateArray in place using the provided limits.
+        
+        Parameters
+        ----------
+        limits : dict, tuple, or list
+            If tuple, it should be (lower_bound, upper_bound) applied to all variables.
+            If dict, it should have variable names as keys and (lower_bound, upper_bound) as values.
+            If list, it should contain (lower_bound, upper_bound) tuples for each variable in the order of indices.
+
+        '''
+        array = np.asarray(self)
+
+        if isinstance(limits, tuple):
+            lb, ub = limits
+            if not (lb is None and ub is None):
+                np.clip(array, lb, ub, out=array)
+
+        elif isinstance(limits, dict):
+            for key, (i, j) in self.indices.items():
+                if key in limits:
+                    lb, ub = limits[key]
+                    if not (lb is None and ub is None):
+                        np.clip(array[i:j], lb, ub, out=array[i:j])
+
+        elif isinstance(limits, list):
+            for (key, (i, j)), (lb, ub) in zip(self.indices.items(), limits):
+                if not (lb is None and ub is None):
+                    np.clip(array[i:j], lb, ub, out=array[i:j])
+
+        else:
+            raise ValueError("limits must be a tuple, dict, or list")

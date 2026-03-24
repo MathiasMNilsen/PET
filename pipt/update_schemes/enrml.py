@@ -150,7 +150,7 @@ class lmenrmlMixIn(Ensemble):
 
             # Check for adjoint
             if hasattr(self, 'adjoints'):
-                enAdj = self.adjoints.to_matrix() # Shape (nd, nx, ne)
+                enAdj = self.adjoints.to_matrix() # In this case: Shape (ny, nx, ne)
             else:
                 enAdj = None
 
