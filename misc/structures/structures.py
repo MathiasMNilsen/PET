@@ -1,3 +1,11 @@
+"""
+Core PET data structures.
+
+This module defines `PETDataFrame`, a pandas `DataFrame` subclass for
+ensemble-style tabular data, and `PETStateArray`, a NumPy `ndarray`
+subclass for state vectors with PET-specific indexing metadata.
+"""
+
 import pandas as pd
 import numpy  as np
 
@@ -54,6 +62,12 @@ class PETDataFrame(pd.DataFrame):
         if not isinstance(df, pd.DataFrame):
             raise ValueError(f"Pickle file {filepath} does not contain a DataFrame.")
         return cls.from_pandas(df)
+    
+    @classmethod
+    def from_csv(cls, filepath: str, **kwargs) -> "PETDataFrame":
+        """Load a PETDataFrame from a CSV file."""
+        df = pd.read_csv(filepath, **kwargs)
+        return cls.from_pandas(df)
 
     @classmethod
     def merge_dataframes(cls, dfs: list[pd.DataFrame]) -> "PETDataFrame":
@@ -85,7 +99,7 @@ class PETDataFrame(pd.DataFrame):
         out.attrs = first.attrs.copy()
         return out
     
-    
+
     def to_series(self) -> pd.Series:
         mult_index = []
         for idx in self.index:
