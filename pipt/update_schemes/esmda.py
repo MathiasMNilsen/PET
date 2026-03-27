@@ -47,13 +47,14 @@ class esmdaMixIn(Ensemble):
 
         if self.restart is False:
             self.prior_enX = deepcopy(self.enX)
-            self.list_states = list(self.idX.keys())
+            self.list_states = list(self.enX.indices)
+            self.list_datatypes = self.keys_da['datatype']
 
             # At the moment, the iterative loop is threated as an iterative smoother an thus we check if assim. indices
             # are given as in the Simultaneous loop.
-            self.check_assimindex_simultaneous()
-            self.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
-            self.list_datatypes, self.list_act_datatypes = at.get_list_data_types(self.obs_data, self.assim_index)
+            #self.check_assimindex_simultaneous()
+            #self.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
+            #self.list_datatypes, self.list_act_datatypes = at.get_list_data_types(self.obs_data, self.assim_index)
 
             # Extract no. assimilation steps from MDA keyword in DATAASSIM part of init. file and set this equal to
             # the number of iterations pluss one. Need one additional because the iter=0 is the prior run.
@@ -106,25 +107,18 @@ class esmdaMixIn(Ensemble):
 
         where $N_a$ being the total number of assimilation steps.
         """
-        # Get Ensemble of predicted data
-        _, self.enPred = at.aug_obs_pred_data(
-            self.obs_data,
-            self.pred_data,
-            self.assim_index,
-            self.list_datatypes
-        )
-
-        # Initialize GeoStat class for generating realizations
-        generator = Cholesky() 
+        # Get Ensemble matrix of predicted data
+        self.enPred = self.pred_data.to_matrix()        
 
         if self.iteration == 1:  # first iteration
 
             # Calculate the prior data misfit
             data_misfit = at.calc_objectivefun(
-                pert_obs=self.enObs,
-                pred_data=self.enPred,
+                self.enObs_conv,
+                self.enPred,
                 Cd=self.cov_data
             )
+            #data_misfit = at.data_mismatch(self.vecObs, self.enPred, self.cov_data)
 
             # Store the (mean) data misfit (also for conv. check)
             self.prior_data_misfit = np.mean(data_misfit)
@@ -137,7 +131,7 @@ class esmdaMixIn(Ensemble):
             self.log_update(prior_run=True)
             self.data_random_state = deepcopy(np.random.get_state())
             
-            self.enObs, self.scale_data = generator.gen_real(
+            self.enObs, self.scale_data = Cholesky().gen_real(
                 self.vecObs,
                 self.alpha[self.iteration - 1] * self.cov_data,
                 self.ne,
@@ -147,7 +141,7 @@ class esmdaMixIn(Ensemble):
 
         else:
             self.data_random_state = deepcopy(np.random.get_state())
-            self.enObs, self.scale_data = generator.gen_real(
+            self.enObs, self.scale_data = Cholesky().gen_real(
                 self.vecObs,
                 self.alpha[self.iteration - 1] * self.cov_data,
                 self.ne,
@@ -184,7 +178,7 @@ class esmdaMixIn(Ensemble):
 
 
             # Ensure limits are respected
-            limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.idX.keys()}
+            limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
             self.enX_temp.clip_matrix(limits)
 
     def check_convergence(self):
@@ -205,14 +199,10 @@ class esmdaMixIn(Ensemble):
         self.prev_data_misfit_std = self.data_misfit_std
 
         # Get Ensemble of predicted data
-        _, enPred = at.aug_obs_pred_data(
-            self.obs_data,
-            self.pred_data,
-            self.assim_index,
-            self.list_datatypes
-        )
+        enPred = self.pred_data.to_matrix()
 
         data_misfit = at.calc_objectivefun(self.enObs_conv, enPred, self.cov_data)
+        #data_misfit = at.data_mismatch(self.vecObs, enPred, self.cov_data)
         self.data_misfit = np.mean(data_misfit)
         self.data_misfit_std = np.std(data_misfit)
 

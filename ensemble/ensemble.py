@@ -9,6 +9,7 @@ import sys  # System-specific parameters and functions
 from copy import deepcopy, copy  # Copy functions. (deepcopy let us copy mutable items)
 from shutil import rmtree  # rmtree for removing folders
 import numpy as np  # Misc. numerical tools
+import pandas as pd
 import pickle  # To save and load information
 from glob import glob
 import datetime as dt
@@ -326,9 +327,37 @@ class Ensemble:
                     # Merge adjoint to ensemble adjoint dataframe (PETDataFrame)
                     self.adjoints = PETDataFrame.merge_dataframes(list(en_adj))
 
-                # Combine ensemble predictions into pred_data structure  
-                # TODO: In the long run, pred_data should also be made into a DataFrame!
-                self.pred_data = dtools.en_pred_to_pred_data(en_pred)
+                # ----------------------------------------------------------------------------------------------
+                # Combine ensemble predictions
+                # ----------------------------------------------------------------------------------------------
+                # Check if all predictions are lists of dictionaries
+                if all(isinstance(el, (list, tuple, np.ndarray)) and 
+                    all(isinstance(sub_el, dict) for sub_el in el) 
+                    for el in en_pred):
+                    
+                    if hasattr(self.sim, 'true_order'):
+                        dfs = []
+                        for pred in en_pred:
+                            df = pd.DataFrame.from_records(pred, index=self.sim.true_order[1])
+                            df.index.name = self.sim.true_order[0]
+                            dfs.append(df)
+                            
+                    else:
+                        dfs = [pd.DataFrame.from_records(pred) for pred in en_pred]
+
+                    # Combine dataframes into PETDataFrame
+                    self.pred_data = PETDataFrame.merge_dataframes(dfs)
+
+                elif all(isinstance(el, pd.DataFrame) for el in en_pred):
+                    # List of dataframes
+                    self.pred_data = PETDataFrame.merge_dataframes(en_pred)
+                
+                else:
+                    msg = 'Simulator output should be either a dataframe or a list of dictionaries.'
+                    self.logger.error(msg)
+                    raise ValueError(msg)
+                # ---------------------------------------------------------------------------------------------
+                        
 
         # some predicted data might need to be adjusted (e.g. scaled or compressed if it is 4D seis data). Do not
         # include this here.

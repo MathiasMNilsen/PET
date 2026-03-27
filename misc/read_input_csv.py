@@ -272,7 +272,6 @@ def read_var_df(filename, datatype=None, truedataindex=None, outtype='list'):
         df.index = df.index.astype(str)  # Convert index to string
     elif filename.endswith('.pkl'):
         df = pd.read_pickle(filename)
-    
     # Perform a one-time conversion of datatype if needed
     if datatype is not None:
         try:

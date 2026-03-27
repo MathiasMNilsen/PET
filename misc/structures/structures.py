@@ -59,6 +59,7 @@ class PETDataFrame(pd.DataFrame):
     def from_pickle(cls, filepath: str) -> "PETDataFrame":
         """Load a PETDataFrame from a pickle file."""
         df = pd.read_pickle(filepath)
+        df.where(pd.notnull(df), None)
         if not isinstance(df, pd.DataFrame):
             raise ValueError(f"Pickle file {filepath} does not contain a DataFrame.")
         return cls.from_pandas(df)
@@ -67,6 +68,7 @@ class PETDataFrame(pd.DataFrame):
     def from_csv(cls, filepath: str, **kwargs) -> "PETDataFrame":
         """Load a PETDataFrame from a CSV file."""
         df = pd.read_csv(filepath, **kwargs)
+        df.where(pd.notnull(df), None)
         return cls.from_pandas(df)
 
     @classmethod

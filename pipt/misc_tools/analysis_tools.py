@@ -528,6 +528,13 @@ def calc_autocov(pert):
     # Return the auto-covariance matrix
     return cov_auto
 
+def data_mismatch(d, Y, cov):
+    r = Y - d[:,np.newaxis]
+    if len(cov.shape) == 1:
+        cinv = 1/cov
+        return r.T.dot(r*cinv[:, None])
+    else:
+        return r.T @ linalg.solve(cov, r)
 
 def calc_objectivefun(pert_obs, pred_data, Cd):
     """

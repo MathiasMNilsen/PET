@@ -405,6 +405,8 @@ class Assimilate:
             return
 
         # If we are doing an sequential assimilation, such as enkf, we loop over assimilation steps
+
+        ''''
         if len(self.ensemble.keys_da['assimindex']) > 1:
             assim_step = self.ensemble.iteration
         else:
@@ -432,6 +434,7 @@ class Assimilate:
             l_prim = [int(x) for x in assim_ind[1]]
         else:  # Float
             l_prim = [int(assim_ind[1])]
+        '''
 
         # Run forecast. Predicted data solved in self.ensemble.pred_data
         if self.ensemble.enX_temp is None:
@@ -439,11 +442,9 @@ class Assimilate:
         else:
             self.ensemble.calc_prediction(enX=self.ensemble.enX_temp)
 
-        # Filter pred. data needed at current assimilation step. This essentially means deleting pred. data not
-        # contained in the assim. indices for current assim. step or does not have obs. data at this index
-        self.ensemble.pred_data = [elem for i, elem in enumerate(self.ensemble.pred_data) if i in l_prim or
-                                   true_prim[1][i] is not None]
-
+        # Filter pred data
+        self.ensemble.pred_data = self.filter_pred_data(self.ensemble.data_df, self.ensemble.pred_data)
+                
         # Scale data if required (currently only one group of data can be scaled)
         if 'scale' in self.ensemble.keys_da:
             for pred_data in self.ensemble.pred_data:
@@ -459,6 +460,41 @@ class Assimilate:
         if 'saveforecast' in self.ensemble.sim.input_dict:
             with open(f'{self.save_folder}/sim_results.p', 'wb') as f:
                 pickle.dump(self.ensemble.pred_data, f)
+
+    def filter_pred_data(self, data_df, pred_df):
+        """
+        Filter pred. data to only include indices in data_df. This is necessary if the pred_data contains more indices than the obs_data, which can happen if the true_order contains more indices than the assim_index.
+
+        Parameters
+        ----------
+        data_df : pd.DataFrame
+            DataFrame containing the observed data, with index corresponding to the indices of the data.
+        pred_df : pd.DataFrame
+            DataFrame containing the predicted data, with index corresponding to the indices of the data.
+
+        Returns
+        -------
+        pd.DataFrame
+            Filtered pred_df containing only indices in data_df.
+        """
+        if data_df.index.dtype == pred_df.index.dtype:
+            pred_df = pred_df[pred_df.index.isin(data_df.index)]
+
+        elif data_df.index.size == pred_df.index.size:
+            # Assume everything is fine 
+            pass
+        else:
+            raise ValueError('Index of pred_data and data_df do not match in type or size!')
+
+        # Filter columns in pred_df to only include columns in data_df
+        pred_df = pred_df[data_df.columns]
+
+        # Check if pred_df is empty after filtering
+        if pred_df.empty:
+            raise ValueError('No matching indices between pred_data and data_df after filtering!')
+        
+        return pred_df
+
 
     def post_process_forecast(self):
         """

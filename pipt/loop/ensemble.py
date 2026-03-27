@@ -2,8 +2,6 @@
 
 # External import
 import os.path
-
-import numpy
 import numpy as np
 import sys
 from copy import deepcopy, copy
@@ -18,6 +16,7 @@ from ensemble.logger import PetLogger
 import misc.read_input_csv as rcsv
 from pipt.misc_tools import wavelet_tools as wt
 from pipt.misc_tools.cov_regularization import localization, _calc_distance
+from misc.structures import PETDataFrame
 
 # Import internal tools
 import pipt.misc_tools.analysis_tools as at
@@ -96,15 +95,22 @@ class Ensemble(PETEnsemble):
             if 'compress' in self.keys_da:
                 self.sparse_info = extract.organize_sparse_representation(self.keys_da['compress'])
 
-            self._org_obs_data()
-            self._org_data_var()
+            # Load the data
+            self.data_df = self.load_observations()
+            self.data_var_df = self.load_variance()
+
+            #self._org_obs_data()
+            #self._org_data_var()
 
             # Define projection operator for centring and scaling ensemble matrix
             self.proj = (np.eye(self.ne) - np.ones((self.ne, self.ne))/self.ne) / np.sqrt(self.ne - 1)
 
             # Option to store the dictionaries containing observed data and data variance
             if 'obsvarsave' in self.keys_da and self.keys_da['obsvarsave'] == 'yes':
-                np.savez('obs_var', obs=self.obs_data, var=self.datavar)
+                # Save data_df and data_var_df as pickle files
+                folder = self.keys_da.get('savefolder', './')
+                self.data_df.to_pickle(f'{folder}/obs_data.pkl')
+                self.data_var_df.to_pickle(f'{folder}/obs_var.pkl')
 
             # Initialize localization
             if 'localization' in self.keys_da:
@@ -120,9 +126,7 @@ class Ensemble(PETEnsemble):
             if 'localanalysis' in self.keys_da:
                 self.local_analysis = extract.extract_local_analysis_info(self.keys_da['localanalysis'], self.idX.keys())
 
-            self.pred_data = [{k: np.zeros((1, self.ne), dtype='float32') for k in self.keys_da['datatype']}
-                              for _ in self.obs_data]
-
+            self.pred_data  = None  # predicted data or forward simulation
             self.cell_index = None  # default value for extracting states
 
     def check_assimindex_sequential(self):
@@ -159,6 +163,75 @@ class Ensemble(PETEnsemble):
         elif isinstance(self.keys_da['assimindex'][0], list):
             self.keys_da['assimindex'] = [
                 [item for sublist in self.keys_da['assimindex'] for item in sublist]]
+    
+
+    def load_observations(self) -> PETDataFrame:
+
+        if 'truedata' not in self.keys_da:
+            raise ValueError("Key 'truedata' not found in keys_da.")
+        
+        truedata = self.keys_da['truedata']
+        if isinstance(truedata, str) and truedata.endswith('.pkl'):
+            df = PETDataFrame.from_pickle(truedata)
+        
+        if isinstance(truedata, str) and truedata.endswith('.csv'):
+            df = PETDataFrame.from_csv(truedata, index_col=0, dtype=object)
+            
+
+        self.keys_da['truedataindex'] = df.index.to_list()
+        self.keys_da['assimindex_ne'] = np.arange(len(df.index)).tolist()
+        self.keys_da['datatype'] = df.columns.to_list()
+        return df
+    
+    def load_variance(self) -> PETDataFrame:
+
+        datavar = self.keys_da['datavar']
+        if isinstance(datavar, str) and datavar.endswith('.csv'):
+            csv_data = rcsv.read_var_csv(
+                filename=datavar, 
+                datatype=self.data_df.columns.to_list(), 
+                truedataindex=self.data_df.index.to_list()
+            )
+            # Initialize datavar output as PETDataFrame
+            var_df = PETDataFrame(columns=self.data_df.columns, index=self.data_df.index, dtype=object)
+            for i, idx in enumerate(self.data_df.index):
+                for j, col in enumerate(self.data_df.columns):
+                    if self.data_df.loc[idx, col] is not None:
+                        var_df.loc[idx, col] = csv_data[i][j]
+                    else:
+                        var_df.loc[idx, col] = None
+
+        if isinstance(datavar, str) and datavar.endswith('.pkl'):
+            df = PETDataFrame.from_pickle(datavar)
+
+            # Initialize datavar output as PETDataFrame
+            var_df = PETDataFrame(columns=self.data_df.columns, index=self.data_df.index, dtype=object)
+
+            for i, idx in enumerate(self.data_df.index):
+                for j, col in enumerate(self.data_df.columns):
+                    if self.data_df.loc[idx, col] is not None:
+                        
+                        if df.loc[idx, col][0].lower() == 'rel':
+                            var_df.loc[idx, col] = (df.loc[idx, col][1] * 0.01 * self.data_df.loc[idx, col]) ** 2
+                        
+                        elif df.loc[idx, col][0].lower() == 'abs':
+                            var_value = df.loc[idx, col][1]
+                            if hasattr(var_value, '__iter__') and not isinstance(var_value, str):
+                                var_df.loc[idx, col] = var_value[j]
+                            else:
+                                var_df.loc[idx, col] = var_value
+                        
+                        elif df.loc[idx, col][0].lower() == 'emp':
+                            var_df.loc[idx, col] = df.loc[idx, col][1]
+                        
+                        else:
+                            print('\n\033[1;31mERROR: Cannot read data variance from pkl file! The first entry in the pkl file must be either "rel" or "abs"!\033[1;m')
+                            sys.exit()
+                    else:
+                        var_df.loc[idx, col] = None
+
+        return var_df
+    
 
     def _org_obs_data(self):
         """
@@ -534,12 +607,7 @@ class Ensemble(PETEnsemble):
         Generate the perturbed observed data ensemble
         '''
         # Make observed data vector
-        vecObs, _ = at.aug_obs_pred_data(
-            self.obs_data, 
-            self.pred_data, 
-            self.assim_index,
-            self.list_datatypes
-        )
+        vecObs = self.data_df.to_matrix()
         
         # Generate ensemble of perturbed observed data
         if ('emp_cov' in self.keys_da) and (self.keys_da['emp_cov'] == 'yes'):
@@ -548,17 +616,7 @@ class Ensemble(PETEnsemble):
                 # enObs: samples from N(0,Cd)
                 enObs = cholesky(self.cov_data).T @ np.random.randn(self.cov_data.shape[0], self.ne)
             else:
-                # Extract assim indices
-                if isinstance(self.assim_index[1], list):
-                    l_prim = [int(x) for x in self.assim_index[1]]
-                else:
-                    l_prim = [int(self.assim_index[1])]
-                
-                # Concatenate datavar in the same manner as aug_obs_pred_data
-                enObs = np.concatenate(tuple(
-                    self.datavar[el][dat] for el in l_prim for dat in self.list_datatypes 
-                    if self.datavar[el][dat] is not None
-                ))
+                enObs = self.data_var_df.to_matrix()
 
             # Screen data if required
             if ('screendata' in self.keys_da) and (self.keys_da['screendata'] == 'yes'):

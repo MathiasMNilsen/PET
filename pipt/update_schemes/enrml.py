@@ -83,6 +83,7 @@ class lmenrmlMixIn(Ensemble):
 
             # Initalize some variables
             self.prev_data_misfit = None  # Data misfit at previous iteration
+            self.list_datatypes = self.keys_da['datatype']
 
             # Load ACTNUM if given
             if 'actnum' in self.keys_da.keys():
@@ -99,7 +100,7 @@ class lmenrmlMixIn(Ensemble):
             self.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
 
             # define the list of datatypes
-            self.list_datatypes, self.list_act_datatypes = at.get_list_data_types(self.obs_data, self.assim_index)
+            #self.list_datatypes, self.list_act_datatypes = at.get_list_data_types(self.obs_data, self.assim_index)
 
             # Get the perturbed observations and observation scaling
             self.data_random_state = cp.deepcopy(np.random.get_state())
@@ -116,21 +117,12 @@ class lmenrmlMixIn(Ensemble):
         the sensitivity matrix approximated by the ensemble.
         """
         # Get Ensemble of predicted data
-        _, self.enPred = at.aug_obs_pred_data(
-            self.obs_data,
-            self.pred_data,
-            self.assim_index,
-            self.list_datatypes
-        )
+        self.enPred = self.pred_data.to_matrix()        
 
         if self.iteration == 1:  # first iteration
             
             # Calculate the prior data misfit
-            data_misfit = at.calc_objectivefun(
-                pert_obs=self.enObs,
-                pred_data=self.enPred,
-                Cd=self.cov_data
-            )
+            data_misfit = at.calc_objectivefun(self.enObs, self.enPred, self.cov_data)
 
             # Store the (mean) data misfit (also for conv. check)
             self.ensemble_misfit = data_misfit
@@ -190,12 +182,7 @@ class lmenrmlMixIn(Ensemble):
             met
         """
         # Get Ensemble of predicted data
-        _, enPred = at.aug_obs_pred_data(
-            self.obs_data,
-            self.pred_data,
-            self.assim_index,
-            self.list_datatypes
-        )
+        enPred = self.pred_data.to_matrix()
 
         # Initialize the initial success value
         success = False
