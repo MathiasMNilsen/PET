@@ -104,7 +104,7 @@ class Assimilate:
                 self.ensemble.logger,
                 self.ensemble.prior_info, 
                 self.ensemble.sim, 
-                entools.matrix_to_dict(self.ensemble.prior_enX, self.ensemble.idX)
+                self.ensemble.prior_enX.to_dict()
             )
 
         # Run a while loop until max. iterations or convergence is reached
@@ -197,20 +197,8 @@ class Assimilate:
                         qaqc.calc_kg()  # Compute kalman gain
 
             # Update iteration counter if iteration was successful
-            if self.ensemble.iteration >= 0 and success_iter is True:
-                if self.ensemble.iteration == 0:
-                    self.ensemble.iteration += 1
-                    #pbar_out.update(1)
-                    # pbar_out.set_description(f'Iterations (Obj. func. val:{self.data_misfit:.1f})')
-                    # self.prior_data_misfit = self.data_misfit
-                    # self.pbar_out.refresh()
-                else:
-                    self.ensemble.iteration += 1
-                    #pbar_out.update(1)
-                    #pbar_out.set_description(
-                    #    f'Iterations (Obj. func. val:{self.ensemble.data_misfit:.1f}'
-                    #    f' Reduced: {100 * (1 - (self.ensemble.data_misfit / self.ensemble.prev_data_misfit)):.0f} %)')
-                    # self.pbar_out.refresh()
+            if success_iter:
+                self.ensemble.iteration += 1
 
             if extract.is_enabled(self.ensemble.keys_da.get('restartsave', False)):
                 self.ensemble.save()

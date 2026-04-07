@@ -4,8 +4,6 @@ EnRML type schemes
 # External imports
 import pipt.misc_tools.analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
-import pipt.misc_tools.ensemble_tools as entools
-from misc.structures.structures import PETDataFrame
 
 from geostat.decomp import Cholesky
 from pipt.loop.ensemble import Ensemble
@@ -162,8 +160,8 @@ class lmenrmlMixIn(Ensemble):
 
 
             # Ensure limits are respected
-            limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.idX.keys()}
-            self.enX_temp = entools.clip_matrix(self.enX_temp, limits, self.idX)
+            limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
+            self.enX_temp.clip_matrix(limits)
 
     def check_convergence(self):
         """

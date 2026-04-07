@@ -46,20 +46,6 @@ for n in range(ne):
 # ==============================================================================
 
 @pytest.fixture
-def sample_dataframe():
-    data = {
-        'keyA': [1.0, 2.0],
-        'keyB': [3.0, 4.0],
-        'keyC': [5.0, 6.0]
-    }
-    index = ['row1', 'row2']
-    index_name = 'index'
-    df = pd.DataFrame(data, index=index)
-    df.index.name = index_name
-    df.attrs['index_name'] = index_name
-    return df
-
-@pytest.fixture
 def multicolumn_dataframe():
     return mi_dfs[0]
 
@@ -73,85 +59,83 @@ def multicolumn_ensemble_dataframe():
     return mi_dfs
 
 
-
 class TestSimplePETDataFrame:
 
-    def test_from_pandas(self, sample_dataframe):
+    # Create a simple DataFrame for testing
+    data_dict = {
+        'keyA': [1.0, 2.0],
+        'keyB': [3.0, 4.0],
+        'keyC': [5.0, 6.0]
+    }
+    units = {key: f'unit:{key}' for key in data_dict.keys()}
+    index = ['idx1', 'idx2']
+    index_name = 'index'
+    simple_df = pd.DataFrame(data_dict, index=index)
+    simple_df.index.name = index_name
+    simple_df.attrs['units'] = units
+
+    def test_from_pandas(self):
         '''Test that PETDataFrame can be created from a pandas DataFrame and that the data is preserved.'''
-        pet_df_from_pandas = PETDataFrame.from_pandas(sample_dataframe)
-        pet_df = PETDataFrame(
-            data = {
-                'keyA': [1.0, 2.0],
-                'keyB': [3.0, 4.0],
-                'keyC': [5.0, 6.0],
-            },
-            index=['row1', 'row2']
-        )
-        pet_df.index.name = 'index'
-        assert isinstance(pet_df_from_pandas, PETDataFrame)
-        assert pet_df_from_pandas.equals(pet_df)
+        pdf_from_pandas = PETDataFrame.from_pandas(self.simple_df)
+        pdf = PETDataFrame(data=self.data_dict, index=self.index)
+        pdf.index.name = self.index_name
+        assert isinstance(pdf_from_pandas, PETDataFrame)
+        assert pdf_from_pandas.equals(pdf)
 
-
-    def test_attrs_preserved(self, sample_dataframe):
+    def test_attrs_preserved(self):
         '''Test that attributes from the original pandas DataFrame are preserved in the PETDataFrame.'''
-        pet_df = PETDataFrame.from_pandas(sample_dataframe)
-        assert pet_df.attrs['index_name'] == 'index'
+        pdf = PETDataFrame.from_pandas(self.simple_df)
+        assert pdf.attrs['units'] == self.units
 
-
-    def test_to_matrix(self, sample_dataframe):
+    def test_to_matrix(self):
         '''Test that the to_matrix method correctly converts the PETDataFrame to a numpy array.'''
-        pet_df = PETDataFrame.from_pandas(sample_dataframe)
-        vec = pet_df.to_matrix()
+        pdf = PETDataFrame.from_pandas(self.simple_df)
+        vec = pdf.to_matrix(squeeze=False)
+        vec_squeezed = pdf.to_matrix(squeeze=True)
+        vec_squeezed_expected = np.array([1.0, 3.0, 5.0, 2.0, 4.0, 6.0])
+
+        assert isinstance(vec_squeezed, np.ndarray)
+        assert vec_squeezed.shape == (ny,)
+        assert np.array_equal(vec_squeezed, vec_squeezed_expected)
 
         assert isinstance(vec, np.ndarray)
-        assert vec.shape == (ny,)
-        assert np.array_equal(vec, np.array([1.0, 3.0, 5.0, 2.0, 4.0, 6.0]))
+        assert vec.shape == (ny, 1)
+        assert np.array_equal(vec, vec_squeezed_expected[:, np.newaxis])
 
-
-class TestPETDataFrameSubclass:
-    """Test that pandas operations preserve PETDataFrame type."""
-
-    def test_copy_returns_petdataframe(self, sample_dataframe):
-        """copy() should return PETDataFrame."""
-        pdf = PETDataFrame.from_pandas(sample_dataframe)
+    def test_copy_returns_petdataframe(self):
+        '''Test that the copy method returns a PETDataFrame.'''
+        pdf = PETDataFrame.from_pandas(self.simple_df)
         copy = pdf.copy()
         assert isinstance(copy, PETDataFrame)
-
-    def test_loc_filtering_returns_petdataframe(self, sample_dataframe):
-        """loc filtering should return PETDataFrame."""
-        pdf = PETDataFrame.from_pandas(sample_dataframe)
-        subset = pdf.loc[['row1']]
+    
+    def test_loc_filtering_returns_petdataframe(self):
+        '''Test that loc filtering returns a PETDataFrame.'''
+        pdf = PETDataFrame.from_pandas(self.simple_df)
+        subset = pdf.loc[['idx1']]
         assert isinstance(subset, PETDataFrame)
-
-    def test_arithmetic_returns_petdataframe(self, sample_dataframe):
-        """Arithmetic ops should return PETDataFrame."""
-        pdf = PETDataFrame.from_pandas(sample_dataframe)
+    
+    def test_arithmetic_returns_petdataframe(self):
+        '''Test that arithmetic operations return a PETDataFrame.'''
+        pdf = PETDataFrame.from_pandas(self.simple_df)
         result = pdf + 1
         assert isinstance(result, PETDataFrame)
 
 
-class TestMultiColumnPETDataFrame:
 
-    def test_from_pandas_multicolumn(self, multicolumn_dataframe):
-        '''Test that PETDataFrame can be created from a multi-column pandas DataFrame and that the data is preserved.'''
-        pdf = PETDataFrame.from_pandas(multicolumn_dataframe)
-        np.random.seed(404)
-        data = {
-                ("keyA", "param1"): [np.random.rand(nx) for _ in range(nr)],
-                ("keyA", "param2"): [np.random.rand(nx) for _ in range(nr)],
-                ("keyA", "param3"): [np.random.rand(nx) for _ in range(nr)],
-                ("keyB", "param1"): [np.random.rand(nx) for _ in range(nr)],
-                ("keyB", "param2"): [np.random.rand(nx) for _ in range(nr)],
-                ("keyB", "param3"): [np.random.rand(nx) for _ in range(nr)],
-                ("keyC", "param1"): [np.random.rand(nx) for _ in range(nr)],
-                ("keyC", "param2"): [np.random.rand(nx) for _ in range(nr)],
-                ("keyC", "param3"): [np.random.rand(nx) for _ in range(nr)],
-            }
-        cols = pd.MultiIndex.from_tuples(data.keys())
-        pdf = PETDataFrame(data=data, columns=cols, index=['row1', 'row2'])
-        pdf.index.name = 'index'
-        assert isinstance(pdf, PETDataFrame)
-        assert pdf.equals(PETDataFrame.from_pandas(multicolumn_dataframe))
+class TestMultiColumnJacobian:
+
+    np.random.seed(404)
+    data_dict = {
+        ("keyA", "param1"): [np.random.rand(nx) for _ in range(nr)],
+        ("keyA", "param2"): [np.random.rand(nx) for _ in range(nr)],
+        ("keyA", "param3"): [np.random.rand(nx) for _ in range(nr)],
+        ("keyB", "param1"): [np.random.rand(nx) for _ in range(nr)],
+        ("keyB", "param2"): [np.random.rand(nx) for _ in range(nr)],
+        ("keyB", "param3"): [np.random.rand(nx) for _ in range(nr)],
+        ("keyC", "param1"): [np.random.rand(nx) for _ in range(nr)],
+        ("keyC", "param2"): [np.random.rand(nx) for _ in range(nr)],
+        ("keyC", "param3"): [np.random.rand(nx) for _ in range(nr)],
+    }
 
     def test_to_series_multicolumn(self, multicolumn_dataframe):
         '''Test that the to_series method correctly converts a multi-column PETDataFrame to a pandas Series.'''
@@ -163,36 +147,23 @@ class TestMultiColumnPETDataFrame:
     def test_to_matrix_multicolumn(self, multicolumn_dataframe):
         '''Test that the to_matrix method correctly converts a multi-column PETDataFrame to a numpy array.'''
         pdf = PETDataFrame.from_pandas(multicolumn_dataframe)
-        matrix = pdf.to_matrix()
-
-        np.random.seed(404)
-        data = {
-                ("keyA", "param1"): [np.random.rand(nx) for _ in range(nr)],
-                ("keyA", "param2"): [np.random.rand(nx) for _ in range(nr)],
-                ("keyA", "param3"): [np.random.rand(nx) for _ in range(nr)],
-                ("keyB", "param1"): [np.random.rand(nx) for _ in range(nr)],
-                ("keyB", "param2"): [np.random.rand(nx) for _ in range(nr)],
-                ("keyB", "param3"): [np.random.rand(nx) for _ in range(nr)],
-                ("keyC", "param1"): [np.random.rand(nx) for _ in range(nr)],
-                ("keyC", "param2"): [np.random.rand(nx) for _ in range(nr)],
-                ("keyC", "param3"): [np.random.rand(nx) for _ in range(nr)],
-            }
+        matrix = pdf.to_matrix(is_jacobian=True)
         expected_rows = []
         keys = ("keyA", "keyB", "keyC")
         params = ("param1", "param2", "param3")
         for row_idx in range(nr):
             for key in keys:
                 expected_rows.append(
-                    np.concatenate([data[(key, param)][row_idx] for param in params])
+                    np.concatenate([self.data_dict[(key, param)][row_idx] for param in params])
                 )
         expected_matrix = np.stack(expected_rows)
 
         assert isinstance(matrix, np.ndarray)
         assert matrix.shape == (ny, nx * nparams)
-        assert np.allclose(matrix, expected_matrix)
+        assert np.array_equal(matrix, expected_matrix)
 
 
-class TestPETDataFrameEnsemble:
+class TestEnsembleJacobian:
 
     def test_merge_ensemble_multicolumn(self, ensemble_dataframe):
         '''Test that the merge_ensemble method correctly merges a list of multi-column PETDataFrames into a single PETDataFrame.'''
@@ -203,7 +174,7 @@ class TestPETDataFrameEnsemble:
     def test_to_matrix_ensemble_multicolumn(self, ensemble_dataframe):
         '''Test that the to_matrix method correctly converts a merged multi-column PETDataFrame to a numpy array.'''
         merged_pdf = PETDataFrame.merge_dataframes(ensemble_dataframe)
-        matrix = merged_pdf.to_matrix()
+        matrix = merged_pdf.to_matrix(is_jacobian=True)
         assert isinstance(matrix, np.ndarray)
         assert matrix.shape == (ny, nx*nparams, ne)
     
@@ -211,10 +182,85 @@ class TestPETDataFrameEnsemble:
         '''Test that the to_matrix method correctly converts a list of multi-column PETDataFrames to a numpy array.'''
         pdfs1 = PETDataFrame.merge_dataframes(multicolumn_ensemble_dataframe)
         pdfs2 = PETDataFrame.merge_dataframes(ensemble_dataframe)
-        matrix = PETDataFrame.to_matrix(pdfs1)
+        matrix = PETDataFrame.to_matrix(pdfs1, is_jacobian=True)
         assert isinstance(matrix, np.ndarray)
         assert matrix.shape == (ny, nx*nparams, ne)
-        assert np.array_equal(matrix, PETDataFrame.to_matrix(pdfs2))
+        assert np.array_equal(matrix, PETDataFrame.to_matrix(pdfs2, is_jacobian=True))
+
+
+class TestWithFieldData:
+
+    data1 = {
+        'keyScalar1': [1.0, 2.0, 3.0],
+        'keyScalar2': [4.0, 5.0, 6.0],
+        'keyField': [None, np.array([7.0, 8.0, 9.0, 10]), None]
+    }
+    data2 = {
+        'keyScalar1': [10.0, 20.0, 30.0],
+        'keyScalar2': [40.0, 50.0, 60.0],
+        'keyField': [None, np.array([70.0, 80.0, 90.0, 100]), None]
+    }
+    pdf1 = PETDataFrame(data=data1, index=['idx1', 'idx2', 'idx3'])
+    pdf2 = PETDataFrame(data=data2, index=['idx1', 'idx2', 'idx3'])
+
+    def test_to_matrix_with_field(self):
+        '''Test that the to_matrix method correctly handles a PETDataFrame with a field column.'''
+        vec_filtered = self.pdf1.to_matrix(filter=True, is_jacobian=False, squeeze=True)
+        vec_filtered_expected = np.array([1.0, 4.0, 2.0, 5.0, 7.0, 8.0, 9.0, 10.0, 3.0, 6.0])
+
+        vec_unfiltered = self.pdf1.to_matrix(filter=False, is_jacobian=False, squeeze=True)
+        vec_unfiltered_expected = np.array([1.0, 4.0, None, 2.0, 5.0, 7.0, 8.0, 9.0, 10.0, 3.0, 6.0, None])
+
+        assert isinstance(vec_filtered, np.ndarray)
+        assert vec_filtered.shape == (10,)
+        assert np.array_equal(vec_filtered, vec_filtered_expected)
+
+        assert isinstance(vec_unfiltered, np.ndarray)
+        assert vec_unfiltered.shape == (12,)
+        assert np.array_equal(vec_unfiltered, vec_unfiltered_expected)
+
+    def test_to_ensemble_matrix_with_field(self):
+        '''Test that the to_matrix method correctly handles a list of PETDataFrames with a field column.'''
+        merged_pdf = PETDataFrame.merge_dataframes([self.pdf1, self.pdf2])
+        matrix_filtered = merged_pdf.to_matrix(filter=True, is_jacobian=False)
+        matrix_filtered_expected = np.array([
+            [1.0, 10.0],
+            [4.0, 40.0],
+            [2.0, 20.0],
+            [5.0, 50.0],
+            [7.0, 70.0],
+            [8.0, 80.0],
+            [9.0, 90.0],
+            [10.0, 100.0],
+            [3.0, 30.0],
+            [6.0, 60.0]
+        ])
+
+        matrix_unfiltered = merged_pdf.to_matrix(filter=False, is_jacobian=False)
+        matrix_unfiltered_expected = np.array([
+            [1.0, 10.0],
+            [4.0, 40.0],
+            [None, None],
+            [2.0, 20.0],
+            [5.0, 50.0],  
+            [7.0, 70.0],
+            [8.0, 80.0],
+            [9.0, 90.0],
+            [10.0, 100.0],
+            [3.0, 30.0],
+            [6.0, 60.0],
+            [None, None]
+        ])
+
+        assert isinstance(matrix_filtered, np.ndarray)
+        assert matrix_filtered.shape == (10, 2)
+        assert np.array_equal(matrix_filtered, matrix_filtered_expected)
+
+        assert isinstance(matrix_unfiltered, np.ndarray)
+        assert matrix_unfiltered.shape == (12, 2)
+        assert np.array_equal(matrix_unfiltered, matrix_unfiltered_expected)
+    
+
 
 
 

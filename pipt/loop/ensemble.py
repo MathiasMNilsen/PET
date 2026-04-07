@@ -21,7 +21,6 @@ from misc.structures import PETDataFrame
 # Import internal tools
 import pipt.misc_tools.analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
-import pipt.misc_tools.ensemble_tools as entools
 
 
 class Ensemble(PETEnsemble):
@@ -232,7 +231,7 @@ class Ensemble(PETEnsemble):
             df.index.name = _index_name()
 
             vintage = 0
-            unified_input = self.keys_da.get('unif_in') == 'yes'
+            unified_input = extract.is_enabled(self.keys_da.get('unif_in', False))
 
             for i, idx in enumerate(true_index):
                 if unified_input:

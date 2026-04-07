@@ -42,15 +42,17 @@ class PETDataFrame(pd.DataFrame):
         dtype: Dtype | None = None,
         copy: bool | None = None,
         name: str | None = None,
+        is_ensemble: bool = False,  # Optional flag to indicate if this DataFrame is an ensemble
     ) -> None:
         
         super().__init__(data=data, index=index, columns=columns, dtype=dtype, copy=copy)
         self.name = name
+        self.is_ensemble = is_ensemble
 
     @classmethod
-    def from_pandas(cls, df: pd.DataFrame, name: str | None = None) -> "PETDataFrame":
+    def from_pandas(cls, df: pd.DataFrame, name: str | None = None, is_ensemble: bool = False) -> "PETDataFrame":
         """Create a PETDataFrame from an existing pd.DataFrame."""
-        out = cls(data=df, name=name)
+        out = cls(data=df, name=name, is_ensemble=is_ensemble)
         out.index.name = df.index.name
         out.attrs = df.attrs.copy()
         return out
@@ -97,7 +99,7 @@ class PETDataFrame(pd.DataFrame):
                 values = [dfn.at[idx, col] for dfn in dfs]
                 merged.at[idx, col] = np.asarray(values).squeeze().T
 
-        out = cls.from_pandas(merged, name=getattr(first, 'name', None))
+        out = cls.from_pandas(merged, name=getattr(first, 'name', None), is_ensemble=True)
         out.attrs = first.attrs.copy()
         return out
     
@@ -117,7 +119,7 @@ class PETDataFrame(pd.DataFrame):
         return pd.Series(values, index=mult_index)
     
 
-    def to_matrix(self, squeeze: bool = True) -> np.ndarray:
+    def to_matrix(self, filter=True, is_jacobian=False, squeeze=True) -> np.ndarray:
         
         # If multi-index columns, convert to single-level first
         if isinstance(self.columns, pd.MultiIndex):
@@ -125,7 +127,21 @@ class PETDataFrame(pd.DataFrame):
         else:
             df = self
 
-        arr = np.stack([a for a in df.to_series().values])
+        arr = []
+        for val in df.to_series().values:
+            if filter and (val is None or np.all(np.asarray(val) == None)):
+                continue
+
+            if (not self.is_ensemble) and isinstance(val, np.ndarray) and (not is_jacobian):
+                arr.extend(val)
+            else:
+                arr.append(val)
+        
+        if is_jacobian:
+            arr = np.stack(arr, axis=0)
+        else:
+            arr = np.row_stack(arr)
+
         return np.squeeze(arr) if squeeze else arr
 
 
