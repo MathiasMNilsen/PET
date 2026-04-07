@@ -106,7 +106,7 @@ class Ensemble(PETEnsemble):
             self.proj = (np.eye(self.ne) - np.ones((self.ne, self.ne))/self.ne) / np.sqrt(self.ne - 1)
 
             # Option to store the dictionaries containing observed data and data variance
-            if 'obsvarsave' in self.keys_da and self.keys_da['obsvarsave'] == 'yes':
+            if extract.is_enabled(self.keys_da.get('obsvarsave', False)):
                 # Save data_df and data_var_df as pickle files
                 folder = self.keys_da.get('savefolder', './')
                 self.data_df.to_pickle(f'{folder}/obs_data.pkl')
@@ -129,23 +129,6 @@ class Ensemble(PETEnsemble):
             self.pred_data  = None  # predicted data or forward simulation
             self.cell_index = None  # default value for extracting states
 
-    def check_assimindex_sequential(self):
-        """
-        Check if assim. indices is given as a 2D list as is needed in sequential updating. If not, make it a 2D list
-        """
-        # Check if ASSIMINDEX is a list. If not, make it a 2D list
-        if not isinstance(self.keys_da['assimindex'], list):
-            self.keys_da['assimindex'] = [[self.keys_da['assimindex']]]
-
-        # If ASSIMINDEX is a 1D list (either given in as a single row or single column), we reshape to a 2D list
-        elif not isinstance(self.keys_da['assimindex'][0], list):
-            assimindex_temp = [None] * len(self.keys_da['assimindex'])
-
-            for i in range(len(self.keys_da['assimindex'])):
-                assimindex_temp[i] = [self.keys_da['assimindex'][i]]
-
-            self.keys_da['assimindex'] = assimindex_temp
-
     def check_assimindex_simultaneous(self):
         """
         Check if assim. indices is given as a 1D list as is needed in simultaneous updating. If not, make it a 2D list
@@ -166,20 +149,112 @@ class Ensemble(PETEnsemble):
     
 
     def load_observations(self) -> PETDataFrame:
-
+        
         if 'truedata' not in self.keys_da:
             raise ValueError("Key 'truedata' not found in keys_da.")
-        
+
         truedata = self.keys_da['truedata']
+
+        # Data in pickle file
         if isinstance(truedata, str) and truedata.endswith('.pkl'):
             df = PETDataFrame.from_pickle(truedata)
         
-        if isinstance(truedata, str) and truedata.endswith('.csv'):
-            df = PETDataFrame.from_csv(truedata, index_col=0, dtype=object)
-            
+        # Data in csv file
+        elif isinstance(truedata, str) and truedata.endswith('.csv'):
+            df = PETDataFrame.from_csv(truedata, index_col=0)
+            df = df.astype(float, errors='ignore')
 
+        # Data given as list or array
+        else:
+
+            def _index_name():
+                obsname = self.keys_da.get('obsname')
+                if isinstance(obsname, list):
+                    return obsname[0] if obsname else None
+                return obsname
+
+            def _normalize_datatypes():
+                datatype = self.keys_da.get('datatype')
+                if datatype is None:
+                    raise ValueError("Key 'datatype' not found in keys_da.")
+                return [datatype] if isinstance(datatype, str) else list(datatype)
+
+            def _normalize_indices():
+                true_index = self.keys_da.get('truedataindex')
+                if true_index is None:
+                    raise ValueError("Key 'truedataindex' not found in keys_da.")
+                return true_index if isinstance(true_index, list) else [true_index]
+
+            def _compress_if_needed(data_array, vintage):
+                if self.sparse_info is None or np.ndim(data_array) == 0:
+                    return data_array, vintage
+
+                if vintage < len(self.sparse_info['mask']) and \
+                        len(data_array) == int(np.sum(self.sparse_info['mask'][vintage])):
+                    data_array = self.compress_manager(data_array, vintage, False)
+                    vintage += 1
+
+                return data_array, vintage
+
+            def _load_observation_array(value, vintage):
+                if isinstance(value, str):
+                    if value.endswith('.npz'):
+                        load_data = np.load(value)
+                        data_array = load_data[load_data.files[0]]
+                        data_array, vintage = _compress_if_needed(data_array, vintage)
+                        return (np.array([data_array[()]]) if np.shape(data_array) == () else data_array), vintage
+
+                    if value.lower() == 'n/a':
+                        return None, vintage
+
+                    print(
+                        '\n\033[1;31mERROR: Cannot load observed data file! Maybe it is not a .npz file?\033[1;m'
+                    )
+                    sys.exit(1)
+
+                if value is None:
+                    return None, vintage
+
+                if type(value) is np.ndarray:
+                    return value, vintage
+
+                return np.array([value]), vintage
+                
+            datatype = _normalize_datatypes()
+            true_index = _normalize_indices()
+
+            if len(true_index) == 1:
+                truedata = [truedata] if isinstance(truedata, list) else [[truedata]]
+            elif not isinstance(truedata[0], list):
+                truedata = [[x] for x in truedata]
+
+            df = PETDataFrame(index=true_index, columns=datatype, dtype=object)
+            df.index.name = _index_name()
+
+            vintage = 0
+            unified_input = self.keys_da.get('unif_in') == 'yes'
+
+            for i, idx in enumerate(true_index):
+                if unified_input:
+                    value = truedata[i][0]
+                    if isinstance(value, str):
+                        df.at[idx, datatype[0]], vintage = _load_observation_array(value, vintage)
+                    else:
+                        df.at[idx, datatype[0]] = np.array(truedata[i][:])
+                else:
+                    for j, data_type in enumerate(datatype):
+                        value = truedata[i][j]
+                        df.at[idx, data_type], vintage = _load_observation_array(value, vintage)
+
+                        if (
+                            'scale' in self.keys_da
+                            and self.keys_da['scale'][0] in data_type
+                            and df.at[idx, data_type] is not None
+                        ):
+                            df.at[idx, data_type] *= self.keys_da['scale'][1]
+                    
         self.keys_da['truedataindex'] = df.index.to_list()
-        self.keys_da['assimindex_ne'] = np.arange(len(df.index)).tolist()
+        self.keys_da['assimindex'] = np.arange(len(df.index)).tolist()
         self.keys_da['datatype'] = df.columns.to_list()
         return df
     
@@ -225,7 +300,7 @@ class Ensemble(PETEnsemble):
                             var_df.loc[idx, col] = df.loc[idx, col][1]
                         
                         else:
-                            print('\n\033[1;31mERROR: Cannot read data variance from pkl file! The first entry in the pkl file must be either "rel" or "abs"!\033[1;m')
+                            print('\n\033[1;31mERROR: Cannot read data variance from pkl file! The first entry in the pkl file must be either "rel", "abs", or "emp"!\033[1;m')
                             sys.exit()
                     else:
                         var_df.loc[idx, col] = None
@@ -412,7 +487,7 @@ class Ensemble(PETEnsemble):
                     # Entry is a numerical value
                     # Some numerical value or None
                     elif not isinstance(truedata[i][j], str):
-                        if type(truedata[i][j]) is numpy.ndarray:
+                        if type(truedata[i][j]) is np.ndarray:
                             self.obs_data[i][self.keys_da['datatype'][j]] = truedata[i][j]
                         else:
                             self.obs_data[i][self.keys_da['datatype'][j]] = np.array([truedata[i][j]])
@@ -602,15 +677,12 @@ class Ensemble(PETEnsemble):
                     vintage = vintage + 1
 
 
-    def set_observations(self):
+    def perturb_observations(self, vecObs):
         '''
         Generate the perturbed observed data ensemble
         '''
-        # Make observed data vector
-        vecObs = self.data_df.to_matrix()
-        
         # Generate ensemble of perturbed observed data
-        if ('emp_cov' in self.keys_da) and (self.keys_da['emp_cov'] == 'yes'):
+        if extract.is_enabled(self.keys_da.get('emp_cov', False)):
 
             if hasattr(self, 'cov_data'):  # cd matrix has been imported
                 # enObs: samples from N(0,Cd)
@@ -619,7 +691,7 @@ class Ensemble(PETEnsemble):
                 enObs = self.data_var_df.to_matrix()
 
             # Screen data if required
-            if ('screendata' in self.keys_da) and (self.keys_da['screendata'] == 'yes'):
+            if extract.is_enabled(self.keys_da.get('screendata', False)):
                 enObs = at.screen_data(
                     enObs, 
                     self.enPred, 
@@ -640,7 +712,7 @@ class Ensemble(PETEnsemble):
                     list_data = self.list_datatypes,
                 )
             # data screening
-            if ('screendata' in self.keys_da) and (self.keys_da['screendata'] == 'yes'):
+            if extract.is_enabled(self.keys_da.get('screendata', False)):
                 self.cov_data = at.screen_data(
                     data = self.cov_data, 
                     aug_pred_data = self.enPred, 
@@ -656,7 +728,7 @@ class Ensemble(PETEnsemble):
                 return_chol = True
             )
         
-        return vecObs, enObs
+        return enObs
 
     def _ext_scaling(self):
         # get vector of scaling

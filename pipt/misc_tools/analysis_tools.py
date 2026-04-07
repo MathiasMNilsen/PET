@@ -25,6 +25,20 @@ from importlib import import_module  # To import packages
 from scipy.spatial import cKDTree
 
 
+def _is_enabled(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ('yes', 'true'):
+            return True
+        if lowered in ('no', 'false'):
+            return False
+    return bool(value)
+
+
 def parallel_upd(list_state, prior_info, states_dict, X, local_mask_info, obs_data, pred_data, parallel, actnum=None,
                  field_dim=None, act_data_list=None, scale_data=None, num_states=1, emp_d_cov=False):
     """
@@ -832,7 +846,7 @@ def screen_data(cov_data, pred_data, obs_data_vector, keys_da, iteration):
         Updated data covariance matrix
     """
 
-    if ('restart' in keys_da and keys_da['restart'] == 'yes') or (iteration != 0):
+    if _is_enabled(keys_da.get('restart', False)) or (iteration != 0):
         with open('cov_data.p', 'rb') as f:
             cov_data = pickle.load(f)
     else:

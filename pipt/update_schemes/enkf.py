@@ -12,6 +12,7 @@ from pipt.loop.ensemble import Ensemble
 # Misc. tools used in analysis schemes
 from pipt.misc_tools import analysis_tools as at
 import pipt.misc_tools.ensemble_tools as entools
+import pipt.misc_tools.extract_tools as extract
 
 from pipt.update_schemes.update_methods_ns.approx_update import approx_update
 from pipt.update_schemes.update_methods_ns.full_update import full_update
@@ -123,7 +124,7 @@ class enkfMixIn(Ensemble):
             self.obs_data, self.assim_index)
 
         # Augment observed and predicted data
-        if ('emp_cov' in self.keys_da) and (self.keys_da['emp_cov'] == 'yes'):
+        if extract.is_enabled(self.keys_da.get('emp_cov', False)):
             _, self.enPred = at.aug_obs_pred_data(
                 self.obs_data, 
                 self.pred_data, 

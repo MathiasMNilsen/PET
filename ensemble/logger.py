@@ -64,7 +64,7 @@ class PetLogger:
                     if isinstance(value, int) or isinstance(value, str):
                         values.append(f'{value:^{self.ns}}')
                     elif '%' in key:
-                        values.append(f'{value:^{self.ns}.1f}')
+                        values.append(f'{value:^{self.ns}.2f}')
                     else:
                         values.append(f'{value:^{self.ns}.3e}')
                 except: 
@@ -97,7 +97,7 @@ class PetLogger:
                 if isinstance(value, int) or isinstance(value, str):
                     value_len = len(str(value))
                 elif '%' in key:
-                    value_len = len(f'{value:.1f}')
+                    value_len = len(f'{value:.2f}')
                 else:
                     value_len = len(f'{value:.3e}')
             except:

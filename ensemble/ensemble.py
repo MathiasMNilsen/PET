@@ -91,7 +91,7 @@ class Ensemble:
 
         # If it is a restart run, we do not need to initialize anything, only load the self info. that exists in the
         # pickle save file. If it is not a restart run, we initialize everything below.
-        if ('restart' in self.keys_en) and (self.keys_en['restart'] == 'yes'):
+        if extract.is_enabled(self.keys_en.get('restart', False)):
             # Initiate a restart run
             self.logger.info('\033[92m--- Restart run initiated! ---\033[92m')
             # Check if the pickle save file exists in folder

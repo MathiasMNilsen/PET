@@ -7,6 +7,7 @@ __all__ = [
     'extract_local_analysis_info',
     'extract_maxiter',
     'organize_sparse_representation',
+    'is_enabled',
     'list_to_dict'
 ]
 
@@ -21,6 +22,28 @@ from typing import Union
 
 # Internal imports
 import pipt.misc_tools.analysis_tools as at
+
+
+def is_enabled(value, default=False):
+    """Return boolean for flag values allowing legacy 'yes'/'no' strings."""
+    if value is None:
+        return default
+
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered == 'yes':
+            return True
+        if lowered == 'no':
+            return False
+        if lowered == 'true':
+            return True
+        if lowered == 'false':
+            return False
+
+    return bool(value)
 
 
 def extract_prior_info(keys: dict) -> dict:

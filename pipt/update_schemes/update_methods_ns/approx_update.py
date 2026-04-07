@@ -8,6 +8,7 @@ import pickle
 
 import pipt.misc_tools.ensemble_tools as entools
 import pipt.misc_tools.analysis_tools as at
+import pipt.misc_tools.extract_tools as extract
 
 from pipt.misc_tools.cov_regularization import _calc_loc
 
@@ -46,7 +47,7 @@ class approx_update():
             loc_info = self.localization.loc_info
 
             # Calculate the localization projection matrix
-            if 'emp_cov' in self.keys_da and self.keys_da['emp_cov'] == 'yes':
+            if extract.is_enabled(self.keys_da.get('emp_cov', False)):
                 # Scale and center the data ensemble matrix
                 enEcentered = self.scale(np.dot(enE, self.proj), self.scale_data)
 
@@ -68,7 +69,7 @@ class approx_update():
             if 'autoadaloc' in loc_info:
 
                 # Scale and center the state ensemble matrix, enX
-                if ('emp_cov' in self.keys_da) and (self.keys_da['emp_cov'] == 'yes'):
+                if extract.is_enabled(self.keys_da.get('emp_cov', False)):
                     enXcentered = self.scale(enX - np.mean(enX, 1)[:,None], self.state_scaling)
                 else:
                     enXcentered = self.scale(np.dot(enX, self.proj), self.state_scaling)
@@ -103,7 +104,7 @@ class approx_update():
                 # Center ensemble matrix
                 enXcentered = enX - np.mean(enX, axis=1, keepdims=True)
 
-                if (not ('emp_cov' in self.keys_da) and (self.keys_da['emp_cov'] == 'yes')):
+                if not extract.is_enabled(self.keys_da.get('emp_cov', False)):
                     enXcentered /= np.sqrt(self.ne - 1)
 
                 # Calculate and scale difference between observations and predictions (residuals)
@@ -132,7 +133,7 @@ class approx_update():
                 # Center ensemble matrix
                 enXcentered = enX - np.mean(enX, axis=1, keepdims=True)
 
-                if not ('emp_cov' in self.keys_da and self.keys_da['emp_cov'] == 'yes'):
+                if not extract.is_enabled(self.keys_da.get('emp_cov', False)):
                     enXcentered /= np.sqrt(self.ne - 1)
 
                 # Calculate and scale difference between observations and predictions (residuals)
@@ -164,7 +165,7 @@ class approx_update():
                             tmp_index.append(act_data_list[(uniq_well, t)])
                     tot_dat_index[uniq_well] = tmp_index
 
-                if ('emp_cov' in self.keys_da) and (self.keys_da['emp_cov'] == 'yes'):
+                if extract.is_enabled(self.keys_da.get('emp_cov', False)):
                     emp_cov = True
                 else:
                     emp_cov = False

@@ -60,14 +60,15 @@ class lmenrmlMixIn(Ensemble):
         super().__init__(keys_da, keys_en, sim)
 
         if self.restart is False:
-            # Save prior state in separate variable
-            self.prior_enX = cp.deepcopy(self.enX) # not sure if this is wise!
 
             # Set parameters needed for LM-EnRML
             options = self.keys_da['iteration']
             if isinstance(options, list):
                 options = extract.list_to_dict(options)
 
+            # ------------------------------------------------------------
+            # LM-EnRML Options
+            # ------------------------------------------------------------
             self.data_misfit_tol = options.get('data_misfit_tol', 0.01)
             self.trunc_energy = options.get('energy', 0.95)
             self.step_tol  = options.get('step_tol', 0.01)
@@ -75,38 +76,34 @@ class lmenrmlMixIn(Ensemble):
             self.lam_max   = options.get('lambda_max', 1e10)
             self.lam_min   = options.get('lambda_min', 0.01)
             self.gamma     = options.get('lambda_factor', 5)
-            self.iteration = 0
+            # ------------------------------------------------------------
 
             # Ensure that it is given as percentage
-            if self.trunc_energy > 1:
-                    self.trunc_energy /= 100.
+            if self.trunc_energy > 1: self.trunc_energy /= 100.
 
             # Initalize some variables
+            self.iteration = 0
+            self.prior_enX = cp.deepcopy(self.enX) # (Not sure if this is wise!)
             self.prev_data_misfit = None  # Data misfit at previous iteration
-            self.list_datatypes = self.keys_da['datatype']
+            self.list_datatypes = list(self.data_df.columns)
 
             # Load ACTNUM if given
+            self.actnum = None
             if 'actnum' in self.keys_da.keys():
                 try:
                     self.actnum = np.load(self.keys_da['actnum'])['actnum']
                 except:
                     print('ACTNUM file cannot be loaded!')
-            else:
-                self.actnum = None
 
             # At the moment, the iterative loop is threated as an iterative smoother and thus we check if assim. indices
             # are given as in the Simultaneous loop.
             self.check_assimindex_simultaneous()
             self.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
 
-            # define the list of datatypes
-            #self.list_datatypes, self.list_act_datatypes = at.get_list_data_types(self.obs_data, self.assim_index)
-
-            # Get the perturbed observations and observation scaling
+            # Get the perturbed observations and scaling
             self.data_random_state = cp.deepcopy(np.random.get_state())
-            self.vecObs, self.enObs = self.set_observations()
-            
-            # Get state scaling and svd of scaled prior
+            self.vecObs = self.data_df.to_matrix()
+            self.enObs = self.perturb_observations(self.vecObs)
             self._ext_scaling()
 
     

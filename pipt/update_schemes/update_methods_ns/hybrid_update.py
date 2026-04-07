@@ -5,6 +5,7 @@ ES, and Iterative ES updates with hybrid update matrix calculated from multi-fid
 import numpy as np
 from scipy.linalg import solve
 from pipt.misc_tools import analysis_tools as at
+import pipt.misc_tools.extract_tools as extract
 
 class hybrid_update:
     '''
@@ -54,7 +55,7 @@ class hybrid_update:
         for l in range(self.tot_level):
             
             # Get Perturbed state ensemble at level l
-            if ('emp_cov' in self.keys_da) and (self.keys_da['emp_cov'] == 'yes'):
+            if extract.is_enabled(self.keys_da.get('emp_cov', False)):
                 enXcentered.append(self.scale(enX[l] - np.mean(enX[l], 1)[:,None], self.state_scaling))
             else:
                 enXcentered.append(self.scale(np.dot(enX[l], self.proj[l]), self.state_scaling))

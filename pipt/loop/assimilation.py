@@ -144,8 +144,9 @@ class Assimilate:
                 # Analysis (in the update_scheme class)
                 self.ensemble.calc_analysis()
 
-                if 'qa' in self.ensemble.keys_da and 'screendata' in self.ensemble.keys_da and \
-                        self.ensemble.keys_da['screendata'] == 'yes' and self.ensemble.iteration == 1:
+                if 'qa' in self.ensemble.keys_da and \
+                    extract.is_enabled(self.ensemble.keys_da.get('screendata', False)) and \
+                    self.ensemble.iteration == 1:
                     #  need to update datavar, and recompute mahalanobis measures
                     self.logger.info(
                         'Recomputing Mahalanobis distance with updated datavar')
@@ -211,7 +212,7 @@ class Assimilate:
                     #    f' Reduced: {100 * (1 - (self.ensemble.data_misfit / self.ensemble.prev_data_misfit)):.0f} %)')
                     # self.pbar_out.refresh()
 
-            if 'restartsave' in self.ensemble.keys_da and self.ensemble.keys_da['restartsave'] == 'yes':
+            if extract.is_enabled(self.ensemble.keys_da.get('restartsave', False)):
                 self.ensemble.save()
 
         # always store posterior forcast and state, unless specifically told not to
@@ -453,7 +454,7 @@ class Assimilate:
                         pred_data[key] *= self.ensemble.keys_da['scale'][1]
 
         # Post process predicted data if wanted
-        if 'post_process_forecast' in self.ensemble.keys_da and self.ensemble.keys_da['post_process_forecast'] == 'yes':
+        if extract.is_enabled(self.ensemble.keys_da.get('post_process_forecast', False)):
             self.post_process_forecast()
 
         # Extra option debug

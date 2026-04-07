@@ -71,7 +71,8 @@ class esmdaMixIn(Ensemble):
                 self.trunc_energy = 0.98
 
             # Get the perturbed observations and observation scaling
-            self.vecObs, self.enObs = self.set_observations()
+            self.vecObs = self.data_df.to_matrix()
+            self.enObs = self.perturb_observations(self.vecObs)
             self.enObs_conv = deepcopy(self.enObs)
 
             # Get state scaling and svd of scaled prior
@@ -265,30 +266,19 @@ class esmdaMixIn(Ensemble):
         # Check if INFLATION_PARAM has been provided, and if so, extract the value(s). If not, we set alpha to the
         # default value equal to the tot. no. assim. steps
         if 'inflation_param' in mda_opts:
-            # Extract value
             alpha_tmp = mda_opts['inflation_param']
-
-            # If one value is given, we copy it to all assim. steps. If multiple values are given, we check the
-            # number of parameters corresponds to tot. no. assim. steps
-            if not isinstance(alpha_tmp, list):  # Single input
-                alpha = [alpha_tmp] * len(self._ext_assim_steps())  # Copy value
-
-            else:
-                assert len(alpha_tmp) == len(self._ext_assim_steps()), 'Number of parameters given in INFLATION_PARAM in MDA does ' \
-                    'not match the total number of assimilation steps given by ' \
-                    'TOT_ASSIM_STEPS in same keyword!'
-
-                # Inflation parameters for each assimilation step given directly
-                alpha = alpha_tmp
-
-        else:  # Give alpha by default value
-            alpha = [len(self._ext_assim_steps())] * len(self._ext_assim_steps())
+            alpha = alpha_tmp if isinstance(alpha_tmp, list) else [alpha_tmp] * len(self._ext_assim_steps())
+            
+            assert len(alpha) == len(self._ext_assim_steps()), \
+            'Number of INFLATION_PARAM values does not match TOT_ASSIM_STEPS!'
+        else:
+            n_steps = len(self._ext_assim_steps())
+            alpha = [n_steps] * n_steps
 
         # Check if alpha fulfills the criterion to machine precision
-        assert 1 - np.finfo(float).eps <= sum([(1 / x) for x in alpha]) <= 1 + np.finfo(float).eps, \
-            'The sum of the inverse of the inflation parameters given in INFLATION_PARAM does not add up to 1!'
+        assert 1 - np.finfo(float).eps <= sum(1/x for x in alpha) <= 1 + np.finfo(float).eps, \
+            'Sum of inverse inflation parameters does not add up to 1!'
 
-        # Return inflation parameter
         return alpha
 
     def _ext_assim_steps(self):
