@@ -26,7 +26,8 @@ class PETDataFrame(pd.DataFrame):
     while allowing project-specific custom methods.
     """
 
-    _metadata = ["name"]
+    # Custom attributes to preserve across pandas operations
+    _metadata = ['name', 'is_ensemble'] 
 
     @property
     def _constructor(self):

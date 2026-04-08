@@ -36,7 +36,7 @@ for n in range(ne):
     }
 
     cols = pd.MultiIndex.from_tuples(data_dict.keys())
-    df = pd.DataFrame(data_dict, columns=cols, index=['row1', 'row2'])
+    df = pd.DataFrame(data_dict, columns=cols, index=['idx1', 'idx2'])
     df.index.name = "index"
     mi_dfs.append(df)
 

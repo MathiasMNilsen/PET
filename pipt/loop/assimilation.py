@@ -232,7 +232,7 @@ class Assimilate:
         # pbar.close()
         #pbar_out.close()
         if self.ensemble.prev_data_misfit is not None:
-            out_str = 'Convergence was met.'
+            out_str = '\n Convergence was met.'
             if self.ensemble.prior_data_misfit > self.ensemble.data_misfit:
                 out_str += f' Obj. function reduced from {self.ensemble.prior_data_misfit:0.1f} ' \
                            f'to {self.ensemble.data_misfit:0.1f}'

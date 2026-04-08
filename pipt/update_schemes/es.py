@@ -45,14 +45,8 @@ class esMixIn():
         self.prev_data_misfit = self.prior_data_misfit
         # only calulate for the final (posterior) estimate
         if self.iteration == len(self.keys_da['assimindex']):
-            assim_index = [self.keys_da['obsname'], list(
-                np.concatenate(self.keys_da['assimindex']))]
-            list_datatypes = self.list_datatypes
-            obs_data_vector, pred_data = at.aug_obs_pred_data(self.obs_data, self.pred_data, assim_index,
-                                                              list_datatypes)
-
-            data_misfit = at.calc_objectivefun(
-                self.enObs, pred_data, self.scale_data)
+            enPred = self.pred_data.to_matrix()
+            data_misfit = at.calc_objectivefun(self.enObs, enPred, self.scale_data)
             self.data_misfit = np.mean(data_misfit)
             self.data_misfit_std = np.std(data_misfit)
 
@@ -70,12 +64,19 @@ class esMixIn():
             self.enX = deepcopy(self.enX_temp)
             self.enX_temp = None
         else:
+
+            # Reduction
             if self.data_misfit < self.prior_data_misfit:
-                self.logger.info(
-                    f'ES update complete! Objective function decreased from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}.')
+                dF = (self.prev_data_misfit - self.data_misfit)/self.prev_data_misfit * 100
+                self.logger('ES update complete!')
+                msg = f'Data Misfit reduced by {dF:.1f} %: {self.prev_data_misfit:0.1f} --> {self.data_misfit:0.1f}.' 
+                self.logger(msg)
+
+            # Increase
             else:
                 self.logger.info(
                     f'ES update complete! Objective function increased from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}.')
+                
         # Return conv = False, why_stop var.
         return False, True, why_stop
 

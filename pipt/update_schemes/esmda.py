@@ -156,7 +156,7 @@ class esmdaMixIn(Ensemble):
 
             # Check for adjoint
             if hasattr(self, 'adjoints'):
-                enAdj = self.adjoints.to_matrix() # Shape (nd, nx, ne)
+                enAdj = self.adjoints.to_matrix(is_jacobian=True) # Shape (nd, nx, ne)
             else:
                 enAdj = None
 

@@ -44,7 +44,7 @@ class enkfMixIn(Ensemble):
             self.check_assimindex_simultaneous()
 
             self.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
-            self.list_datatypes, self.list_act_datatypes = at.get_list_data_types(self.obs_data, self.assim_index)
+            self.list_datatypes = self.keys_da['datatype']
 
 
             # Extract no. assimilation steps from MDA keyword in DATAASSIM part of init. file and set this equal to
@@ -62,9 +62,9 @@ class enkfMixIn(Ensemble):
                 self.trunc_energy = 0.98
 
             # Get the perturbed observations and observation scaling
-            self.vecObs, self.enObs = self.set_observations()
+            self.vecObs = self.data_df.to_matrix()
+            self.enObs = self.perturb_observations(self.vecObs)
             self.enObs_conv = deepcopy(self.enObs)
-
             self._ext_scaling()
 
     def calc_analysis(self):
@@ -75,33 +75,7 @@ class enkfMixIn(Ensemble):
         # If this is initial analysis we calculate the objective function for all data. In the final convergence check
         # we calculate the posterior objective function for all data
         if not hasattr(self, 'prior_data_misfit'):
-            assim_index = [self.keys_da['obsname'], list(
-                np.concatenate(self.keys_da['assimindex']))]
-            list_datatypes, list_active_dataypes = at.get_list_data_types(
-                self.obs_data, assim_index)
-            # if not hasattr(self, 'cov_data'):
-            #     self.full_cov_data = at.gen_covdata(
-            #         self.datavar, assim_index, list_datatypes)
-            # else:
-            #     self.full_cov_data = self.cov_data
-
-            # #obs_data_vector, pred_data = at.aug_obs_pred_data(
-            # #    self.obs_data, self.pred_data, assim_index, list_datatypes)
-            
-            _, enPred = at.aug_obs_pred_data(
-                self.obs_data, 
-                self.pred_data, 
-                assim_index, 
-                list_datatypes
-            )
-
-            # # Generate realizations of the observed data
-            # generator = Cholesky()  # Initialize GeoStat class for generating realizations
-            # self.enObs = generator.gen_real(
-            #     vecObs, 
-            #     self.full_cov_data, 
-            #     self.ne
-            # )
+            enPred = self.pred_data.to_matrix()
 
             # Calc. misfit for the initial iteration
             data_misfit = at.calc_objectivefun(self.enObs, enPred, self.scale_data)
@@ -114,30 +88,11 @@ class enkfMixIn(Ensemble):
             self.logger.info(
                 f'Prior run complete with data misfit: {self.prior_data_misfit:0.1f}.')
 
-        # Get assimilation order as a list
-        # must subtract one to be inline
-        self.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][self.iteration-1]]
-
-        # Get list of data types to be assimilated and of the free states. Do this once, because listing keys from a
-        # Python dictionary just when needed (in different places) may not yield the same list!
-        self.list_datatypes, list_active_dataypes = at.get_list_data_types(
-            self.obs_data, self.assim_index)
-
         # Augment observed and predicted data
         if extract.is_enabled(self.keys_da.get('emp_cov', False)):
-            _, self.enPred = at.aug_obs_pred_data(
-                self.obs_data, 
-                self.pred_data, 
-                self.assim_index,
-                self.list_datatypes
-            )
+            self.enPred = self.pred_data.to_matrix()
         else:
-            self.vecObs, self.enPred = at.aug_obs_pred_data(
-                self.obs_data, 
-                self.pred_data, 
-                self.assim_index,
-                self.list_datatypes
-            )
+            self.enPred = self.pred_data.to_matrix()
             
             self.cov_data = at.gen_covdata(
                 self.datavar, 
@@ -184,17 +139,7 @@ class enkfMixIn(Ensemble):
         
         # only calulate for the final (posterior) estimate
         if self.iteration == len(self.keys_da['assimindex']):
-            assim_index = [self.keys_da['obsname'], list(
-                np.concatenate(self.keys_da['assimindex']))]
-            list_datatypes = self.list_datatypes
-
-            _, enPred = at.aug_obs_pred_data(
-                self.obs_data,
-                self.pred_data,
-                assim_index,
-                list_datatypes
-            )
-
+            enPred = self.pred_data.to_matrix()
             data_misfit = at.calc_objectivefun(self.enObs, enPred, self.full_cov_data)
             self.data_misfit = np.mean(data_misfit)
             self.data_misfit_std = np.std(data_misfit)

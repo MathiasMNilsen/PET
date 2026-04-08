@@ -108,6 +108,9 @@ class Ensemble(PETEnsemble):
             if extract.is_enabled(self.keys_da.get('obsvarsave', False)):
                 # Save data_df and data_var_df as pickle files
                 folder = self.keys_da.get('savefolder', './')
+                # Check if folder exists, if not create it
+                if not os.path.exists(folder):
+                    os.makedirs(folder)
                 self.data_df.to_pickle(f'{folder}/obs_data.pkl')
                 self.data_var_df.to_pickle(f'{folder}/obs_var.pkl')
 
@@ -303,6 +306,9 @@ class Ensemble(PETEnsemble):
                             sys.exit()
                     else:
                         var_df.loc[idx, col] = None
+        
+        if extract.is_enabled(self.keys_da.get('emp_cov')):
+            var_df.is_ensemble = True
 
         return var_df
     
@@ -682,7 +688,6 @@ class Ensemble(PETEnsemble):
         '''
         # Generate ensemble of perturbed observed data
         if extract.is_enabled(self.keys_da.get('emp_cov', False)):
-
             if hasattr(self, 'cov_data'):  # cd matrix has been imported
                 # enObs: samples from N(0,Cd)
                 enObs = cholesky(self.cov_data).T @ np.random.randn(self.cov_data.shape[0], self.ne)
