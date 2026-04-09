@@ -376,9 +376,9 @@ def check_mand_keywords_da(keys_da):
     # Mandatory keywords in DATAASSIM
     #assert 'truedataindex' in keys_da, 'TRUEDATAINDEX not in DATAASSIM!'
     #assert 'assimindex' in keys_da, 'ASSIMINDEX not in DATAASSIM!'
-    assert 'truedata' in keys_da, 'TRUEDATA not in DATAASSIM!'
+    assert ('truedata' in keys_da) or ('data' in keys_da), 'TRUEDATA not in DATAASSIM!'
     assert 'datavar' in keys_da, 'DATAVAR not in DATAASSIM!'
-    assert 'obsname' in keys_da, 'OBSNAME not in DATAASSIM!'
+    assert ('obsname' in keys_da) or ('index_name' in keys_da['data']), 'OBSNAME not in DATAASSIM!'
     assert 'energy' in keys_da, 'ENERGY not in DATAASSIM!'
 
 

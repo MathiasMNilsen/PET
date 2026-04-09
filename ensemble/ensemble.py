@@ -163,31 +163,6 @@ class Ensemble:
             self.tot_level = len(self.multilevel['levels'])
             self.ml_corr_done = False
         
-        
-    def get_list_assim_steps(self):
-        """
-        Returns list of assimilation steps. Useful in a 'loop'-script.
-
-        Returns
-        -------
-        list_assim : list
-                     List of total assimilation steps.
-        """
-        # Get list of assim. steps. from ASSIMINDEX
-        list_assim = list(range(len(self.keys_da['assimindex'])))
-
-        # If it is a restart run, we only list the assimilation steps we have not done
-        if self.restart is True:
-            # List simulations we already have done. Do this by checking pred_data.
-            # OBS: Minus 1 here do to the aborted simulation is also not None.
-            sim_done = list(
-                range(len([ind for ind, p in enumerate(self.pred_data) if p is not None]) - 1))
-
-            # Update list of assim. steps by removing simulations we have done
-            list_assim = [ind for ind in list_assim if ind not in sim_done]
-
-        # Return tot. assim. steps
-        return list_assim
 
     def calc_prediction(self, enX=None, save_prediction=None):
         """
@@ -196,9 +171,9 @@ class Ensemble:
 
         Parameters
         ----------
-        input_state :
+        enX : array-like or PETStateArray, optional
             Use an input state instead of internal state (stored in self) to run predictions
-        save_prediction :
+        save_prediction : str, optional
             Save the predictions as a <save_prediction>.npz file (numpy compressed file)
 
         Returns

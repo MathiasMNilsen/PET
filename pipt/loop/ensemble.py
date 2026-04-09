@@ -95,11 +95,16 @@ class Ensemble(PETEnsemble):
                 self.sparse_info = extract.organize_sparse_representation(self.keys_da['compress'])
 
             # Load the data
-            self.data_df = self.load_observations()
-            self.data_var_df = self.load_variance()
+            reader = rcsv.DataReader(self.keys_da)
+            self.data_df = reader.get_data()
+            self.data_var_df = reader.get_variance(self.data_df, reader.sparse_data)
 
-            #self._org_obs_data()
-            #self._org_data_var()
+            self.keys_da['datatype'] = reader.datatype
+            self.keys_da['truedataindex'] = reader.truedataindex
+            self.keys_da['assimindex'] = reader.assimindex
+
+            #self._org_obs_data() # Depricated!!
+            #self._org_data_var() # Depricated!!
 
             # Define projection operator for centring and scaling ensemble matrix
             self.proj = (np.eye(self.ne) - np.ones((self.ne, self.ne))/self.ne) / np.sqrt(self.ne - 1)
@@ -148,169 +153,6 @@ class Ensemble(PETEnsemble):
         elif isinstance(self.keys_da['assimindex'][0], list):
             self.keys_da['assimindex'] = [
                 [item for sublist in self.keys_da['assimindex'] for item in sublist]]
-    
-
-    def load_observations(self) -> PETDataFrame:
-        
-        if 'truedata' not in self.keys_da:
-            raise ValueError("Key 'truedata' not found in keys_da.")
-
-        truedata = self.keys_da['truedata']
-
-        # Data in pickle file
-        if isinstance(truedata, str) and truedata.endswith('.pkl'):
-            df = PETDataFrame.from_pickle(truedata)
-        
-        # Data in csv file
-        elif isinstance(truedata, str) and truedata.endswith('.csv'):
-            df = PETDataFrame.from_csv(truedata, index_col=0)
-            df = df.astype(float, errors='ignore')
-
-        # Data given as list or array
-        else:
-
-            def _index_name():
-                obsname = self.keys_da.get('obsname')
-                if isinstance(obsname, list):
-                    return obsname[0] if obsname else None
-                return obsname
-
-            def _normalize_datatypes():
-                datatype = self.keys_da.get('datatype')
-                if datatype is None:
-                    raise ValueError("Key 'datatype' not found in keys_da.")
-                return [datatype] if isinstance(datatype, str) else list(datatype)
-
-            def _normalize_indices():
-                true_index = self.keys_da.get('truedataindex')
-                if true_index is None:
-                    raise ValueError("Key 'truedataindex' not found in keys_da.")
-                return true_index if isinstance(true_index, list) else [true_index]
-
-            def _compress_if_needed(data_array, vintage):
-                if self.sparse_info is None or np.ndim(data_array) == 0:
-                    return data_array, vintage
-
-                if vintage < len(self.sparse_info['mask']) and \
-                        len(data_array) == int(np.sum(self.sparse_info['mask'][vintage])):
-                    data_array = self.compress_manager(data_array, vintage, False)
-                    vintage += 1
-
-                return data_array, vintage
-
-            def _load_observation_array(value, vintage):
-                if isinstance(value, str):
-                    if value.endswith('.npz'):
-                        load_data = np.load(value)
-                        data_array = load_data[load_data.files[0]]
-                        data_array, vintage = _compress_if_needed(data_array, vintage)
-                        return (np.array([data_array[()]]) if np.shape(data_array) == () else data_array), vintage
-
-                    if value.lower() == 'n/a':
-                        return None, vintage
-
-                    print(
-                        '\n\033[1;31mERROR: Cannot load observed data file! Maybe it is not a .npz file?\033[1;m'
-                    )
-                    sys.exit(1)
-
-                if value is None:
-                    return None, vintage
-
-                if type(value) is np.ndarray:
-                    return value, vintage
-
-                return np.array([value]), vintage
-                
-            datatype = _normalize_datatypes()
-            true_index = _normalize_indices()
-
-            if len(true_index) == 1:
-                truedata = [truedata] if isinstance(truedata, list) else [[truedata]]
-            elif not isinstance(truedata[0], list):
-                truedata = [[x] for x in truedata]
-
-            df = PETDataFrame(index=true_index, columns=datatype, dtype=object)
-            df.index.name = _index_name()
-
-            vintage = 0
-            unified_input = extract.is_enabled(self.keys_da.get('unif_in', False))
-
-            for i, idx in enumerate(true_index):
-                if unified_input:
-                    value = truedata[i][0]
-                    if isinstance(value, str):
-                        df.at[idx, datatype[0]], vintage = _load_observation_array(value, vintage)
-                    else:
-                        df.at[idx, datatype[0]] = np.array(truedata[i][:])
-                else:
-                    for j, data_type in enumerate(datatype):
-                        value = truedata[i][j]
-                        df.at[idx, data_type], vintage = _load_observation_array(value, vintage)
-
-                        if (
-                            'scale' in self.keys_da
-                            and self.keys_da['scale'][0] in data_type
-                            and df.at[idx, data_type] is not None
-                        ):
-                            df.at[idx, data_type] *= self.keys_da['scale'][1]
-                    
-        self.keys_da['truedataindex'] = df.index.to_list()
-        self.keys_da['assimindex'] = np.arange(len(df.index)).tolist()
-        self.keys_da['datatype'] = df.columns.to_list()
-        return df
-    
-    def load_variance(self) -> PETDataFrame:
-
-        datavar = self.keys_da['datavar']
-        if isinstance(datavar, str) and datavar.endswith('.csv'):
-            csv_data = rcsv.read_var_csv(
-                filename=datavar, 
-                datatype=self.data_df.columns.to_list(), 
-                truedataindex=self.data_df.index.to_list()
-            )
-            # Initialize datavar output as PETDataFrame
-            var_df = PETDataFrame(columns=self.data_df.columns, index=self.data_df.index, dtype=object)
-            for i, idx in enumerate(self.data_df.index):
-                for j, col in enumerate(self.data_df.columns):
-                    if self.data_df.loc[idx, col] is not None:
-                        var_df.loc[idx, col] = csv_data[i][j]
-                    else:
-                        var_df.loc[idx, col] = None
-
-        if isinstance(datavar, str) and datavar.endswith('.pkl'):
-            df = PETDataFrame.from_pickle(datavar)
-
-            # Initialize datavar output as PETDataFrame
-            var_df = PETDataFrame(columns=self.data_df.columns, index=self.data_df.index, dtype=object)
-
-            for i, idx in enumerate(self.data_df.index):
-                for j, col in enumerate(self.data_df.columns):
-                    if self.data_df.loc[idx, col] is not None:
-                        
-                        if df.loc[idx, col][0].lower() == 'rel':
-                            var_df.loc[idx, col] = (df.loc[idx, col][1] * 0.01 * self.data_df.loc[idx, col]) ** 2
-                        
-                        elif df.loc[idx, col][0].lower() == 'abs':
-                            var_value = df.loc[idx, col][1]
-                            if hasattr(var_value, '__iter__') and not isinstance(var_value, str):
-                                var_df.loc[idx, col] = var_value[j]
-                            else:
-                                var_df.loc[idx, col] = var_value
-                        
-                        elif df.loc[idx, col][0].lower() == 'emp':
-                            var_df.loc[idx, col] = df.loc[idx, col][1]
-                        
-                        else:
-                            print('\n\033[1;31mERROR: Cannot read data variance from pkl file! The first entry in the pkl file must be either "rel", "abs", or "emp"!\033[1;m')
-                            sys.exit()
-                    else:
-                        var_df.loc[idx, col] = None
-        
-        if extract.is_enabled(self.keys_da.get('emp_cov')):
-            var_df.is_ensemble = True
-
-        return var_df
     
 
     def _org_obs_data(self):
@@ -710,11 +552,8 @@ class Ensemble(PETEnsemble):
         
         else:
             if not hasattr(self, 'cov_data'):  # if cd is not loaded
-                self.cov_data = at.gen_covdata(
-                    datavar = self.datavar,
-                    assim_index = self.assim_index,
-                    list_data = self.list_datatypes,
-                )
+                self.cov_data = at.construct_data_cov(self.data_var_df)
+
             # data screening
             if extract.is_enabled(self.keys_da.get('screendata', False)):
                 self.cov_data = at.screen_data(

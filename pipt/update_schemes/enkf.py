@@ -94,11 +94,12 @@ class enkfMixIn(Ensemble):
         else:
             self.enPred = self.pred_data.to_matrix()
             
-            self.cov_data = at.gen_covdata(
-                self.datavar, 
-                self.assim_index, 
-                self.list_datatypes
-            )
+            #self.cov_data = at.gen_covdata(
+            #    self.datavar, 
+            #    self.assim_index, 
+            #    self.list_datatypes
+           # )
+            self.cov_data = at.construct_data_cov(self.data_var_df)
 
             generator = Cholesky()  # Initialize GeoStat class for generating realizations
             self.data_random_state = deepcopy(np.random.get_state())

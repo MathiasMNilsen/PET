@@ -823,6 +823,44 @@ def gen_covdata(datavar, assim_index, list_data):
     return cd
 
 
+def construct_data_cov(data_var_df):
+    """
+    Construct data covariance from a variance dataframe for the current assimilation step.
+
+    Parameters
+    ----------
+    data_var_df : pandas.DataFrame
+        DataFrame containing variance/covariance entries per assimilation index and datatype.
+    Returns
+    -------
+    ndarray
+        Data covariance representation (vector for diagonal case, matrix for full/empirical case).
+    """
+    cov = np.array([])
+
+    for idx in data_var_df.index:
+        for col in data_var_df.columns:
+            var = data_var_df.loc[idx, col]
+        
+            if var is None:
+                continue
+
+            var = np.asarray(var)
+            if var.ndim == 0:
+                var = np.array([var.item()])
+
+            if var.ndim == 2:
+                c_var_temp = var if var.shape[0] == var.shape[1] else calc_autocov(var)
+                cov = c_var_temp if cov.size == 0 else linalg.block_diag(cov, c_var_temp)
+            else:
+                cov = var if cov.size == 0 else np.append(cov, var)
+
+    if cov.size == 0:
+        raise ValueError('No valid variance entries found in data_var_df.')
+
+    return cov
+
+
 def screen_data(cov_data, pred_data, obs_data_vector, keys_da, iteration):
     """
     INSERT DESCRIPTION
