@@ -93,9 +93,11 @@ class Ensemble(PETEnsemble):
             # Prepare sparse representation
             if 'compress' in self.keys_da:
                 self.sparse_info = extract.organize_sparse_representation(self.keys_da['compress'])
+            else:
+                self.sparse_info = None
 
             # Load the data
-            reader = rcsv.DataReader(self.keys_da)
+            reader = rcsv.DataReader(self.keys_da, sparse_info=self.sparse_info)
             self.data_df = reader.get_data()
             self.data_var_df = reader.get_variance(self.data_df, reader.sparse_data)
 

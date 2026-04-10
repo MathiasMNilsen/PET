@@ -498,6 +498,7 @@ def read_var_csv(filename, datatype, truedataindex):
 
 
 import os
+import ast
 from copy import deepcopy
 
 from pipt.misc_tools.wavelet_tools import SparseRepresentation
@@ -516,7 +517,7 @@ class DataReader:
         self.datatype = info.get('datatype', None)
 
         # Sparse infor for data compression (for seismic data)
-        self.sparse = info.get('sparse_info', None)
+        self.sparse = kwargs.get('sparse_info', None)
         self.sparse_data = []
 
         # Error handling for missing data or variance
@@ -537,7 +538,6 @@ class DataReader:
             msg = f"Unsupported data type: {type(self.data)}. Expected str or dict."
             raise TypeError(msg)
         
-
         # Process each cell for potential npz files and apply wavelet compression if specified
         for i, idx in enumerate(df.index):
             for col in df.columns:
@@ -545,14 +545,14 @@ class DataReader:
 
                 if isinstance(cell, str) and cell.endswith('.npz'):
                     npzfile = np.load(cell, allow_pickle=True)
-                    cell = npzfile[npzfile.files[0]]
+                    cell = np.squeeze(npzfile[npzfile.files[0]])
+                    assert cell.ndim < 2, f"Expected 1D array in npz file {cell}, but got {cell.ndim}D."
 
                 if (self.sparse is not None) and (col in self.sparse['compress_data']):
                     cell = self._wavelet_compression(cell, vintage=i)
                 
                 # Store new value
-                df.loc[idx, col] = cell
-
+                df.at[idx, col] = cell
                     
         # NB: Not sure if this will be used or needed!
         self.datatype = df.columns.tolist()
@@ -598,8 +598,8 @@ class DataReader:
         if 'emp_cov' in self.info:
             if (self.info['emp_cov'] == 'yes') or (self.info['emp_cov'] == True):
                 df.is_ensemble = True
-
-        return df
+        
+        return df.astype(float, errors='ignore')
 
 
     def _read_from_file(self, filepath: str) -> PETDataFrame:
@@ -607,7 +607,7 @@ class DataReader:
         if ext == '.pkl':
             df = PETDataFrame.from_pickle(filepath)
         elif ext == '.csv':
-            df = PETDataFrame.from_csv(filepath, index_col=0)
+            df = PETDataFrame.from_csv(filepath, index_col=0) 
             df = df.astype(float, errors='ignore')
         elif ext == '.npz':
             data = dict(np.load(filepath, allow_pickle=True))
@@ -625,9 +625,13 @@ class DataReader:
         df.index.name = index_name
         return df
     
-    
+
     def _extract_cell_variance(self, var_cell, data_cell, i, c):
-        
+
+        if isinstance(var_cell, str) and var_cell.strip().startswith('['):
+            # Example: "['abs', 0.5]" --> ['abs', 0.5]
+            var_cell = ast.literal_eval(var_cell)
+
         # Variance given as relative percentage (e.g., ['rel', 5] means 5% of the data value)
         if var_cell[0].lower() == 'rel':
             return (0.01*var_cell[1] * data_cell)**2
