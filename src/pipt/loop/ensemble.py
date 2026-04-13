@@ -127,7 +127,7 @@ class Ensemble(PETEnsemble):
                     self.keys_da['localization'],
                     self.keys_da['truedataindex'],
                     self.keys_da['datatype'],
-                    self.keys_da['staticvar'],
+                    self.keys_en['state'],
                     self.ne
                 )
 

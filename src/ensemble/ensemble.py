@@ -139,7 +139,7 @@ class Ensemble:
 
             # Calculate initial ensemble if IMPORTSTATICVAR has not been given in init. file.
             # Prior info. on state variables must be given by PRIOR_<STATICVAR-name> keyword.
-            if 'importstaticvar' not in self.keys_en:
+            if ('importstaticvar' not in self.keys_en) and ('importstate' not in self.keys_en):
                 if self.ne is None:
                     self.ne = 100
                 else:
@@ -153,9 +153,10 @@ class Ensemble:
                 )
             else:
                 # State variable imported as a Numpy save file
-                file = np.load(self.keys_en['importstaticvar'], allow_pickle=True)
+                file = self.keys_en['importstaticvar'] if 'importstaticvar' in self.keys_en else self.keys_en['importstate']
+                file = np.load(file, allow_pickle=True)
                 self.enX = PETStateArray.from_dict({key: file[key] for key in file.files}, ne=self.ne)
-                self.list_states = list(self.keys_en['staticvar'])
+                self.list_states = list(self.keys_en['state'])
 
         if 'multilevel' in self.keys_en:
             self.multilevel = extract.extract_multilevel_info(self.keys_en['multilevel'])
