@@ -33,7 +33,7 @@ class EnsembleOptimizationBaseClass(SupEnsemble):
             The objective function (e.g. npv)
         '''
         if simulator is None:
-            sim = noSimulation()
+            sim = noSimulation({})
         else:
             sim = simulator
 
@@ -80,7 +80,7 @@ class EnsembleOptimizationBaseClass(SupEnsemble):
                 var = np.clip(var, 0, 1, out=var)
                 self.bounds += mean.size*[(0, 1)]
             else:
-                self.bounds.append((lb, ub))
+                self.bounds += mean.size*[(lb, ub)]
 
             # Fill in lb and ub vectors
             self.lb = np.append(self.lb, lb*np.ones(mean.size))
@@ -117,26 +117,32 @@ class EnsembleOptimizationBaseClass(SupEnsemble):
             self.ne = self.num_models
         else: self.ne = x.shape[1]
 
-        # Run simulation
-        x = self.invert_scale_state(x)
-        x = self._reorganize_multilevel_ensemble(x)
-        run_success = self.calc_prediction(x, save_prediction=self.save_prediction)
-        x = self._reorganize_multilevel_ensemble(x)
-        x = self.scale_state(x).squeeze()
+        if not isinstance(self.sim, noSimulation):
+            # Run simulation
+            x = self.invert_scale_state(x)
+            x = self._reorganize_multilevel_ensemble(x)
+            run_success = self.calc_prediction(x, save_prediction=self.save_prediction)
+            x = self._reorganize_multilevel_ensemble(x)
+            x = self.scale_state(x).squeeze()
 
-        if self.enX is not None:
-            self.enX = self.scale_state(self.enX)
+            if self.enX is not None:
+                self.enX = self.scale_state(self.enX)
 
-        # Evaluate the objective function
-        if run_success:
-            func_values = self.obj_func(
-                self.pred_data, 
-                input_dict=self.sim.input_dict,
-                true_order=self.sim.true_order, 
-                **kwargs
-            )
+            # Evaluate the objective function
+            if run_success:
+                func_values = self.obj_func(
+                    self.pred_data, 
+                    input_dict=self.sim.input_dict,
+                    true_order=self.sim.true_order, 
+                    **kwargs
+                )
+            else:
+                func_values = np.inf  # the simulations have crashed
+        
         else:
-            func_values = np.inf  # the simulations have crashed
+            x = self.invert_scale_state(x)
+            func_values = self.obj_func(x, **kwargs)
+            x = self.scale_state(x).squeeze()
 
         if len(x.shape) == 1: 
             self.stateF = func_values

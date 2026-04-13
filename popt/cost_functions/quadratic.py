@@ -11,8 +11,6 @@ def quadratic(x, *args, **kwargs):
 	"""
 
 	r = kwargs.get('r', -1)
-
-	x = x[0]['vector']
 	dim, ne = x.shape
 	A = 0.5*np.diag(np.ones(dim))
 	b = 1.0*np.ones(dim)

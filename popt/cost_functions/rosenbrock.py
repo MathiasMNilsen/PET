@@ -1,7 +1,7 @@
 """Rosenbrock objective function."""
+from scipy.optimize import rosen
 
-
-def rosenbrock(state, *args, **kwargs):
+def _rosenbrock(state, *args, **kwargs):
     """
     Rosenbrock: http://en.wikipedia.org/wiki/Rosenbrock_function
     """
@@ -10,3 +10,6 @@ def rosenbrock(state, *args, **kwargs):
     x1 = x[1:]
     f = sum((1 - x0) ** 2) + 100 * sum((x1 - x0 ** 2) ** 2)
     return f
+
+def rosenbrock(x, *args, **kwargs):
+    return rosen(x)

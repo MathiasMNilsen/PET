@@ -37,22 +37,23 @@ def simple_data_var_df_abs(simple_data_df):
 
 @pytest.fixture
 def simple_data_var_df_rel(simple_data_df):
+    sdf = simple_data_df
     var_d = {
         'keyA': [
-            ['rel', float(np.sqrt(0.1) / (simple_data_df.loc['idx1', 'keyA'] * 0.01))],
-            ['rel', float(np.sqrt(0.2) / (simple_data_df.loc['idx2', 'keyA'] * 0.01))],
+            ['rel', float(np.sqrt(0.1) / (sdf.loc['idx1', 'keyA'] * 0.01))],
+            ['rel', float(np.sqrt(0.2) / (sdf.loc['idx2', 'keyA'] * 0.01))],
         ],
         'keyB': [
-            ['rel', float(np.sqrt(0.3) / (simple_data_df.loc['idx1', 'keyB'] * 0.01))],
-            ['rel', float(np.sqrt(0.4) / (simple_data_df.loc['idx2', 'keyB'] * 0.01))],
+            ['rel', float(np.sqrt(0.3) / (sdf.loc['idx1', 'keyB'] * 0.01))],
+            ['rel', float(np.sqrt(0.4) / (sdf.loc['idx2', 'keyB'] * 0.01))],
         ],
         'keyC': [
-            ['rel', float(np.sqrt(0.5) / (simple_data_df.loc['idx1', 'keyC'] * 0.01))],
-            ['rel', float(np.sqrt(0.6) / (simple_data_df.loc['idx2', 'keyC'] * 0.01))],
+            ['rel', float(np.sqrt(0.5) / (sdf.loc['idx1', 'keyC'] * 0.01))],
+            ['rel', float(np.sqrt(0.6) / (sdf.loc['idx2', 'keyC'] * 0.01))],
         ],
     }   
-    var_df = pd.DataFrame(var_d, index=simple_data_df.index)
-    var_df.index.name = simple_data_df.index.name
+    var_df = pd.DataFrame(var_d, index=sdf.index)
+    var_df.index.name = sdf.index.name
     return var_df
 
 

@@ -222,7 +222,7 @@ class Ensemble:
             try:
                 enX = enX.to_list_of_dicts()
             except AttributeError:
-                enX = PETStateArray(enX).to_list_of_dicts()
+                enX = PETStateArray(enX, indices=self.idX).to_list_of_dicts()
                 
             if not (self.aux_input is None): 
                 for n in range(self.ne):
