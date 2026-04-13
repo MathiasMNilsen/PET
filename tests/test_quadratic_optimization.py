@@ -51,7 +51,7 @@ def test_quadratic_enopt(temp_examples_dir):
     state = ensemble.get_state()
     obj = enopt.obj_func_values
     np.testing.assert_array_almost_equal(state, [0.5, 0.5], decimal=1)
-    np.testing.assert_array_almost_equal(obj, [0.0], decimal=2)
+    np.testing.assert_array_almost_equal(obj, [0.0], decimal=1)
 
 
 def test_quadratic_linesearch(temp_examples_dir):

@@ -8,7 +8,7 @@ from numpy import linalg as la
 from scipy.optimize import OptimizeResult
 
 # Internal imports
-from popt.misc_tools import optim_tools as ot
+import popt.misc_tools.optim_tools as ot
 from popt.loop.optimize import Optimize
 from popt.update_schemes.subroutines import line_search, line_search_backtracking, bfgs_update, newton_cg
 
@@ -268,7 +268,7 @@ class LineSearchClass(Optimize):
             self.p_old = None
         
             # Initial results
-            self.optimize_result = ot.get_optimize_results()
+            self.optimize_result = ot.get_optimize_result(self)
             if self.saveit:
                 ot.save_optimize_results(self.optimize_result)
             if self.logger is not None:
@@ -432,7 +432,7 @@ class LineSearchClass(Optimize):
             success = True
 
             # Save Results
-            self.optimize_result = ot.get_optimize_result()
+            self.optimize_result = ot.get_optimize_result(self)
             if self.saveit:
                 ot.save_optimize_results(self.optimize_result)
 
