@@ -466,7 +466,7 @@ class Ensemble:
 
                 # Number of parallel runs
                 if self.sim.input_dict.get('hpc', False):  # Run prediction in parallel on hpc
-                    en_pred = self.run_on_HPC(level_enX, batch_size=nparallel)
+                    en_pred = self.run_on_HPC(level_enX, batch_size=int(self.sim.input_dict.get('parallel', 1)))
 
                 # Parallelization on local machine using p_map      
                 else:
