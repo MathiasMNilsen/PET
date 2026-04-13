@@ -112,7 +112,7 @@ class EnsembleOptimizationBaseClass(SupEnsemble):
         self._aux_input()
 
         # check for ensmble
-        if len(x.shape) == 1: 
+        if len(x.shape) == 1:
             x = x[:,np.newaxis]
             self.ne = self.num_models
         else: self.ne = x.shape[1]
@@ -131,20 +131,20 @@ class EnsembleOptimizationBaseClass(SupEnsemble):
             # Evaluate the objective function
             if run_success:
                 func_values = self.obj_func(
-                    self.pred_data, 
+                    self.pred_data,
                     input_dict=self.sim.input_dict,
-                    true_order=self.sim.true_order, 
+                    true_order=self.sim.true_order,
+                    state=matrix_to_dict(self.invert_scale_state(x), self.idX),
                     **kwargs
                 )
             else:
                 func_values = np.inf  # the simulations have crashed
-        
         else:
             x = self.invert_scale_state(x)
             func_values = self.obj_func(x, **kwargs)
             x = self.scale_state(x).squeeze()
 
-        if len(x.shape) == 1: 
+        if len(x.shape) == 1:
             self.stateF = func_values
         else:
             self.enF = func_values 
@@ -263,13 +263,13 @@ class EnsembleOptimizationBaseClass(SupEnsemble):
             np.save(path + 'stateX.npy', stateX)
     
     def _reorganize_multilevel_ensemble(self, x):
-        if ('multilevel' in self.keys_en) and (len(x.shape) > 1):  
-            ml_ne = self.keys_en['multilevel']['ml_ne']
-            x = ot.toggle_ml_state(x, ml_ne)
-            return x
-        else:
-            return x
-
+        # Only toggle multilevel state when x is truly an ensemble (2D with >1 columns).
+        # Treat shape (nx, 1) the same as a 1D vector.
+        if 'multilevel' in self.keys_en:
+            if isinstance(x,list) or ( x.ndim > 1 and (x.shape[1] > 1) ):
+                ml_ne = self.multilevel['ml_ne']
+                x = ot.toggle_ml_state(x, ml_ne)
+        return x
 
     def _aux_input(self):
         """

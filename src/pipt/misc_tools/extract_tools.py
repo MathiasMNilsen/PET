@@ -466,7 +466,11 @@ def organize_sparse_representation(info: Union[dict,list]) -> dict:
             mask = np.load(filename)['mask']
         sparse['mask'].append(mask.flatten())
 
+    if 'compress_data' not in info:
+        raise KeyError("Missing required key: 'compress_data' specifying data to be compressed")
+
     # Read rest of keywords
+    sparse['compress_data'] = info['compress_data']
     sparse['level'] = info['level']
     sparse['wname'] = info['wname']
     sparse['threshold_rule'] = info['threshold_rule']
