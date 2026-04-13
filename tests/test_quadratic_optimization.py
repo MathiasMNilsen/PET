@@ -107,7 +107,7 @@ def test_rosenbrock_linesearch(temp_examples_dir):
 
     options = {
         'maxiter': 1000,
-        'step_size': 0.01,
+        'step_size': 1.0,
         'ftol': 1e-8,
     }
 
@@ -123,4 +123,5 @@ def test_rosenbrock_linesearch(temp_examples_dir):
     )
     
     np.testing.assert_array_almost_equal(res.x, np.ones(dim), decimal=0)
-    assert np.linalg.norm(res.x - np.ones(dim)) < np.sqrt(dim)
+    assert np.linalg.norm(res.x - np.ones(dim)) < 0.1*np.sqrt(dim)
+
