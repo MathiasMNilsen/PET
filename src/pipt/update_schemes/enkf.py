@@ -115,11 +115,18 @@ class enkfMixIn(Ensemble):
         if 'localanalysis' in self.keys_da:
             self.local_analysis_update()
         else:
+            # Check for adjoint
+            if hasattr(self, 'adjoints'):
+                enAdj = self.adjoints.to_matrix(is_jacobian=True) # In this case: Shape (ny, nx, ne)
+            else:
+                enAdj = None
+
             self.update(
                 enX = self.enX, 
                 enY = self.enPred, 
                 enE = self.enObs, 
-                prior = self.prior_enX
+                prior = self.prior_enX,
+                enAdj = enAdj
             )
             # Update the state ensemble and weights
             if hasattr(self, 'step'):
