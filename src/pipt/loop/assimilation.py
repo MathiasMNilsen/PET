@@ -117,8 +117,8 @@ class Assimilate:
                 self.calc_forecast()
 
                 # remove outliers
-                if 'remove_outliers' in self.ensemble.sim.input_dict:
-                    self.remove_outliers()
+                if 'remove_outliers' in self.ensemble.keys_da:
+                    self._remove_outliers()
 
                 if 'qa' in self.ensemble.keys_da:  # Check if we want to perform a Quality Assurance of the forecast
                     # set updated prediction, state and lam
@@ -158,7 +158,7 @@ class Assimilate:
                 self.calc_forecast()
 
                 if 'remove_outliers' in self.ensemble.keys_da:
-                    self.remove_outliers()
+                    self._remove_outliers()
 
                 # Check convergence (in the update_scheme class). Outputs logical variable to tell the while loop to
                 # stop, and a variable telling what criteria for convergence was reached.
@@ -239,56 +239,25 @@ class Assimilate:
             #tqdm.write(out_str)
             self.ensemble.logger(out_str)
 
-    def remove_outliers(self):
-
-        # function to remove ouliers
-
-        # get the cov data
-        prod_obs = np.array([])
-
-        prod_cov = np.array([])
-        prod_pred = np.empty([0, self.ensemble.ne])
-        for i in range(len(self.ensemble.obs_data)):
-            for key in self.ensemble.obs_data[i].keys():
-                if self.ensemble.obs_data[i][key] is not None and self.ensemble.obs_data[i][key].shape == (1,):
-                    prod_obs = np.concatenate((prod_obs, self.ensemble.obs_data[i][key]))
-                    prod_cov = np.concatenate((prod_cov, self.ensemble.datavar[i][key]))
-                    prod_pred = np.concatenate(
-                        (prod_pred, self.ensemble.pred_data[i][key]))
-
-        mat_prod_obs = np.dot(prod_obs.reshape((len(prod_obs), 1)),
-                              np.ones((1, self.ensemble.ne)))
-
-        hm = np.diag(np.dot((prod_pred - mat_prod_obs).T, np.dot(np.expand_dims(prod_cov ** (-1), axis=1),
-                                                                 np.ones((1, self.ensemble.ne))) * (prod_pred - mat_prod_obs)))
-        hm_std = np.std(hm)
-        hm_mean = np.mean(hm)
-        outliers = np.argwhere(np.abs(hm - hm_mean) > 4 * hm_std)
-        print('Outliers: ' + str(np.squeeze(outliers)))
-        members = np.arange(self.ensemble.ne)
-        members = np.delete(members, outliers)
-        for index in outliers.flatten():
-
-            new_index = np.random.choice(members)
-
-            # replace state
-            if self.ensemble.enX_temp is not None:
-                self.ensemble.enX[:, index] = deepcopy(self.ensemble.enX[:, new_index])
-            else:
-                self.ensemble.enX_temp[:, index] = deepcopy(self.ensemble.enX_temp[:, new_index])
-                
-
-            # replace the failed forecast
-            for i, data_ind in enumerate(self.ensemble.pred_data):
-                if self.ensemble.pred_data[i] is not None:
-                    for el in data_ind.keys():
-                        if self.ensemble.pred_data[i][el] is not None:
-                            if type(self.ensemble.pred_data[i][el]) is list:
-                                self.ensemble.pred_data[i][el][index] = deepcopy(
-                                    self.ensemble.pred_data[i][el][new_index])
-                            else:
-                                self.ensemble.pred_data[i][el][:, index] = deepcopy(
-                                    self.ensemble.pred_data[i][el][:, new_index])
+    def _remove_outliers(self):
+        if self.ensemble.enX_temp is not None:
+            out = at.remove_outliers(
+                self.ensemble.pred_data, 
+                self.ensemble.obs_data, 
+                self.ensemble.enX_temp, 
+                self.ensemble.datavar,
+            )
+            self.ensemble.pred_data = out[0]
+            self.ensemble.enX_temp = out[1]
+        else:
+            out = at.remove_outliers(
+                self.ensemble.pred_data, 
+                self.ensemble.obs_data, 
+                self.ensemble.enX, 
+                self.ensemble.datavar,
+            )
+            self.ensemble.pred_data = out[0]
+            self.ensemble.enX = out[1] 
 
     def _save_iteration_information(self):
         """
