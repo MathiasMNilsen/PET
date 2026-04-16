@@ -539,6 +539,7 @@ class DataReader:
             raise TypeError(msg)
         
         # Process each cell for potential npz files and apply wavelet compression if specified
+        vintage = 0
         for i, idx in enumerate(df.index):
             for col in df.columns:
                 cell = df.loc[idx, col]
@@ -549,7 +550,8 @@ class DataReader:
                     assert cell.ndim < 2, f"Expected 1D array in npz file {cell}, but got {cell.ndim}D."
 
                 if (self.sparse is not None) and (col in self.sparse['compress_data']):
-                    cell = self._wavelet_compression(cell, vintage=i)
+                    cell = self._wavelet_compression(cell, vintage=vintage)
+                    vintage += 1
                 
                 # Store new value
                 df.at[idx, col] = cell
