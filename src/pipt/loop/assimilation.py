@@ -243,18 +243,18 @@ class Assimilate:
         if self.ensemble.enX_temp is not None:
             out = at.remove_outliers(
                 self.ensemble.pred_data, 
-                self.ensemble.obs_data, 
+                self.ensemble.data_df, 
                 self.ensemble.enX_temp, 
-                self.ensemble.datavar,
+                self.ensemble.data_var_df,
             )
             self.ensemble.pred_data = out[0]
             self.ensemble.enX_temp = out[1]
         else:
             out = at.remove_outliers(
                 self.ensemble.pred_data, 
-                self.ensemble.obs_data, 
+                self.ensemble.data_df, 
                 self.ensemble.enX, 
-                self.ensemble.datavar,
+                self.ensemble.data_var_df,
             )
             self.ensemble.pred_data = out[0]
             self.ensemble.enX = out[1] 
@@ -307,7 +307,7 @@ class Assimilate:
                 save_dict[save_typ] = eval('self.ensemble.{}'.format(save_typ))
             # Save with key equal variable name and the actual variable
             elif save_typ == 'state':
-                save_dict['state'] = self.ensemble.enX.to_dict()
+                save_dict.update(self.ensemble.enX.to_dict())
             else:
                 print(f'Cannot save {save_typ}, because it is a local variable!\n\n')
 

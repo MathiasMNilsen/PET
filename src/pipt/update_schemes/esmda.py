@@ -203,9 +203,9 @@ class esmdaMixIn(Ensemble):
         enPred = self.pred_data.to_matrix()
 
         data_misfit = at.calc_objectivefun(self.enObs_conv, enPred, self.cov_data)
-        #data_misfit = at.data_mismatch(self.vecObs, enPred, self.cov_data)
-        self.data_misfit = np.mean(data_misfit)
+        self.data_misfit     = np.mean(data_misfit)
         self.data_misfit_std = np.std(data_misfit)
+        self.ensemble_misfit = data_misfit
 
         # Logical variables for conv. criteria
         why_stop = {'rel_data_misfit': 1 - (self.data_misfit / self.prev_data_misfit),

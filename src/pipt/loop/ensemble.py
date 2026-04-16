@@ -99,6 +99,7 @@ class Ensemble(PETEnsemble):
             # Load the data
             reader = rcsv.DataReader(self.keys_da, sparse_info=self.sparse_info)
             self.data_df = reader.get_data()
+            self.sparse_data = reader.sparse_data
             self.data_var_df = reader.get_variance(self.data_df, reader.sparse_data)
 
             self.keys_da['datatype'] = reader.datatype
