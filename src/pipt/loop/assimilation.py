@@ -207,7 +207,7 @@ class Assimilate:
         if 'nosave' not in self.ensemble.keys_da:
             try: # first try to save as npz file
                 np.savez(f'{self.save_folder}/posterior_state_estimate.npz', **self.ensemble.enX.to_dict())
-                np.savez(f'{self.save_folder}/posterior_forecast.npz', **{'pred_data': self.ensemble.pred_data})
+                self.ensemble.pred_data.to_pickle(f'{self.save_folder}/posterior_forecast.p') 
             except: # If this fails, store as pickle
                 with open(f'{self.save_folder}/posterior_state_estimate.p', 'wb') as file:
                     pickle.dump(self.ensemble.enX.to_dict(), file)
