@@ -121,7 +121,7 @@ class EnsembleOptimizationBaseClass(SupEnsemble):
             # Run simulation
             x = self.invert_scale_state(x)
             x = self._reorganize_multilevel_ensemble(x)
-            run_success = self.calc_prediction(x, save_prediction=self.save_prediction)
+            run_success = self.calc_ml_prediction(x, save_prediction=self.save_prediction)
             x = self._reorganize_multilevel_ensemble(x)
             x = self.scale_state(x).squeeze()
 

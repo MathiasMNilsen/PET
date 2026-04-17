@@ -152,14 +152,14 @@ class Ensemble:
                     save=self.keys_en.get('save_prior', True)
                 )
                 self.idX = self.enX.indices
-                self.list_states = list(self.keys_en['state'])
+                self.list_states = list(self.enX.indices.keys())
             else:
                 # State variable imported as a Numpy save file
                 file = self.keys_en['importstaticvar'] if 'importstaticvar' in self.keys_en else self.keys_en['importstate']
                 file = np.load(file, allow_pickle=True)
                 self.enX = PETStateArray.from_dict({key: file[key] for key in file.files}, ne=self.ne)
                 self.idX = self.enX.indices
-                self.list_states = list(self.keys_en['state'])
+                self.list_states = list(self.enX.indices.keys())
 
         if 'multilevel' in self.keys_en:
             self.multilevel = extract.extract_multilevel_info(self.keys_en['multilevel'])
@@ -429,7 +429,7 @@ class Ensemble:
         self.__dict__.update(tmp_load)
 
 
-    def calc_ml_prediction(self, enX):
+    def calc_ml_prediction(self, enX, save_prediction=None):
         """
         Function for running the simulator over several levels. We assume that it is sufficient to provide the level
         integer to the setup of the forward run. This will initiate the correct simulator fidelity.
@@ -474,35 +474,35 @@ class Ensemble:
 
                 # Convert state to required input for simulator (list of dictionaries). 
                 if is_multilevel:
-                    level_enX = enX[level].to_list_of_dicts()
+                    sim_input = enX[level].to_list_of_dicts()
                 else:
-                    level_enX = enX.to_list_of_dicts()
+                    sim_input = enX.to_list_of_dicts()
 
                 if self.aux_input is not None:
                     for n in range(ne[level]):
                         if is_multilevel:
-                            level_enX[level][n]['aux_input'] = self.aux_input[n]
+                            sim_input[level][n]['aux_input'] = self.aux_input[n]
                         else:
-                            level_enX[n]['aux_input'] = self.aux_input[n]
+                            sim_input[n]['aux_input'] = self.aux_input[n]
                         
 
                 ########################################################################################################
                 # No parralelization
                 if nparallel==1:
-                    en_pred = []
-                    pbar = tqdm(enumerate(enX), total=self.ne, **progbar_settings)
+                    sim_output = []
+                    pbar = tqdm(enumerate(sim_input), total=self.ne, **progbar_settings)
                     for member_index, state in pbar:
-                        en_pred.append(self.sim.run_fwd_sim(state, member_index))
+                        sim_output.append(self.sim.run_fwd_sim(state, member_index))
 
                 # Number of parallel runs
                 if self.sim.input_dict.get('hpc', False):  # Run prediction in parallel on hpc
-                    en_pred = self.run_on_HPC(level_enX, batch_size=nparallel)
+                    sim_output = self.run_on_HPC(sim_input, batch_size=nparallel)
 
                 # Parallelization on local machine using p_map      
                 else:
-                    en_pred = p_map(
+                    sim_output = p_map(
                         self.sim.run_fwd_sim,
-                        level_enX,
+                        sim_input,
                         list(range(ne[level])),
                         num_cpus=nparallel,
                         disable=self.disable_tqdm,
@@ -512,7 +512,7 @@ class Ensemble:
                 
                 # Replace crashed sims with successful ones, 
                 # and replace the corresponding state in the ensemble if needed
-                en_pred, enX, success = self._replace_failed_simulations(en_pred, level_enX, level, is_multilevel)
+                sim_input, enX, success = self._replace_failed_simulations(sim_output, sim_input, level, is_multilevel)
 
                 # ----------------------------------------------------------------------------------------------
                 # Combine ensemble predictions
@@ -520,24 +520,24 @@ class Ensemble:
                 # Check if all predictions are lists of dictionaries
                 if all(isinstance(el, (list, tuple, np.ndarray)) and 
                     all(isinstance(sub_el, dict) for sub_el in el) 
-                    for el in en_pred):
+                    for el in sim_output):
                     
                     if hasattr(self.sim, 'true_order'):
                         dfs = []
-                        for pred in en_pred:
+                        for pred in sim_output:
                             df = pd.DataFrame.from_records(pred, index=self.sim.true_order[1])
                             df.index.name = self.sim.true_order[0]
                             dfs.append(df)
                             
                     else:
-                        dfs = [pd.DataFrame.from_records(pred) for pred in en_pred]
+                        dfs = [pd.DataFrame.from_records(pred) for pred in sim_output]
 
                     # Combine dataframes into PETDataFrame
                     pred_data = PETDataFrame.merge_dataframes(dfs)
 
-                elif all(isinstance(el, pd.DataFrame) for el in en_pred):
+                elif all(isinstance(el, pd.DataFrame) for el in sim_output):
                     # List of dataframes
-                    pred_data = PETDataFrame.merge_dataframes(en_pred)
+                    pred_data = PETDataFrame.merge_dataframes(sim_output)
 
                 else:
                     msg = 'Simulator output should be either a dataframe or a list of dictionaries.'
@@ -554,14 +554,22 @@ class Ensemble:
         if is_multilevel:
             self.treat_modeling_error()
 
+        if save_prediction is not None:
+            folder = self.ensemble.keys_da.get('savefolder', 'Predictions')
+            if is_multilevel:
+                for l in range(self.tot_level):
+                    self.pred_data[l].to_pickle(f'{folder}/{save_prediction}_level{l}.pkl')
+            else:
+                self.pred_data.to_pickle(f'{folder}/{save_prediction}.pkl')
+
         return success
     
 
-    def _replace_failed_simulations(self, en_pred, enX, level=None, is_multilevel=False):
+    def _replace_failed_simulations(self, sim_output, enX, level=None, is_multilevel=False):
 
         # List successful runs and crashes
-        list_crash = [indx for indx, el in enumerate(en_pred) if el is False]
-        list_success = [indx for indx, el in enumerate(en_pred) if el is not False]
+        list_crash = [indx for indx, el in enumerate(sim_output) if el is False]
+        list_success = [indx for indx, el in enumerate(sim_output) if el is not False]
         success = True
 
         # Dump all information and print error if all runs have crashed
@@ -574,7 +582,7 @@ class Ensemble:
                 self.logger.info(
                     '\n\033[1;31mERROR: All started simulations has failed! We dump all information and exit!\033[1;m')
                 sys.exit(1)
-            return en_pred, enX, success
+            return sim_output, enX, success
 
         # Check crashed runs
         if list_crash:
@@ -602,9 +610,9 @@ class Ensemble:
                     if enX.shape[1] > 1:
                         enX[:, list_crash[index]] = deepcopy(enX[:, element])
                    
-                en_pred[list_crash[index]] = deepcopy(en_pred[element])
+                sim_output[list_crash[index]] = deepcopy(sim_output[element])
 
-        return en_pred, enX, success
+        return sim_output, enX, success
 
 
 
