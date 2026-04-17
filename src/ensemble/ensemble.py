@@ -470,7 +470,7 @@ class Ensemble:
             if hasattr(self.sim, 'setup_fwd_run'):
                 self.sim.setup_fwd_run(level=level)
 
-            if ne[level] > 0:
+            if len(ne[level]) > 0:
 
                 # Convert state to required input for simulator (list of dictionaries). 
                 if is_multilevel:
@@ -481,7 +481,7 @@ class Ensemble:
                 if self.aux_input is not None:
                     for n in range(ne[level]):
                         if is_multilevel:
-                            sim_input[level][n]['aux_input'] = self.aux_input[n]
+                            sim_input[n]['aux_input'] = self.aux_input[n]
                         else:
                             sim_input[n]['aux_input'] = self.aux_input[n]
                         
@@ -503,7 +503,7 @@ class Ensemble:
                     sim_output = p_map(
                         self.sim.run_fwd_sim,
                         sim_input,
-                        list(range(ne[level])),
+                        list(ne[level]) if is_multilevel else list(range(ne[level])),
                         num_cpus=nparallel,
                         disable=self.disable_tqdm,
                         **progbar_settings,
@@ -512,7 +512,7 @@ class Ensemble:
                 
                 # Replace crashed sims with successful ones, 
                 # and replace the corresponding state in the ensemble if needed
-                sim_input, enX, success = self._replace_failed_simulations(sim_output, sim_input, level, is_multilevel)
+                sim_output, sim_input, success = self._replace_failed_simulations(sim_output, sim_input, level, is_multilevel)
 
                 # ----------------------------------------------------------------------------------------------
                 # Combine ensemble predictions
@@ -617,11 +617,10 @@ class Ensemble:
 
 
     def treat_modeling_error(self):
-        
         ref_pred_data = self.pred_data[-1]
         for col in ref_pred_data.columns:
             for idx in ref_pred_data.index:
-                ref_mean = ref_pred_data.loc[idx, col].mean(axis=1)
+                ref_mean = ref_pred_data.loc[idx, col].mean(axis=-1)
                 for level in range(self.tot_level - 1):
-                    self.pred_data[level].at[idx, col] += (ref_mean - self.pred_data[level].loc[idx, col].mean(axis=1))
+                    self.pred_data[level].at[idx, col] += (ref_mean - self.pred_data[level].loc[idx, col].mean(axis=-1))
 
