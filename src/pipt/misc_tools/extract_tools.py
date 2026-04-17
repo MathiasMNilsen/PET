@@ -334,9 +334,6 @@ def extract_multilevel_info(keys: Union[dict, list]) -> dict:
         keys_ml['ml_weights'] = keys_ml.pop('cov_wgt')
     if not np.sum(keys_ml['ml_weights']) == 1.0:
         keys_ml['ml_weights'] = keys_ml['ml_weights']/np.sum(keys_ml['ml_weights'])
-
-    # Set multi-level error
-    keys_ml['ml_error_corr'] = keys_ml.get('ml_error_corr', None)
     
     return keys_ml
 

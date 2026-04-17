@@ -396,7 +396,7 @@ class Assimilate:
 
         # Run forecast. Predicted data solved in self.ensemble.pred_data
         if self.ensemble.enX_temp is None:
-            self.ensemble.calc_prediction()
+            self.ensemble.calc_prediction(enX=self.ensemble.enX)
         else:
             self.ensemble.calc_prediction(enX=self.ensemble.enX_temp)
 

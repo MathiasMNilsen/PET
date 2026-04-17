@@ -151,18 +151,20 @@ class Ensemble:
                     self.ne, 
                     save=self.keys_en.get('save_prior', True)
                 )
+                self.idX = self.enX.indices
+                self.list_states = list(self.keys_en['state'])
             else:
                 # State variable imported as a Numpy save file
                 file = self.keys_en['importstaticvar'] if 'importstaticvar' in self.keys_en else self.keys_en['importstate']
                 file = np.load(file, allow_pickle=True)
                 self.enX = PETStateArray.from_dict({key: file[key] for key in file.files}, ne=self.ne)
+                self.idX = self.enX.indices
                 self.list_states = list(self.keys_en['state'])
 
         if 'multilevel' in self.keys_en:
             self.multilevel = extract.extract_multilevel_info(self.keys_en['multilevel'])
             self.ml_ne = self.multilevel['ml_ne']
             self.tot_level = len(self.multilevel['levels'])
-            self.ml_corr_done = False
         
 
     def calc_prediction(self, enX=None, save_prediction=None):
@@ -426,7 +428,8 @@ class Ensemble:
         # Save in 'self'
         self.__dict__.update(tmp_load)
 
-    def calc_ml_prediction(self, enX=None):
+
+    def calc_ml_prediction(self, enX):
         """
         Function for running the simulator over several levels. We assume that it is sufficient to provide the level
         integer to the setup of the forward run. This will initiate the correct simulator fidelity.
@@ -438,10 +441,25 @@ class Ensemble:
             If simulation is run stand-alone one can input any state.
         """
 
-        no_tot_run = int(self.sim.input_dict['parallel'])
-        ml_pred_data = []
+        nparallel = int(self.sim.input_dict.get('parallel', 1))
+        self.pred_data = []
 
-        for level in tqdm(self.multilevel['levels'], desc='Fidelity level', position=1, **progbar_settings):
+        if hasattr(self, 'multilevel') and (self.multilevel is not None):
+            is_multilevel = True
+            levels = tqdm(self.multilevel['levels'], desc='Fidelity level', position=1, **progbar_settings)
+            ne = self.multilevel['ne']
+            assert isinstance(enX, list)
+            if not all(isinstance(x, PETStateArray) for x in enX):
+                enX = [PETStateArray(x, indices=self.idX) for x in enX]
+        else:
+            levels = range(1)
+            ne = [self.ne]
+            is_multilevel = False
+            if not isinstance(enX, PETStateArray):
+                enX = PETStateArray(enX, indices=self.idX)
+
+        # Loop over levels, if not multilevel, this loop will only run once. 
+        for level in levels:
 
             # Setup forward simulator and redundant simulator at the correct fidelity
             if self.sim.redund_sim is not None:
@@ -452,118 +470,150 @@ class Ensemble:
             if hasattr(self.sim, 'setup_fwd_run'):
                 self.sim.setup_fwd_run(level=level)
 
-            ml_ne = self.multilevel['ne'][level]
-            if ml_ne:
+            if ne[level] > 0:
 
-                level_enX = entools.matrix_to_list(enX[level], self.idX)
-                for n in ml_ne:
-                    if self.aux_input is not None:
-                        level_enX[n]['aux_input'] = self.aux_input[n]
+                # Convert state to required input for simulator (list of dictionaries). 
+                if is_multilevel:
+                    level_enX = enX[level].to_list_of_dicts()
+                else:
+                    level_enX = enX.to_list_of_dicts()
 
-                # Index list of ensemble members
-                list_member_index = list(ml_ne)
+                if self.aux_input is not None:
+                    for n in range(ne[level]):
+                        if is_multilevel:
+                            level_enX[level][n]['aux_input'] = self.aux_input[n]
+                        else:
+                            level_enX[n]['aux_input'] = self.aux_input[n]
+                        
 
                 ########################################################################################################
+                # No parralelization
+                if nparallel==1:
+                    en_pred = []
+                    pbar = tqdm(enumerate(enX), total=self.ne, **progbar_settings)
+                    for member_index, state in pbar:
+                        en_pred.append(self.sim.run_fwd_sim(state, member_index))
 
                 # Number of parallel runs
                 if self.sim.input_dict.get('hpc', False):  # Run prediction in parallel on hpc
-                    en_pred = self.run_on_HPC(level_enX, batch_size=int(self.sim.input_dict.get('parallel', 1)))
+                    en_pred = self.run_on_HPC(level_enX, batch_size=nparallel)
 
                 # Parallelization on local machine using p_map      
                 else:
                     en_pred = p_map(
                         self.sim.run_fwd_sim,
                         level_enX,
-                        list_member_index,
-                        num_cpus=no_tot_run,
+                        list(range(ne[level])),
+                        num_cpus=nparallel,
                         disable=self.disable_tqdm,
                         **progbar_settings,
                     )
                 ########################################################################################################
                 
-                # List successful runs and crashes
-                list_crash = [indx for indx, el in enumerate(en_pred) if el is False]
-                list_success = [indx for indx, el in enumerate(en_pred) if el is not False]
-                success = True
+                # Replace crashed sims with successful ones, 
+                # and replace the corresponding state in the ensemble if needed
+                en_pred, enX, success = self._replace_failed_simulations(en_pred, level_enX, level, is_multilevel)
 
-                # Dump all information and print error if all runs have crashed
-                if not list_success:
-                    self.save()
-                    success = False
-                    if len(list_crash) > 1:
-                        print(
-                            '\n\033[1;31mERROR: All started simulations has failed! We dump all information and exit!\033[1;m')
-                        self.logger.info(
-                            '\n\033[1;31mERROR: All started simulations has failed! We dump all information and exit!\033[1;m')
-                        sys.exit(1)
-                    return success
-
-                # Check crashed runs
-                if list_crash:
-                    # Replace crashed runs with (random) successful runs. If there are more crashed runs than successful once,
-                    # we draw with replacement.
-                    if len(list_crash) < len(list_success):
-                        copy_member = np.random.choice(
-                            list_success, size=len(list_crash), replace=False)
+                # ----------------------------------------------------------------------------------------------
+                # Combine ensemble predictions
+                # ----------------------------------------------------------------------------------------------
+                # Check if all predictions are lists of dictionaries
+                if all(isinstance(el, (list, tuple, np.ndarray)) and 
+                    all(isinstance(sub_el, dict) for sub_el in el) 
+                    for el in en_pred):
+                    
+                    if hasattr(self.sim, 'true_order'):
+                        dfs = []
+                        for pred in en_pred:
+                            df = pd.DataFrame.from_records(pred, index=self.sim.true_order[1])
+                            df.index.name = self.sim.true_order[0]
+                            dfs.append(df)
+                            
                     else:
-                        copy_member = np.random.choice(
-                            list_success, size=len(list_crash), replace=True)
+                        dfs = [pd.DataFrame.from_records(pred) for pred in en_pred]
 
-                    # Insert the replaced runs in prediction list
-                    for index, element in enumerate(copy_member):
-                        msg = (
-                        f"\033[92m--- Ensemble member {list_crash[index]} failed, "
-                        f"has been replaced by ensemble member {element}! ---\033[92m"
-                        )
-                        print(msg)
-                        self.logger.info(msg)
-                        if enX[level].shape[1] > 1:
-                            enX[level][:, list_crash[index]] = deepcopy(enX[level][:, element])
-                        
-                        en_pred[list_crash[index]] = deepcopy(en_pred[element])
+                    # Combine dataframes into PETDataFrame
+                    pred_data = PETDataFrame.merge_dataframes(dfs)
+
+                elif all(isinstance(el, pd.DataFrame) for el in en_pred):
+                    # List of dataframes
+                    pred_data = PETDataFrame.merge_dataframes(en_pred)
+
+                else:
+                    msg = 'Simulator output should be either a dataframe or a list of dictionaries.'
+                    self.logger.error(msg)
+                    raise ValueError(msg)
+                # ---------------------------------------------------------------------------------------------
 
                 #Convert ensemble specific result into pred_data, and filter for NONE data
-                ml_pred_data.append(dtools.en_pred_to_pred_data(en_pred))
+                self.pred_data.append(pred_data)
 
-        # loop over time instance first, and the level instance.
-        self.pred_data = np.array(ml_pred_data).T.tolist()
+        if len(self.pred_data) == 1:
+            self.pred_data = self.pred_data[0]
 
-        if hasattr(self,'treat_modeling_error'):
+        if is_multilevel:
             self.treat_modeling_error()
 
         return success
+    
+
+    def _replace_failed_simulations(self, en_pred, enX, level=None, is_multilevel=False):
+
+        # List successful runs and crashes
+        list_crash = [indx for indx, el in enumerate(en_pred) if el is False]
+        list_success = [indx for indx, el in enumerate(en_pred) if el is not False]
+        success = True
+
+        # Dump all information and print error if all runs have crashed
+        if not list_success:
+            self.save()
+            success = False
+            if len(list_crash) > 1:
+                print(
+                    '\n\033[1;31mERROR: All started simulations has failed! We dump all information and exit!\033[1;m')
+                self.logger.info(
+                    '\n\033[1;31mERROR: All started simulations has failed! We dump all information and exit!\033[1;m')
+                sys.exit(1)
+            return en_pred, enX, success
+
+        # Check crashed runs
+        if list_crash:
+            # Replace crashed runs with (random) successful runs. If there are more crashed runs than successful once,
+            # we draw with replacement.
+            if len(list_crash) < len(list_success):
+                copy_member = np.random.choice(
+                    list_success, size=len(list_crash), replace=False)
+            else:
+                copy_member = np.random.choice(
+                    list_success, size=len(list_crash), replace=True)
+
+            # Insert the replaced runs in prediction list
+            for index, element in enumerate(copy_member):
+                msg = (
+                f"\033[92m--- Ensemble member {list_crash[index]} failed, "
+                f"has been replaced by ensemble member {element}! ---\033[92m"
+                )
+                print(msg)
+                self.logger.info(msg)
+
+                if is_multilevel and level is not None and enX[level].shape[1] > 1:
+                    enX[level][:, list_crash[index]] = deepcopy(enX[level][:, element])
+                else:
+                    if enX.shape[1] > 1:
+                        enX[:, list_crash[index]] = deepcopy(enX[:, element])
+                   
+                en_pred[list_crash[index]] = deepcopy(en_pred[element])
+
+        return en_pred, enX, success
+
+
 
     def treat_modeling_error(self):
-        if self.multilevel['ml_error_corr']:
-            scheme = self.multilevel['ml_error_corr'][1]
+        
+        ref_pred_data = self.pred_data[-1]
+        for col in ref_pred_data.columns:
+            for idx in ref_pred_data.index:
+                ref_mean = ref_pred_data.loc[idx, col].mean(axis=1)
+                for level in range(self.tot_level - 1):
+                    self.pred_data[level].at[idx, col] += (ref_mean - self.pred_data[level].loc[idx, col].mean(axis=1))
 
-            if scheme =='sep':
-                self.calc_modeling_error_sep()
-                self.address_ML_error()
-            elif scheme =='once':
-                if not self.ml_corr_done:
-                    self.calc_modeling_error_ens()
-                    self.ml_corr_done = True
-                self.address_ML_error()
-            elif scheme =='ens':
-                self.calc_modeling_error_ens()
-
-    def calc_modeling_error_sep(self):
-        print('calc_modeling_error_sep -- Not yet implemented')
-
-    def calc_modeling_error_ens(self):
-
-        if self.multilevel['ml_error_corr'][0] =='bias_corr':
-            # modify self.pred_data without changing its structure. Hence, for each level (except the finest one)
-            # we correct each data at each point in time.
-            for assim_index in range(len(self.pred_data)):
-                for dat in self.pred_data[assim_index][-1].keys():
-                    # extract the HF model mean
-                    ref_mean = self.pred_data[assim_index][-1][dat].mean(axis=1)
-                        # modify each level
-                    for level in range(self.tot_level - 1):
-                        self.pred_data[assim_index][level][dat] += (ref_mean - self.pred_data[assim_index][level][dat].mean(axis=1))
-
-
-    def address_ML_error(self):
-        print('address_ML_error -- Not yet implemented')

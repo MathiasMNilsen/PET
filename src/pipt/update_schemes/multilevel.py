@@ -44,15 +44,10 @@ class multilevel(Ensemble):
             self.trunc_energy = 0.98
 
         self.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
-        self.list_datatypes, self.list_act_datatypes = at.get_list_data_types(self.obs_data, self.assim_index)
+        self.list_datatypes = self.keys_da['datatype']
 
-        self.cov_data  = at.gen_covdata(self.datavar, self.assim_index, self.list_datatypes)
-        self.vecObs, _ = at.aug_obs_pred_data(
-            self.obs_data, 
-            self.pred_data, 
-            self.assim_index,
-            self.list_datatypes
-        )
+        self.cov_data = at.construct_data_cov(self.data_var_df)
+        self.vecObs = self.data_df.to_matrix()
 
     def _init_sim(self):
         """
@@ -96,12 +91,7 @@ class esmda_hybrid(multilevel,hybrid_update,esmdaMixIn):
         # Get ensemble predictions at all levels
         self.enPred = []
         for l in range(self.tot_level):
-            _, enPred_level = at.aug_obs_pred_data(
-                self.obs_data, 
-                [el[l] for el in self.pred_data], 
-                self.assim_index,
-                self.list_datatypes
-            )
+            enPred_level = self.pred_data[l].to_matrix()
             self.enPred.append(enPred_level) 
 
         # Initialize GeoStat class for generating realizations
@@ -163,10 +153,13 @@ class esmda_hybrid(multilevel,hybrid_update,esmdaMixIn):
             enE = self.ml_enObs
         )
         if hasattr(self, 'step'):
-            self.enX_temp = [self.enX[l] + self.step[l] for l in range(self.tot_level)]
-            # Enforce limits
-            limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.idX.keys()}
-            self.enX_temp = [entools.clip_matrix(self.enX_temp[l], limits, self.idX) for l in range(self.tot_level)]
+            limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
+            self.enX_temp = []
+            for l in range(self.tot_level):
+                enX_temp = self.enX[l] + self.step[l]
+                enX_temp.clip_matrix(limits)
+                self.enX_temp.append(enX_temp)
+
 
     def check_convergence(self):
         """
@@ -179,13 +172,8 @@ class esmda_hybrid(multilevel,hybrid_update,esmdaMixIn):
         # Prelude to calc. conv. check (everything done below is from calc_analysis)
         enPred = []
         for l in range(self.tot_level):
-            _, enPred_level = at.aug_obs_pred_data(
-                self.obs_data, 
-                [el[l] for el in self.pred_data], 
-                self.assim_index,
-                self.list_datatypes
-            )
-            enPred.append(enPred_level)
+            enPred_level = self.pred_data[l].to_matrix()
+            enPred.append(enPred_level) 
 
         data_misfit = at.calc_objectivefun(
             self.enObs_conv, 
