@@ -307,7 +307,11 @@ class Assimilate:
                 save_dict[save_typ] = eval('self.ensemble.{}'.format(save_typ))
             # Save with key equal variable name and the actual variable
             elif save_typ == 'state':
-                save_dict.update(self.ensemble.enX.to_dict())
+                if hasattr(self.ensemble, 'multilevel') and self.ensemble.multilevel is not None:
+                    for l in range(self.ensemble.tot_level):
+                        save_dict[f'state_level{l}'] = self.ensemble.enX[l].to_dict()
+                else:
+                    save_dict.update(self.ensemble.enX.to_dict())
             else:
                 print(f'Cannot save {save_typ}, because it is a local variable!\n\n')
 
@@ -435,23 +439,27 @@ class Assimilate:
         pd.DataFrame
             Filtered pred_df containing only indices in data_df.
         """
-        if data_df.index.dtype == pred_df.index.dtype:
-            pred_df = pred_df[pred_df.index.isin(data_df.index)]
-
-        elif data_df.index.size == pred_df.index.size:
-            # Assume everything is fine 
-            pass
+        # In case of Multilevel pred data, we need to filter each level separately
+        if isinstance(pred_df, list):
+            return [self.filter_pred_data(data_df, df) for df in pred_df]
         else:
-            raise ValueError('Index of pred_data and data_df do not match in type or size!')
+            if data_df.index.dtype == pred_df.index.dtype:
+                pred_df = pred_df[pred_df.index.isin(data_df.index)]
 
-        # Filter columns in pred_df to only include columns in data_df
-        pred_df = pred_df[data_df.columns]
+            elif data_df.index.size == pred_df.index.size:
+                # Assume everything is fine 
+                pass
+            else:
+                raise ValueError('Index of pred_data and data_df do not match in type or size!')
 
-        # Check if pred_df is empty after filtering
-        if pred_df.empty:
-            raise ValueError('No matching indices between pred_data and data_df after filtering!')
-        
-        return pred_df
+            # Filter columns in pred_df to only include columns in data_df
+            pred_df = pred_df[data_df.columns]
+
+            # Check if pred_df is empty after filtering
+            if pred_df.empty:
+                raise ValueError('No matching indices between pred_data and data_df after filtering!')
+            
+            return pred_df
 
 
     def post_process_forecast(self):

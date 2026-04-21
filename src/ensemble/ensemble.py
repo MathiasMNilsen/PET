@@ -446,8 +446,8 @@ class Ensemble:
 
         if hasattr(self, 'multilevel') and (self.multilevel is not None):
             is_multilevel = True
-            levels = tqdm(self.multilevel['levels'], desc='Fidelity level', position=1, **progbar_settings)
-            ne = self.multilevel['ne']
+            levels = tqdm(self.multilevel['ml_ne'], desc='Fidelity level', position=1, **progbar_settings)
+            ne = self.multilevel['ml_ne']
             assert isinstance(enX, list)
             if not all(isinstance(x, PETStateArray) for x in enX):
                 enX = [PETStateArray(x, indices=self.idX) for x in enX]
@@ -470,7 +470,7 @@ class Ensemble:
             if hasattr(self.sim, 'setup_fwd_run'):
                 self.sim.setup_fwd_run(level=level)
 
-            if len(ne[level]) > 0:
+            if ne[level] > 0:
 
                 # Convert state to required input for simulator (list of dictionaries). 
                 if is_multilevel:
@@ -490,7 +490,7 @@ class Ensemble:
                 # No parralelization
                 if nparallel==1:
                     sim_output = []
-                    pbar = tqdm(enumerate(sim_input), total=self.ne, **progbar_settings)
+                    pbar = tqdm(enumerate(sim_input), total=ne[level], **progbar_settings)
                     for member_index, state in pbar:
                         sim_output.append(self.sim.run_fwd_sim(state, member_index))
 
@@ -503,7 +503,7 @@ class Ensemble:
                     sim_output = p_map(
                         self.sim.run_fwd_sim,
                         sim_input,
-                        list(ne[level]) if is_multilevel else list(range(ne[level])),
+                        list(range(ne[level])),
                         num_cpus=nparallel,
                         disable=self.disable_tqdm,
                         **progbar_settings,
@@ -513,6 +513,12 @@ class Ensemble:
                 # Replace crashed sims with successful ones, 
                 # and replace the corresponding state in the ensemble if needed
                 sim_output, sim_input, success = self._replace_failed_simulations(sim_output, sim_input, level, is_multilevel)
+
+                if (not is_multilevel) and getattr(self.sim, 'compute_adjoints', False):
+                    sim_output, en_adj = zip(*sim_output)
+                    
+                    # Merge adjoint to ensemble adjoint dataframe (PETDataFrame)
+                    self.adjoints = PETDataFrame.merge_dataframes(list(en_adj))
 
                 # ----------------------------------------------------------------------------------------------
                 # Combine ensemble predictions
@@ -537,7 +543,7 @@ class Ensemble:
 
                 elif all(isinstance(el, pd.DataFrame) for el in sim_output):
                     # List of dataframes
-                    pred_data = PETDataFrame.merge_dataframes(sim_output)
+                    pred_data = PETDataFrame.merge_dataframes(list(sim_output))
 
                 else:
                     msg = 'Simulator output should be either a dataframe or a list of dictionaries.'
@@ -563,6 +569,7 @@ class Ensemble:
                 self.pred_data.to_pickle(f'{folder}/{save_prediction}.pkl')
 
         return success
+    
     
 
     def _replace_failed_simulations(self, sim_output, enX, level=None, is_multilevel=False):
