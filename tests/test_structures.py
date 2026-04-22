@@ -277,9 +277,9 @@ class TestScaling:
         index=['idx1', 'idx2', 'idx3', 'idx4', 'idx5']
     )
     jac_df = PETDataFrame(
-        {'keyA': [50*np.random.rand(nx, ne) for _ in range(5)], 
-         'keyB': [50*np.random.rand(nx, ne) for _ in range(5)], 
-         'keyC': [50*np.random.rand(nx, ne) for _ in range(5)]},
+        {('keyA', 'param1'): [50*np.random.rand(nx, ne) for _ in range(5)], 
+         ('keyB', 'param1'): [50*np.random.rand(nx, ne) for _ in range(5)], 
+         ('keyC', 'param1'): [50*np.random.rand(nx, ne) for _ in range(5)]},
         index=['idx1', 'idx2', 'idx3', 'idx4', 'idx5']
     )
 
@@ -313,9 +313,13 @@ class TestScaling:
         df_scaled = self.data_df.copy()
         df_scaled.scale(type='max-min')
 
-        jac_scaled_expected = (self.jac_df - df_scaled.scale_min) / (df_scaled.scale_max-df_scaled.scale_min)
+        jac_scale_min = 0
+        jac_scale_max = df_scaled.scale_max - df_scaled.scale_min
+        jac_scaled_expected = self.jac_df.sub(0, axis='columns', level=0).div(
+            jac_scale_max, axis='columns', level=0
+        )
         jac_scaled = self.jac_df.copy()
-        jac_scaled.scale(type='max-min', minimum=df_scaled.scale_min, maximum=df_scaled.scale_max)
+        jac_scaled.scale(type='max-min', minimum=jac_scale_min, maximum=jac_scale_max)
 
         jac_inverted = jac_scaled.copy()
         jac_inverted.invert_scale(type='max-min')

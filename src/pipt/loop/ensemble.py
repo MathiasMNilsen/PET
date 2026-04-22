@@ -101,6 +101,20 @@ class Ensemble(PETEnsemble):
             self.data_df = reader.get_data()
             self.sparse_data = reader.sparse_data
             self.data_var_df = reader.get_variance(self.data_df, reader.sparse_data)
+            
+            if self.keys_da.get('scale_data', False):
+                self.data_df.scale('max-min')
+
+                if self.keys_da.get('emp_cov', False):
+                    self.data_var_df.scale('max-min', 
+                            minimum=self.data_df.scale_min, 
+                            maximum=self.data_df.scale_max,
+                    )
+                else:
+                    self.data_var_df.scale('max-min', 
+                            minimum=0, 
+                            maximum=(self.data_df.scale_max - self.data_df.scale_min)**2
+                    )
 
             self.keys_da['datatype'] = reader.datatype
             self.keys_da['truedataindex'] = reader.truedataindex

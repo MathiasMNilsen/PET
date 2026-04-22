@@ -119,7 +119,12 @@ class PETDataFrame(pd.DataFrame):
             self.is_scaled = True
             self.scale_min = self.min() if kwargs.get('minimum', None) is None else kwargs.get('minimum')
             self.scale_max = self.max() if kwargs.get('maximum', None) is None else kwargs.get('maximum')
-            self.loc[:, :] = (self - self.scale_min) / (self.scale_max - self.scale_min)
+            scale_range = self.scale_max - self.scale_min
+
+            if isinstance(self.columns, pd.MultiIndex) and (isinstance(self.scale_min, pd.Series) or isinstance(self.scale_max, pd.Series)):
+                self.loc[:, :] = self.sub(self.scale_min, axis='columns', level=0).div(scale_range, axis='columns', level=0)
+            else:
+                self.loc[:, :] = (self - self.scale_min) / scale_range
             
         elif type == 'z-score':
             if self.is_scaled:
@@ -143,7 +148,13 @@ class PETDataFrame(pd.DataFrame):
                 raise ValueError("DataFrame is not scaled, cannot invert max-min scaling.")
             scale_max = self.scale_max if kwargs.get('maximum', None) is None else kwargs.get('maximum')
             scale_min = self.scale_min if kwargs.get('minimum', None) is None else kwargs.get('minimum')
-            self.loc[:, :] = self * (scale_max - scale_min) + scale_min   
+            scale_range = scale_max - scale_min
+
+            if isinstance(self.columns, pd.MultiIndex) and (isinstance(scale_min, pd.Series) or isinstance(scale_max, pd.Series)):
+                self.loc[:, :] = self.mul(scale_range, axis='columns', level=0).add(scale_min, axis='columns', level=0)
+            else:
+                self.loc[:, :] = self * scale_range + scale_min
+
             self.is_scaled = False
 
         elif type == 'z-score':

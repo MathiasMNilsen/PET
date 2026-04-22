@@ -520,6 +520,19 @@ class Ensemble:
                     # Merge adjoint to ensemble adjoint dataframe (PETDataFrame)
                     self.adjoints = PETDataFrame.merge_dataframes(list(en_adj))
 
+                    # Filter adjoints for the correct data types
+                    try:
+                        self.adjoints = self.adjoints[self.data_df.columns]
+                    except:
+                        self.adjoints = self.adjoints[self.sim.datatype]
+                        
+                    if self.keys_en.get('scale_data', False) and hasattr(self, 'data_df'):
+                        self.adjoints.scale(
+                            type='max-min', 
+                            minimum=0, 
+                            maximum=self.data_df.scale_max - self.data_df.scale_min
+                        )
+
                 # ----------------------------------------------------------------------------------------------
                 # Combine ensemble predictions
                 # ----------------------------------------------------------------------------------------------
@@ -544,11 +557,22 @@ class Ensemble:
                 elif all(isinstance(el, pd.DataFrame) for el in sim_output):
                     # List of dataframes
                     pred_data = PETDataFrame.merge_dataframes(list(sim_output))
+                    try:
+                        pred_data = pred_data[self.data_df.columns]
+                    except:
+                        pred_data = pred_data[self.sim.datatype]
 
                 else:
                     msg = 'Simulator output should be either a dataframe or a list of dictionaries.'
                     self.logger.error(msg)
                     raise ValueError(msg)
+
+                if self.keys_en.get('scale_data', False) and hasattr(self, 'data_df'):
+                    pred_data.scale(
+                        type='max-min', 
+                        minimum=self.data_df.scale_min, 
+                        maximum=self.data_df.scale_max
+                    )
                 # ---------------------------------------------------------------------------------------------
 
                 #Convert ensemble specific result into pred_data, and filter for NONE data
