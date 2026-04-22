@@ -27,7 +27,10 @@ class PETDataFrame(pd.DataFrame):
     """
 
     # Custom attributes to preserve across pandas operations
-    _metadata = ['name', 'is_ensemble'] 
+    _metadata = [
+        'name', 'is_ensemble', 'is_scaled', 
+        'scale_min', 'scale_max', 'scale_mean', 'scale_std'
+    ] 
 
     @property
     def _constructor(self):
@@ -49,6 +52,7 @@ class PETDataFrame(pd.DataFrame):
         super().__init__(data=data, index=index, columns=columns, dtype=dtype, copy=copy)
         self.name = name
         self.is_ensemble = is_ensemble
+        self.is_scaled = False  # Flag to track if the DataFrame has been scaled
 
     @classmethod
     def from_pandas(cls, df: pd.DataFrame, name: str | None = None, is_ensemble: bool = False) -> "PETDataFrame":
@@ -104,6 +108,54 @@ class PETDataFrame(pd.DataFrame):
         out.attrs = first.attrs.copy()
         return out
     
+    def scale(self, type='max-min', **kwargs) -> None:
+        '''
+        Scale each column of DataFrame using the specified method.
+        '''
+        if type == 'max-min':
+            if self.is_scaled:
+                raise ValueError("DataFrame is already scaled, cannot apply max-min scaling again without inverting first.")
+            
+            self.is_scaled = True
+            self.scale_min = self.min() if kwargs.get('minimum', None) is None else kwargs.get('minimum')
+            self.scale_max = self.max() if kwargs.get('maximum', None) is None else kwargs.get('maximum')
+            self.loc[:, :] = (self - self.scale_min) / (self.scale_max - self.scale_min)
+            
+        elif type == 'z-score':
+            if self.is_scaled:
+                raise ValueError("DataFrame is already scaled, cannot apply z-score scaling again without inverting first.")
+            self.is_scaled = True
+            self.scale_mean = self.mean() if kwargs.get('mean', None) is None else kwargs.get('mean')
+            self.scale_std = self.std() if kwargs.get('std', None) is None else kwargs.get('std')
+            self.loc[:, :] = (self - self.scale_mean) / self.scale_std
+            
+        else:
+            raise ValueError(f"Unsupported scaling type: {type}")
+    
+    def invert_scale(self, type='max-min', **kwargs) -> None:
+        '''
+        Invert the scaling transformation applied to the DataFrame.
+        '''
+        if not self.is_scaled:
+            raise ValueError("DataFrame is not scaled, cannot invert scale.")
+        if type == 'max-min':
+            if not self.is_scaled:
+                raise ValueError("DataFrame is not scaled, cannot invert max-min scaling.")
+            scale_max = self.scale_max if kwargs.get('maximum', None) is None else kwargs.get('maximum')
+            scale_min = self.scale_min if kwargs.get('minimum', None) is None else kwargs.get('minimum')
+            self.loc[:, :] = self * (scale_max - scale_min) + scale_min   
+            self.is_scaled = False
+
+        elif type == 'z-score':
+            if not self.is_scaled:
+                raise ValueError("DataFrame is not scaled, cannot invert z-score scaling.")
+            scale_mean = self.scale_mean if kwargs.get('mean', None) is None else kwargs.get('mean')
+            scale_std = self.scale_std if kwargs.get('std', None) is None else kwargs.get('std')
+            self.loc[:, :] = self * scale_std + scale_mean    
+            self.is_scaled = False
+        else:
+            raise ValueError(f"Unsupported scaling type: {type}")
+
 
     def to_series(self) -> pd.Series:
         mult_index = []
