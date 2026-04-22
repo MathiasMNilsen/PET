@@ -261,6 +261,69 @@ class TestWithFieldData:
         assert np.array_equal(matrix_unfiltered, matrix_unfiltered_expected)
     
 
+class TestScaling:
+
+    np.random.seed(404)
+    data_df = PETDataFrame(
+        {'keyA': [10*np.random.rand() for _ in range(5)], 
+         'keyB': [10*np.random.rand() for _ in range(5)], 
+         'keyC': [10*np.random.rand() for _ in range(5)]},
+        index=['idx1', 'idx2', 'idx3', 'idx4', 'idx5']
+    )
+    data_var_df = PETDataFrame(
+        {'keyA': [0.1*np.random.rand() for _ in range(5)], 
+         'keyB': [0.1*np.random.rand() for _ in range(5)], 
+         'keyC': [0.1*np.random.rand() for _ in range(5)]},
+        index=['idx1', 'idx2', 'idx3', 'idx4', 'idx5']
+    )
+    jac_df = PETDataFrame(
+        {'keyA': [50*np.random.rand(nx, ne) for _ in range(5)], 
+         'keyB': [50*np.random.rand(nx, ne) for _ in range(5)], 
+         'keyC': [50*np.random.rand(nx, ne) for _ in range(5)]},
+        index=['idx1', 'idx2', 'idx3', 'idx4', 'idx5']
+    )
+
+    def test_scale_max_min(self):
+        '''Test that the scale method correctly applies max-min scaling to the DataFrame.'''
+        df_scaled = self.data_df.copy()
+        df_scaled.scale(type='max-min')
+        df_inverted = df_scaled.copy()
+        df_inverted.invert_scale(type='max-min')
+        assert df_scaled.is_scaled
+        assert np.all(df_scaled >= 0) and np.all(df_scaled <= 1)
+        pd.testing.assert_frame_equal(df_inverted, self.data_df)
+    
+    def test_scale_variance(self):
+        '''Test that scaling the data and adjusting the variance accordingly gives the expected results.'''
+        df_scaled = self.data_df.copy()
+        df_scaled.scale(type='max-min')
+
+        df_var_scaled_expected = self.data_var_df / (df_scaled.scale_max-df_scaled.scale_min)**2
+        df_var_scaled = self.data_var_df.copy()
+        df_var_scaled.scale(type='max-min', minimum=0, maximum=(df_scaled.scale_max-df_scaled.scale_min)**2)
+
+        df_var_inverted = df_var_scaled.copy()
+        df_var_inverted.invert_scale(type='max-min')
+
+        pd.testing.assert_frame_equal(df_var_scaled, df_var_scaled_expected)
+        pd.testing.assert_frame_equal(df_var_inverted, self.data_var_df)
+
+    def test_scale_jacobian(self):
+        '''Test that scaling the data and adjusting the Jacobian accordingly gives the expected results.'''
+        df_scaled = self.data_df.copy()
+        df_scaled.scale(type='max-min')
+
+        jac_scaled_expected = (self.jac_df - df_scaled.scale_min) / (df_scaled.scale_max-df_scaled.scale_min)
+        jac_scaled = self.jac_df.copy()
+        jac_scaled.scale(type='max-min', minimum=df_scaled.scale_min, maximum=df_scaled.scale_max)
+
+        jac_inverted = jac_scaled.copy()
+        jac_inverted.invert_scale(type='max-min')
+
+        pd.testing.assert_frame_equal(jac_scaled, jac_scaled_expected)
+        pd.testing.assert_frame_equal(jac_inverted, self.jac_df)
+
+
 
 
 
