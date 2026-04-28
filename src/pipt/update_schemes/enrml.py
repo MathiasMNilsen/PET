@@ -10,7 +10,6 @@ from pipt.loop.ensemble import Ensemble
 from pipt.update_schemes.update_methods_ns.subspace_update import subspace_update
 from pipt.update_schemes.update_methods_ns.full_update import full_update
 from pipt.update_schemes.update_methods_ns.approx_update import approx_update
-import sys
 import pkgutil
 import inspect
 import numpy as np
@@ -334,101 +333,44 @@ class gnenrmlMixIn(Ensemble):
         super().__init__(keys_da, keys_en, sim)
 
         if self.restart is False:
-            # Save prior state in separate variable
-            #self.prior_state = cp.deepcopy(self.state)
-            self.prior_enX = cp.deepcopy(self.enX) # not sure if this is wise!
+            options = self.keys_da['iteration']
+            if isinstance(options, list):
+                options = extract.list_to_dict(options)
 
-            # extract and save state scaling
+            self.data_misfit_tol = options.get('data_misfit_tol', 0.01)
+            self.trunc_energy = options.get('energy', 0.95)
+            self.step_tol = options.get('step_tol', 0.01)
+            self.gamma = options.get('gamma', 0.2)
+            self.gamma_max = options.get('gamma_max', 0.5)
+            self.gamma_factor = options.get('gamma_factor', 2.5)
 
-            # Extract parameters like conv. tol. and damping param. from ITERATION keyword in DATAASSIM
-            self._ext_iter_param()
+            if self.trunc_energy > 1:
+                self.trunc_energy /= 100.
 
-            # Within variables
-            self.prev_data_misfit = None  # Data misfit at previous iteration
+            self.iteration = 0
+            self.prior_enX = cp.deepcopy(self.enX)
+            self.prev_data_misfit = None
+            self.list_datatypes = list(self.data_df.columns)
+
+            self.actnum = None
             if 'actnum' in self.keys_da.keys():
                 try:
                     self.actnum = np.load(self.keys_da['actnum'])['actnum']
                 except:
                     print('ACTNUM file cannot be loaded!')
-            else:
-                self.actnum = None
+
             # At the moment, the iterative loop is threated as an iterative smoother and thus we check if assim. indices
             # are given as in the Simultaneous loop.
             self.check_assimindex_simultaneous()
-            # define the assimilation index
             self.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
-            
-            # define the list of datatypes
-            self.list_datatypes, self.list_act_datatypes = at.get_list_data_types(
-                self.obs_data, self.assim_index)
-            # Get the perturbed observations and observation scaling
-            self._ext_obs()
-            # Get state scaling and svd of scaled prior
+
+            self.data_random_state = cp.deepcopy(np.random.get_state())
+            self.vecObs = self.data_df.to_matrix()
+            self.enObs = self.perturb_observations(self.vecObs)
             self._ext_scaling()
-           
+
             # ensure that the updates does not invoke the LM inflation of the Hessian.
             self.lam = 0
-
-    def _ext_obs(self):
-
-        self.obs_data_vector, _ = at.aug_obs_pred_data(self.obs_data, self.pred_data, self.assim_index,
-                                                       self.list_datatypes)
-
-        # Generate the data auto-covariance matrix
-        if 'emp_cov' in self.keys_da and self.keys_da['emp_cov'] == 'yes':
-            if hasattr(self, 'cov_data'):  # cd matrix has been imported
-                tmp_E = np.dot(cholesky(self.cov_data).T,
-                               np.random.randn(self.cov_data.shape[0], self.ne))
-            else:
-                tmp_E = at.extract_tot_empirical_cov(
-                    self.datavar, self.assim_index, self.list_datatypes, self.ne)
-            # self.E = (tmp_E - tmp_E.mean(1)[:,np.newaxis])/np.sqrt(self.ne - 1)/
-            if 'screendata' in self.keys_da and self.keys_da['screendata'] == 'yes':
-                tmp_E = at.screen_data(tmp_E, self.aug_pred_data,
-                                       self.obs_data_vector, self.iteration)
-            self.E = tmp_E
-            self.real_obs_data = self.obs_data_vector[:, np.newaxis] - tmp_E
-
-            self.cov_data = np.var(self.E, ddof=1,
-                                   axis=1)  # calculate the variance, to be used for e.g. data misfit calc
-            # self.cov_data = ((self.E * self.E)/(self.ne-1)).sum(axis=1) # calculate the variance, to be used for e.g. data misfit calc
-            self.scale_data = np.sqrt(self.cov_data)
-        else:
-            if not hasattr(self, 'cov_data'):  # if cd is not loaded
-                self.cov_data = at.gen_covdata(
-                    self.datavar, self.assim_index, self.list_datatypes)
-            # data screening
-            if 'screendata' in self.keys_da and self.keys_da['screendata'] == 'yes':
-                self.cov_data = at.screen_data(
-                    self.cov_data, self.aug_pred_data, self.obs_data_vector, self.iteration)
-
-            init_en = Cholesky()  # Initialize GeoStat class for generating realizations
-            self.real_obs_data, self.scale_data = init_en.gen_real(self.obs_data_vector, self.cov_data, self.ne,
-                                                                   return_chol=True)
-
-    def _ext_state(self):
-        # get vector of scaling
-        self.state_scaling = at.calc_scaling(
-            self.prior_state, self.list_states, self.prior_info)
-
-        delta_scaled_prior = self.state_scaling[:, None] * \
-            np.dot(at.aug_state(self.prior_state, self.list_states), self.proj)
-
-        u_d, s_d, v_d = np.linalg.svd(delta_scaled_prior, full_matrices=False)
-
-        # remove the last singular value/vector. This is because numpy returns all ne values, while the last is actually
-        # zero. This part is a good place to include eventual additional truncation.
-        energy = 0
-        trunc_index = len(s_d) - 1  # inititallize
-        for c, elem in enumerate(s_d):
-            energy += elem
-            if energy / sum(s_d) >= self.trunc_energy:
-                trunc_index = c  # take the index where all energy is preserved
-                break
-        u_d, s_d, v_d = u_d[:, :trunc_index +
-                            1], s_d[:trunc_index + 1], v_d[:trunc_index + 1, :]
-        self.Am = np.dot(u_d, np.eye(trunc_index+1) *
-                         ((s_d**(-1))[:, None]))  # notation from paper
 
     def calc_analysis(self):
         """
@@ -437,15 +379,13 @@ class gnenrmlMixIn(Ensemble):
 
         """
 
-        # reformat predicted data
-        _, self.aug_pred_data = at.aug_obs_pred_data(self.obs_data, self.pred_data, self.assim_index,
-                                                     self.list_datatypes)
+        self.enPred = self.pred_data.to_matrix()
 
         if self.iteration == 1:  # first iteration
-            data_misfit = at.calc_objectivefun(
-                self.real_obs_data, self.aug_pred_data, self.cov_data)
+            data_misfit = at.calc_objectivefun(self.enObs, self.enPred, self.cov_data)
 
             # Store the (mean) data misfit (also for conv. check)
+            self.ensemble_misfit = data_misfit
             self.data_misfit = np.mean(data_misfit)
             self.prior_data_misfit = np.mean(data_misfit)
             self.data_misfit_std = np.std(data_misfit)
@@ -453,37 +393,33 @@ class gnenrmlMixIn(Ensemble):
             if self.gamma == 'auto':
                 self.gamma = 0.1
 
-        # Mean pred_data and perturbation matrix with scaling
-        if len(self.scale_data.shape) == 1:
-            self.pert_preddata = np.dot(np.expand_dims(self.scale_data ** (-1), axis=1),
-                                        np.ones((1, self.ne))) * np.dot(self.aug_pred_data, self.proj)
+            self.log_update(success=True, prior_run=True)
+
+        if 'localanalysis' in self.keys_da:
+            self.local_analysis_update()
         else:
-            self.pert_preddata = solve(
-                self.scale_data, np.dot(self.aug_pred_data, self.proj))
 
-        aug_state = at.aug_state(self.current_state, self.list_states)
+            if hasattr(self, 'adjoints'):
+                enAdj = self.adjoints.to_matrix(is_jacobian=True)
+            else:
+                enAdj = None
 
-        self.update()  # run analysis
-        if hasattr(self, 'step'):
-            aug_state_upd = aug_state + self.gamma*self.step
-        if hasattr(self, 'w_step'):
-            self.W = self.current_W + self.gamma*self.w_step
-            aug_prior_state = at.aug_state(self.prior_state, self.list_states)
-            aug_state_upd = np.dot(aug_prior_state, (np.eye(
-                self.ne) + self.W / np.sqrt(self.ne - 1)))
-        if hasattr(self, 'sqrt_w_step'):  # if we do a sqrt update
-            self.w = self.current_w + self.gamma*self.sqrt_w_step
-            new_mean_state = self.mean_prior + np.dot(self.X, self.w)
-            u, sigma, v = np.linalg.svd(self.C_w, full_matrices=True)
-            sigma_inv_sqrt = np.diag([el_s ** (-1 / 2) for el_s in sigma])
-            C_w_inv_sqrt = np.dot(np.dot(u, sigma_inv_sqrt), v.T)
-            self.W = C_w_inv_sqrt * np.sqrt(self.ne - 1)
-            aug_state_upd = np.tile(new_mean_state, (self.ne, 1)
-                                    ).T + np.dot(self.X, self.W)
+            self.update(
+                enX=self.enX,
+                enY=self.enPred,
+                enE=self.enObs,
+                prior=self.prior_enX,
+                enAdj=enAdj
+            )
 
-        # Extract updated state variables from aug_update
-        self.state = at.update_state(aug_state_upd, self.state, self.list_states)
-        self.state = at.limits(self.state, self.prior_info)
+            if hasattr(self, 'step'):
+                self.enX_temp = self.enX + self.gamma * self.step
+            if hasattr(self, 'w_step'):
+                self.W = self.current_W + self.gamma * self.w_step
+                self.enX_temp = np.dot(self.prior_enX, (np.eye(self.ne) + self.W / np.sqrt(self.ne - 1)))
+
+            limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
+            self.enX_temp.clip_matrix(limits)
 
     def check_convergence(self):
         """
@@ -498,44 +434,16 @@ class gnenrmlMixIn(Ensemble):
             Dict. with keys corresponding to conv. criteria, with logical variable telling which of them that has been
             met
         """
-        # Prelude to calc. conv. check (everything done below is from calc_analysis)
-        if hasattr(self, 'list_datatypes'):
-            assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
-            list_datatypes = self.list_datatypes
-            cov_data = self.cov_data
-            obs_data_vector, pred_data = at.aug_obs_pred_data(self.obs_data, self.pred_data, assim_index,
-                                                              list_datatypes)
-            mean_preddata = np.mean(pred_data, 1)
-        else:
-            assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
-            list_datatypes, _ = at.get_list_data_types(self.obs_data, assim_index)
-            # cov_data = at.gen_covdata(self.datavar, assim_index, list_datatypes)
-            obs_data_vector, pred_data = at.aug_obs_pred_data(self.obs_data, self.pred_data, assim_index,
-                                                              list_datatypes)
-            # mean_preddata = np.mean(pred_data, 1)
+        enPred = self.pred_data.to_matrix()
 
         # Initialize the initial success value
         success = False
 
-        # if inital conv. check, there are no prev_data_misfit
-        if self.prev_data_misfit is None:
-            self.data_misfit = np.mean(self.data_misfit)
-            self.prev_data_misfit = self.data_misfit
-            self.prev_data_misfit_std = self.data_misfit_std
-            success = True
+        self.prev_data_misfit = self.data_misfit
+        self.prev_data_misfit_std = self.data_misfit_std
 
-        # update the last mismatch, only if this was a reduction of the misfit
-        if self.data_misfit < self.prev_data_misfit:
-            self.prev_data_misfit = self.data_misfit
-            self.prev_data_misfit_std = self.data_misfit_std
-            success = True
-        # if there was no reduction of the misfit, retain the old "valid" data misfit.
-
-        # Calc. std dev of data misfit (used to update lamda)
-        # mat_obs = np.dot(obs_data_vector.reshape((len(obs_data_vector),1)), np.ones((1, self.ne))) # use the perturbed
-        # data instead.
-        mat_obs = self.real_obs_data
-        data_misfit = at.calc_objectivefun(mat_obs, pred_data, self.cov_data)
+        data_misfit = at.calc_objectivefun(self.enObs, enPred, self.cov_data)
+        self.ensemble_misfit = data_misfit
 
         self.data_misfit = np.mean(data_misfit)
         self.data_misfit_std = np.std(data_misfit)
@@ -555,10 +463,12 @@ class gnenrmlMixIn(Ensemble):
 
             if self.data_misfit >= self.prev_data_misfit:
                 success = False
+                self.log_update(success=success)
                 self.logger.info(
                     f'Iterations have converged after {self.iteration} iterations. Objective function reduced '
                     f'from {self.prior_data_misfit:0.1f} to {self.prev_data_misfit:0.1f}')
             else:
+                self.log_update(success=True)
                 self.logger.info(
                     f'Iterations have converged after {self.iteration} iterations. Objective function reduced '
                     f'from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}')
@@ -577,59 +487,63 @@ class gnenrmlMixIn(Ensemble):
             ###############################################
             # If reduction in mean data misfit, reduce damping param
             if self.data_misfit < self.prev_data_misfit and self.data_misfit_std < self.prev_data_misfit_std:
-                # Reduce damping parameter (divide calculations for ANALYSISDEBUG purpose)
-                self.gamma = self.gamma + (self.gamma_max - self.gamma) * 2 ** (
-                    -(self.iteration) / (self.gamma_factor - 1))
                 success = True
-                self.current_state = cp.deepcopy(self.state)
+                self.log_update(success=success)
+
+                if self.gamma_factor > 1:
+                    self.gamma = self.gamma + (self.gamma_max - self.gamma) * 2 ** (
+                        -(self.iteration) / (self.gamma_factor - 1)
+                    )
+
+                self.enX = cp.deepcopy(self.enX_temp)
+                self.enX_temp = None
                 if hasattr(self, 'W'):
                     self.current_W = cp.deepcopy(self.W)
 
             elif self.data_misfit < self.prev_data_misfit and self.data_misfit_std >= self.prev_data_misfit_std:
                 # accept itaration, but keep lam the same
                 success = True
-                self.current_state = cp.deepcopy(self.state)
+                self.log_update(success=success)
+
+                self.enX = cp.deepcopy(self.enX_temp)
+                self.enX_temp = None
                 if hasattr(self, 'W'):
                     self.current_W = cp.deepcopy(self.W)
 
             else:  # Reject iteration, and increase lam
-                # Increase damping parameter (divide calculations for ANALYSISDEBUG purpose)
-                err_str = f"Misfit increased. Set new start step length and try again. Final ojective function value is {self.data_misfit:0.1f}"
-                self.logger.info(err_str)
-                sys.exit(err_str)
                 success = False
+                self.log_update(success=success)
 
-            if success:
-                self.logger.info(f'Successfull iteration number {self.iteration}! Objective function reduced from '
-                                 f'{self.prev_data_misfit:0.1f} to {self.data_misfit:0.1f}. New Gamma for next analysis: '
-                                 f'{self.gamma}')
-            else:
-                self.logger.info(f'Failed iteration number {self.iteration}! Objective function increased from '
-                                 f'{self.prev_data_misfit:0.1f} to {self.data_misfit:0.1f}. New Gamma for repeated analysis: '
-                                 f'{self.gamma}')
+                if self.gamma_factor > 1:
+                    self.gamma = self.gamma / self.gamma_factor
+
+                self.logger(
+                    f'Data misfit increased! New Gamma for repeated analysis: {self.gamma}'
+                )
+
+            if not success:
+                self.data_misfit = self.prev_data_misfit
+                self.data_misfit_std = self.prev_data_misfit_std
 
             # Return conv = False, why_stop var.
             return False, success, why_stop
 
-    def _ext_iter_param(self):
-        """
-        Extract parameters needed in LM-EnRML from the ITERATION keyword given in the DATAASSIM part of PIPT init.
-        file. These parameters include convergence tolerances and parameters for the damping parameter. Default
-        values for these parameters have been given here, if they are not provided in ITERATION.
-        """
-        options = self.keys_da['iteration']
-        if isinstance(options, list):
-            options = extract.list_to_dict(options)
-        
-        self.data_misfit_tol = options.get('data_misfit_tol', 0.01)
-        self.trunc_energy = options.get('energy', 0.95)
-        self.step_tol     = options.get('step_tol', 0.01)
-        self.gamma        = options.get('gamma', 0.2)
-        self.gamma_max    = options.get('gamma_max', 0.5)
-        self.gamma_factor = options.get('gamma_factor', 2.5)
+    def log_update(self, success, prior_run=False):
+        '''
+        Log the update results in a formatted table.
+        '''
+        info = {
+            "Iteration"     : f'{0 if prior_run else self.iteration}',
+            "Status"        : "Success" if (prior_run or success) else "Failed",
+            "Data Misfit"   : self.data_misfit,
+            "Change (%)"    : '',
+            "γ"             : self.gamma
+        }
+        if not prior_run:
+            delta = 100 * (self.data_misfit / self.prev_data_misfit - 1)
+            info["Change (%)"] = delta
 
-        if self.trunc_energy > 1:  # ensure that it is given as percentage
-                self.trunc_energy /= 100.
+        self.logger(**info)
 
 
 class gnenrml_approx(gnenrmlMixIn, approx_update):
@@ -790,7 +704,6 @@ class co_lm_enrml(lmenrmlMixIn, approx_update):
         # Extract updated state variables from aug_update
         self.state = at.update_state(aug_state_upd, self.state, self.list_states)
         self.state = at.limits(self.state, self.prior_info)
-
 
 class gn_enrml(lmenrmlMixIn):
     """
