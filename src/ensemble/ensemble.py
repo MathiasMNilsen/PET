@@ -509,7 +509,7 @@ class Ensemble:
                         **progbar_settings,
                     )
                 ########################################################################################################
-                
+
                 # Replace crashed sims with successful ones, 
                 # and replace the corresponding state in the ensemble if needed
                 sim_output, sim_input, success = self._replace_failed_simulations(sim_output, sim_input, level, is_multilevel)

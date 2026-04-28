@@ -421,7 +421,7 @@ class Assimilate:
         # Extra option debug
         if 'saveforecast' in self.ensemble.sim.input_dict:
             with open(f'{self.save_folder}/sim_results.p', 'wb') as f:
-                if self.ensemble.is_scaled:
+                if self.ensemble.data_df.is_scaled:
                     pickle.dump(self.ensemble.pred_data.copy().invert_scale(), f)
                 else:
                     pickle.dump(self.ensemble.pred_data, f)
