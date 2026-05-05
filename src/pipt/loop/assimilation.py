@@ -470,25 +470,7 @@ class Assimilate:
         Post processing of predicted data after a forecast run
         """
         # Temporary storage of seismic data that need to be scaled
-        pred_data_tmp = [None for _ in self.ensemble.pred_data]
-
-        # Loop over pred data and store temporary
-        if self.ensemble.sparse_info is not None:
-            for i, pred_data in enumerate(self.ensemble.pred_data):
-                for key in pred_data:
-                    # Reset vintage
-                    vintage = 0
-
-                    # Store according to sparse_info
-                    if key == self.ensemble.sparse_info['compress_data'] and pred_data[key] is not None:
-                        # If first entry in pred_data_tmp
-                        if pred_data_tmp[i] is None:
-                            pred_data_tmp[i] = {key: pred_data[key]}
-                        else:
-                            pred_data_tmp[i][key] = pred_data[key]
-
-                        # Update vintage
-                        vintage += 1
+        pred_data_tmp = deepcopy(self.ensemble.pred_data[self.ensemble.sparse_info['compress_data']])
 
         # Scaling used in sim2seis
         if os.path.exists('scale_results.p'):
@@ -499,38 +481,42 @@ class Assimilate:
                 self.scale_val = np.sum(scale[0]) / len(scale[0])
 
             if self.ensemble.sparse_info is not None:
-                for i in range(len(pred_data_tmp)):  # INDEX
-                    if pred_data_tmp[i] is not None:
-                        for k in pred_data_tmp[i]:  # DATATYPE
-                            if 'sim2seis' in k and pred_data_tmp[i][k] is not None:
-                                pred_data_tmp[i][k] = pred_data_tmp[i][k] / self.scale_val
+                for idx in pred_data_tmp.index:  # INDEX
+                    if pred_data_tmp.loc[idx] is not None:
+                        for col in pred_data_tmp.loc[idx]:  # DATATYPE
+                            if ('sim2seis' in col) and (pred_data_tmp.loc[idx][col] is not None):
+                                pred_data_tmp.at[idx, col] = pred_data_tmp.loc[idx][col] / self.scale_val
 
             else:
-                for i in range(len(self.ensemble.pred_data)):  # TRUEDATAINDEX
-                    for k in self.ensemble.pred_data[i]:  # DATATYPE
-                        if 'sim2seis' in k and self.ensemble.pred_data[i][k] is not None:
-                            self.ensemble.pred_data[i][k] = self.ensemble.pred_data[i][k] / \
-                                self.scale_val
+                for idx in self.ensemble.pred_data.index:  # TRUEDATAINDEX
+                    for col in self.ensemble.pred_data.loc[idx]:  # DATATYPE
+                        if 'sim2seis' in col and self.ensemble.pred_data.loc[idx][col] is not None:
+                            self.ensemble.pred_data.at[idx, col] = self.ensemble.pred_data.loc[idx][col] / self.scale_val
 
         # If wavelet compression is based on the simulated data, we need to recompute obs_data, datavar and pred_data.
         if self.ensemble.sparse_info:
-            vintage = 0
             self.ensemble.data_rec = []
-            for i in range(len(pred_data_tmp)):  # INDEX
-                if pred_data_tmp[i] is not None:
-                    for key in pred_data_tmp[i]:  # DATATYPE
+            
+            # Determine output shape based on algorithm
+            ne = self.ensemble.ne + 1 if self.ensemble.keys_da['daalg'][1] == 'gies' else self.ensemble.ne
+
+            for vintage, (idx, row) in enumerate(pred_data_tmp.iterrows()):
+                if row is not None:
+                    for key in row:
                         if key == self.ensemble.sparse_info['compress_data']:
-                            if self.ensemble.keys_da['daalg'][1] == 'gies':
-                                self.ensemble.pred_data[i][key] = np.zeros(
-                                    (len(self.ensemble.obs_data[i][key]), self.ensemble.ne+1))
-                            else:
-                                self.ensemble.pred_data[i][key] = np.zeros(
-                                    (len(self.ensemble.obs_data[i][key]), self.ensemble.ne))
-                            for m in range(pred_data_tmp[i][key].shape[1]):
-                                data_array = self.ensemble.compress_manager(pred_data_tmp[i][key][:, m], vintage,
-                                                                    self.ensemble.sparse_info['use_ensemble'])
-                                self.ensemble.pred_data[i][key][:, m] = data_array
-                            vintage = vintage + 1
+                            # Initialize output array
+                            data_len = len(self.ensemble.data_df.loc[idx, key])
+                            self.ensemble.pred_data.at[idx, key] = np.zeros((data_len, ne))
+                            
+                            # Process each ensemble member
+                            for m in range(pred_data_tmp.loc[idx, key].shape[1]):
+                                data_array = self.ensemble.compress_manager(
+                                    pred_data_tmp.loc[idx, key][:, m], 
+                                    vintage,
+                                    self.ensemble.sparse_info['use_ensemble']
+                                )
+                                self.ensemble.pred_data.at[idx, key][:, m] = data_array
+
             if self.ensemble.sparse_info['use_ensemble']:
                 self.ensemble.compress_manager()
                 self.ensemble.sparse_info['use_ensemble'] = None

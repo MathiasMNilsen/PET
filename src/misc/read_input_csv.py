@@ -550,8 +550,9 @@ class DataReader:
                     assert cell.ndim < 2, f"Expected 1D array in npz file {cell}, but got {cell.ndim}D."
 
                 if (self.sparse is not None) and (col in self.sparse['compress_data']):
-                    cell = self._wavelet_compression(cell, vintage=vintage)
-                    vintage += 1
+                    if vintage < len(self.sparse['mask']):                        
+                        cell = self._wavelet_compression(cell, vintage=vintage)
+                        vintage += 1
                 
                 # Store new value
                 df.at[idx, col] = cell
@@ -571,6 +572,7 @@ class DataReader:
             raise TypeError(msg)
 
         # Fill in dataframe
+        vintage = 0 
         df = PETDataFrame(columns=data_df.columns, index=data_df.index)
         for i, idx in enumerate(data_df.index):
             for c, col in enumerate(data_df.columns):
@@ -581,8 +583,10 @@ class DataReader:
                         (sparse_data is not None)
                         and (self.sparse is not None)
                         and (col in self.sparse['compress_data'])
+                        and (vintage < len(sparse_data))
                     ):
-                        var = np.power(sparse_data[i].est_noise, 2)
+                        var = np.power(sparse_data[vintage].est_noise, 2)
+                        vintage += 1
 
                     else:
                         var = self._extract_cell_variance(
@@ -591,10 +595,10 @@ class DataReader:
                             i, 
                             c,
                         )
-
-                    df.loc[idx, col] = var
+                        
+                    df.at[idx, col] = var
                 else:
-                    df.loc[idx, col] = None
+                    df.at[idx, col] = None
         
         # Mark as ensemble if specified in info
         if 'emp_cov' in self.info:
@@ -636,12 +640,18 @@ class DataReader:
 
         # Variance given as relative percentage (e.g., ['rel', 5] means 5% of the data value)
         if var_cell[0].lower() == 'rel':
+            if var_cell[1] is None:
+                return None
             return (0.01*var_cell[1] * data_cell)**2
         
         # Variance given as absolute value (e.g., ['abs', 0.5] means a variance of 0.5). 
         # If the value is iterable, it is indexed by column.
         elif var_cell[0].lower() == 'abs':
-            val = var_cell[1]
+            if hasattr(data_cell, 'ndim') and data_cell.ndim > 0:
+                val = var_cell[1]*np.ones_like(data_cell)
+                return val
+            else:
+                val = var_cell[1]
             if hasattr(val, '__iter__') and not isinstance(val, str):
                 return val[c]
             else:

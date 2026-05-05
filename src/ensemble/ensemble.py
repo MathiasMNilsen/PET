@@ -157,7 +157,7 @@ class Ensemble:
                 # State variable imported as a Numpy save file
                 file = self.keys_en['importstaticvar'] if 'importstaticvar' in self.keys_en else self.keys_en['importstate']
                 file = np.load(file, allow_pickle=True)
-                self.enX = PETStateArray.from_dict({key: file[key] for key in file.files}, ne=self.ne)
+                self.enX = PETStateArray.from_dict({key: file[key] for key in file.files}, ne=int(self.ne))
                 self.idX = self.enX.indices
                 self.list_states = list(self.enX.indices.keys())
 

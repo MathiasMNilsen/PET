@@ -193,7 +193,7 @@ class PETDataFrame(pd.DataFrame):
 
         arr = []
         for val in df.to_series().values:
-            if filter and (val is None or np.all(np.asarray(val) == None)):
+            if filter and ((val is None) or (np.isnan(val).any()) or np.all(np.asarray(val) == None)):
                 continue
 
             if (not self.is_ensemble) and isinstance(val, np.ndarray) and (not is_jacobian):
@@ -283,7 +283,7 @@ class PETStateArray(np.ndarray):
             if ne is None:
                 values = np.asarray(member[key])
             else:
-                values = np.asarray(member[key])[:,:ne]
+                values = np.asarray(member[key])[:,:int(ne)]
 
             size = values.shape[0]
             indices[key] = (running, running + size)
