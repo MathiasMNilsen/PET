@@ -15,8 +15,8 @@ from scipy.integrate import solve_ivp
 from multiprocessing import Pool
 
 
-__author__ = "auto-generated"
-__all__ = ["VanDerPolOscillator"]
+__author__ = "copilot, Mathias Methlie Nilsen, Andreas Stordal"
+__all__ = ["VanDerPolOscillator", "_integrate"]
 
 
 # ---------------------------------------------------------------------------
