@@ -37,10 +37,15 @@ class approx_update():
         '''
 
         # Scale and center the ensemble matrecies
-        enYcentered = self.scale(np.dot(enY, self.proj), self.scale_data)
+        if kwargs.get('enAdj', None) is None:
+            Y = np.dot(enY, self.proj) # Such that Cyy ≈ Y @ Y.T
+            Y = self.scale(Y, self.scale_data)
+        else:
+            Gavg = np.mean(kwargs['enAdj'], axis=-1)
+            Y = self.scale(Gavg @ enX @ self.proj, self.scale_data)
 
-        # Perform truncated SVD
-        Ud, Sd, VTd = at.truncSVD(enYcentered, energy=self.trunc_energy)
+        # Perform truncated SVD on Y
+        U, S, VT = at.truncSVD(Y, energy=self.trunc_energy)
 
         # Check for localization methods
         if 'localization' in self.keys_da:
@@ -48,21 +53,18 @@ class approx_update():
 
             # Calculate the localization projection matrix
             if extract.is_enabled(self.keys_da.get('emp_cov', False)):
-                # Scale and center the data ensemble matrix
-                enEcentered = self.scale(np.dot(enE, self.proj), self.scale_data)
+                E = np.dot(enE, self.proj) # Such that Cdd ≈ E @ E.T
+                E = self.scale(E, self.scale_data)
 
                 # Calculate intermediate matrix
-                Sinv = np.diag(1/Sd)
-                X0 = Sinv @ Ud.T @ enEcentered
-
-                # Eigen decomposition of X0 X0^T
+                X0 = np.diag(1/S) @ U.T @ E
                 eigval, eigvec = np.linalg.eig(X0 @ X0.T)
                 reg_term = (self.lam + 1) * np.diag(eigval) + np.eye(len(eigval))
-                X = (VTd.T @ eigvec) @ solve(reg_term, (Ud.T @ (Sinv @ eigvec)).T)
+                X = (VT.T @ eigvec) @ solve(reg_term, (U.T @ (np.diag(1/S) @ eigvec)).T)
                 
             else:
-                reg_term = (self.lam + 1)*np.eye(Sd.size) + np.diag(Sd**2)
-                X = VTd.T @ np.diag(Sd) @ solve(reg_term, Ud.T)
+                reg_term = (self.lam + 1)*np.eye(S.size) + np.diag(S**2)
+                X = VT.T @ np.diag(S) @ solve(reg_term, U.T)
 
             
             # Check for adaptive localization
@@ -189,35 +191,13 @@ class approx_update():
                 self.step = at.aug_state(self.step, list(self.idX.keys()))
 
         else:
-
-            # if ('emp_cov' in self.keys_da) and (self.keys_da['emp_cov'] == 'yes'):
-                
-            #     # Scale and center the ensemble matrecies: enX and enE
-            #     enXcentered = self.scale(enX - np.mean(enX, 1)[:,None], self.state_scaling)
-            #     enEcentered = self.scale(enE - np.mean(enE, 1)[:,None], self.scale_data)
-
-            #     Sinv = np.diag(1/Sd)
-            #     X0 = Sinv @ Ud.T @ enEcentered
-            #     eigval, eigvec = np.linalg.eig(X0 @ X0.T)
-
-            #     # Calculate and scale difference between observations and predictions (residuals)
-            #     enRes = self.scale(enE - enY, self.scale_data)
-
-            #     # Compute the update step
-            #     X1 = (Ud @ Sinv @ eigvec).T @ enRes
-            #     X2 = solve((self.lam + 1) * np.diag(eigval) + np.eye(len(eigval)), X1)
-            #     X3 = np.dot(VTd.T, eigvec) @ X2
-            #     self.step = np.dot(self.state_scaling[:, None]*enXcentered, X3)
- 
-            # else:
-            enXcentered = self.scale(np.dot(enX, self.proj), self.state_scaling)
+            A = np.dot(enX, self.proj) # Such that Cxx ≈ A @ A.T
+            A = self.scale(A, self.state_scaling)
             enRes = self.scale(enE - enY, self.scale_data)
-            
-            # Compute the update step
-            X1 = Ud.T @ enRes
-            X2 = solve((self.lam + 1)*np.eye(Sd.size) + np.diag(Sd**2), X1)
-            X3 = VTd.T @ np.diag(Sd) @ X2
-            self.step = np.dot(self.state_scaling[:, None] * enXcentered, X3)
+            X1 = U.T @ enRes
+            X2 = solve((self.lam + 1)*np.eye(S.size) + np.diag(S**2), X1)
+            X3 = VT.T @ np.diag(S) @ X2
+            self.step = np.dot(self.state_scaling[:, None] * A, X3)
 
 
     def scale(self, data, scaling):
