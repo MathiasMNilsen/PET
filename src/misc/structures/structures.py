@@ -193,7 +193,7 @@ class PETDataFrame(pd.DataFrame):
 
         arr = []
         for val in df.to_series().values:
-            if filter and ((val is None) or (np.isnan(val).any()) or np.all(np.asarray(val) == None)):
+            if filter and not np.any(pd.notna(np.atleast_1d(val))):
                 continue
 
             if (not self.is_ensemble) and isinstance(val, np.ndarray) and (not is_jacobian):

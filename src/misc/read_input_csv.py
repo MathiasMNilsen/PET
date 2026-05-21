@@ -549,8 +549,8 @@ class DataReader:
                     cell = np.squeeze(npzfile[npzfile.files[0]])
                     assert cell.ndim < 2, f"Expected 1D array in npz file {cell}, but got {cell.ndim}D."
 
-                if (self.sparse is not None) and (col in self.sparse['compress_data']):
-                    if vintage < len(self.sparse['mask']):                        
+                if (self.sparse is not None) and (col in self.sparse['compress_data']) and (not np.isnan(cell).any()):
+                    if vintage < len(self.sparse['mask']):                    
                         cell = self._wavelet_compression(cell, vintage=vintage)
                         vintage += 1
                 
@@ -576,15 +576,15 @@ class DataReader:
         df = PETDataFrame(columns=data_df.columns, index=data_df.index)
         for i, idx in enumerate(data_df.index):
             for c, col in enumerate(data_df.columns):
-                if data_df.loc[idx, col] is not None:
 
+                if (not data_df.loc[idx, col] is None) and (not np.isnan(data_df.loc[idx, col]).any()):
+                    
                     # Sparse stuff (for seismic data)
                     if (
                         (sparse_data is not None)
-                        and (self.sparse is not None)
                         and (col in self.sparse['compress_data'])
                         and (vintage < len(sparse_data))
-                    ):
+                    ):  
                         var = np.power(sparse_data[vintage].est_noise, 2)
                         vintage += 1
 

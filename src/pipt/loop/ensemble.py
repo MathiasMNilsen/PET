@@ -564,7 +564,8 @@ class Ensemble(PETEnsemble):
         
         else:
             if not hasattr(self, 'cov_data'):  # if cd is not loaded
-                self.cov_data = at.construct_data_cov(self.data_var_df)
+                cov = at.construct_data_cov(self.data_var_df)
+                self.cov_data = cov[~np.isnan(cov)]
 
             # data screening
             if extract.is_enabled(self.keys_da.get('screendata', False)):
@@ -574,7 +575,7 @@ class Ensemble(PETEnsemble):
                     obs_data_vector = vecObs, 
                     iteration = self.iteration
                 )
-            
+
             generator = Cholesky()  # Initialize GeoStat class for generating realizations
             enObs, self.scale_data = generator.gen_real(
                 mean = vecObs, 
@@ -654,7 +655,7 @@ class Ensemble(PETEnsemble):
 
         elif aug_coeff is None: # compress predicted data
 
-            data_array, wdec_rec = self.sparse_data[vintage].compress(data)
+            data_array, wdec_rec = self.sparse_data[vintage].compress(data)  # compress
             rec = self.sparse_data[vintage].reconstruct(
                 wdec_rec)  # reconstruct the simulated data
             if len(self.data_rec) == vintage:

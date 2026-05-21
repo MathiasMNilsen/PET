@@ -403,7 +403,10 @@ class Assimilate:
 
     def post_process_forecast(self) -> None:
         """Post-process predicted data after a forecast run."""
-        pred_data_tmp = deepcopy(self.ensemble.pred_data[self.ensemble.sparse_info["compress_data"]])
+        compress_columns = self.ensemble.sparse_info["compress_data"]
+        if not isinstance(compress_columns, list):
+            compress_columns = [compress_columns]
+        pred_data_tmp = deepcopy(self.ensemble.pred_data[compress_columns])
 
         self._apply_sim2seis_scaling(pred_data_tmp)
         self._apply_sparse_compression(pred_data_tmp)
@@ -448,20 +451,21 @@ class Assimilate:
         use_ensemble = self.ensemble.sparse_info["use_ensemble"]
         ensemble_size = self.ensemble.ne + 1 if self.ensemble.keys_da["daalg"][1] == "gies" else self.ensemble.ne
 
-        for vintage, (index, row) in enumerate(pred_data_tmp.iterrows()):
-            if row is None or compress_key not in row:
+        vintage = 0
+        for index in pred_data_tmp.index:
+            cell = pred_data_tmp.loc[index, compress_key]
+            if None in cell:
                 continue
 
             data_length = len(self.ensemble.data_df.loc[index, compress_key])
             self.ensemble.pred_data.at[index, compress_key] = np.zeros((data_length, ensemble_size))
 
-            for member in range(pred_data_tmp.loc[index, compress_key].shape[1]):
+            for member in range(ensemble_size):
                 compressed_data = self.ensemble.compress_manager(
-                    pred_data_tmp.loc[index, compress_key][:, member],
-                    vintage,
-                    use_ensemble,
+                    cell[:, member], vintage, use_ensemble,
                 )
                 self.ensemble.pred_data.at[index, compress_key][:, member] = compressed_data
+            vintage += 1
 
         if use_ensemble:
             self.ensemble.compress_manager()
