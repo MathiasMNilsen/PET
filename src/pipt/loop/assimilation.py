@@ -3,6 +3,7 @@
 import os
 import pickle
 import numpy as np
+import pandas as pd
 from copy import deepcopy
 from importlib import import_module
 from typing import Any
@@ -10,6 +11,7 @@ from typing import Any
 from pipt.loop.ensemble import Ensemble
 from pipt.misc_tools import analysis_tools as at
 from pipt.misc_tools.qaqc_tools import QAQC
+from misc.structures import PETDataFrame
 import pipt.misc_tools.extract_tools as extract
 
 
@@ -299,11 +301,11 @@ class Assimilate:
             if hasattr(self, save_type):
                 save_dict[save_type] = getattr(self, save_type)
             elif hasattr(self.ensemble, save_type):
-                if save_type == 'pred_data':
-                    # Make tolist of records (dataframe cannot be saved in .npz file)
-                    save_dict[save_type] = self.ensemble.pred_data.to_dict(orient='records')
+                save_attr = getattr(self.ensemble, save_type)
+                if isinstance(save_attr, (pd.DataFrame, PETDataFrame)):
+                    save_dict[save_type] = save_attr.to_dict(orient='records')
                 else:
-                    save_dict[save_type] = getattr(self.ensemble, save_type)
+                    save_dict[save_type] = save_attr
             elif save_type == "state":
                 save_dict.update(self._state_debug_dict())
             else:
