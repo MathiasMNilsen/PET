@@ -119,7 +119,8 @@ def test_EMSDA_approx(tmp_path, num_cores):
         'obsname': 'steps',
         'data': 'true_data.pkl',
         'datavar': 'var.pkl',
-        'save_folder': 'results'
+        'save_folder': 'results',
+        'analysisdebug': ['state', 'pred_data', 'ensemble_misfit'],
     }
     _make_config_file(name="config_emsda", kwda=kwda, parallel_runs=num_cores)
 
@@ -167,7 +168,8 @@ def test_LM_EnRML_approx(tmp_path, num_cores):
         'obsname': 'steps',
         'data': 'true_data.pkl',
         'datavar': 'var.pkl',
-        'save_folder': 'results'
+        'save_folder': 'results',
+        'analysisdebug': ['state', 'pred_data', 'ensemble_misfit'],
     }
     _make_config_file(name="config_lm_enrml", kwda=kwda, parallel_runs=num_cores)
 
@@ -215,7 +217,8 @@ def test_GN_EnRML_approx(tmp_path, num_cores):
         'obsname': 'steps',
         'data': 'true_data.pkl',
         'datavar': 'var.pkl',
-        'save_folder': 'results'
+        'save_folder': 'results',
+        'analysisdebug': ['state', 'pred_data', 'ensemble_misfit'],
     }
     _make_config_file(name="config_gn_enrml", kwda=kwda, parallel_runs=num_cores)
 
