@@ -160,9 +160,9 @@ class Assimilate:
         if not self._saving_enabled:
             return
         try:
-            self.ensemble.pred_data.to_pickle(self._save_path(self.PRIOR_FORECAST_FILE))
+            self.ensemble.sim_data.to_pickle(self._save_path(self.PRIOR_FORECAST_FILE))
         except Exception:
-            np.savez(self._save_path(self.PRIOR_FORECAST_FILE), pred_data=self.ensemble.pred_data)
+            np.savez(self._save_path(self.PRIOR_FORECAST_FILE), sim_data=self.ensemble.sim_data)
 
     def _run_analysis_iteration(self) -> tuple[bool, bool]:
         """Run analysis, forecast, outlier handling and convergence check."""
@@ -226,12 +226,12 @@ class Assimilate:
         """Save posterior state and forecast, falling back to pickle if needed."""
         try:
             np.savez(self._save_path(self.POSTERIOR_STATE_FILE), **self.ensemble.enX.to_dict())
-            self.ensemble.pred_data.to_pickle(self._save_path(self.POSTERIOR_FORECAST_FILE))
+            self.ensemble.sim_data.to_pickle(self._save_path(self.POSTERIOR_FORECAST_FILE))
         except Exception:
             with open(self._save_path(self.POSTERIOR_STATE_FILE), "wb") as file:
                 pickle.dump(self.ensemble.enX.to_dict(), file)
             with open(self._save_path(self.POSTERIOR_FORECAST_FILE), "wb") as file:
-                pickle.dump(self.ensemble.pred_data, file)
+                pickle.dump(self.ensemble.sim_data, file)
 
     def _save_stop_reason(self, converged: bool) -> None:
         if converged:
@@ -266,15 +266,19 @@ class Assimilate:
         return os.path.join(self.save_folder, filename)
 
     def _remove_outliers(self) -> None:
-        """Remove outlier ensemble members from prediction and state data."""
+        """Remove outlier ensemble members from simulation and state data."""
         state_attribute = "enX_temp" if self.ensemble.enX_temp is not None else "enX"
-        filtered_prediction, filtered_state = at.remove_outliers(
-            self.ensemble.pred_data,
+        filtered_sim, filtered_state = at.remove_outliers(
+            self.ensemble.sim_data,
             self.ensemble.data_df,
             getattr(self.ensemble, state_attribute),
             self.ensemble.data_var_df,
         )
-        self.ensemble.pred_data = filtered_prediction
+        self.ensemble.sim_data = filtered_sim
+        self.ensemble.pred_data = self.filter_pred_data(
+            self.ensemble.data_df,
+            self.ensemble.sim_data,
+        )
         setattr(self.ensemble, state_attribute, filtered_state)
 
     def _save_iteration_information(self) -> None:
@@ -327,9 +331,11 @@ class Assimilate:
 
         state = self.ensemble.enX if self.ensemble.enX_temp is None else self.ensemble.enX_temp
         self.ensemble.calc_prediction(enX=state)
+
+        # Filter sim_data to get pred_data
         self.ensemble.pred_data = self.filter_pred_data(
             self.ensemble.data_df,
-            self.ensemble.pred_data,
+            self.ensemble.sim_data,
         )
 
         self._apply_prediction_scaling()
@@ -344,7 +350,12 @@ class Assimilate:
             return False
 
         with open(self.RESTART_RESULTS_FILE, "rb") as file:
-            self.ensemble.pred_data = pickle.load(file)
+            self.ensemble.sim_data = pickle.load(file)
+
+        self.ensemble.pred_data = self.filter_pred_data(
+            self.ensemble.data_df,
+            self.ensemble.sim_data,
+        )
         os.rename(self.RESTART_RESULTS_FILE, self.SIM_RESULTS_FILE)
         print("--- Restart sim results used ---")
         return True
@@ -365,7 +376,7 @@ class Assimilate:
         if not self._saving_enabled:
             return
 
-        forecast = self.ensemble.pred_data
+        forecast = self.ensemble.sim_data
         if self.ensemble.data_df.is_scaled:
             forecast = forecast.copy().invert_scale()
 

@@ -578,15 +578,16 @@ class DataReader:
             for c, col in enumerate(data_df.columns):
 
                 if (not data_df.loc[idx, col] is None) and (not np.isnan(data_df.loc[idx, col]).any()):
-                    
                     # Sparse stuff (for seismic data)
                     if (
-                        (sparse_data is not None)
-                        and (col in self.sparse['compress_data'])
-                        and (vintage < len(sparse_data))
-                    ):  
+                        self.sparse is not None
+                        and sparse_data is not None
+                        and col in self.sparse.get('compress_data', [])
+                        and vintage < len(sparse_data)
+                    ):
                         var = np.power(sparse_data[vintage].est_noise, 2)
                         vintage += 1
+
 
                     else:
                         var = self._extract_cell_variance(

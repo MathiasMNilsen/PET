@@ -63,6 +63,7 @@ class Ensemble:
 
         # Initialize some attributes
         self.pred_data = None
+        self.sim_data = None
         self.enX_temp = None
         self.enX = None
         self.idX = {}
@@ -180,7 +181,7 @@ class Ensemble:
         """
 
         nparallel = int(self.sim.input_dict.get('parallel', 1))
-        self.pred_data = []
+        self.sim_data = []
 
         if hasattr(self, 'multilevel') and (self.multilevel is not None):
             is_multilevel = True
@@ -290,15 +291,15 @@ class Ensemble:
                         dfs = [pd.DataFrame.from_records(pred) for pred in sim_output]
 
                     # Combine dataframes into PETDataFrame
-                    pred_data = PETDataFrame.merge_dataframes(dfs)
+                    sim_data = PETDataFrame.merge_dataframes(dfs)
 
                 elif all(isinstance(el, pd.DataFrame) for el in sim_output):
                     # List of dataframes
-                    pred_data = PETDataFrame.merge_dataframes(list(sim_output))
+                    sim_data = PETDataFrame.merge_dataframes(list(sim_output))
                     try:
-                        pred_data = pred_data[self.data_df.columns]
+                        sim_data = sim_data[self.data_df.columns]
                     except:
-                        pred_data = pred_data[self.sim.datatype]
+                        sim_data = sim_data[self.sim.datatype]
 
                 else:
                     msg = 'Simulator output should be either a dataframe or a list of dictionaries.'
@@ -306,18 +307,17 @@ class Ensemble:
                     raise ValueError(msg)
 
                 if self.keys_en.get('scale_data', False) and hasattr(self, 'data_df'):
-                    pred_data.scale(
+                    sim_data.scale(
                         type='max-min', 
                         minimum=self.data_df.scale_min, 
                         maximum=self.data_df.scale_max
                     )
                 # ---------------------------------------------------------------------------------------------
+                self.sim_data.append(sim_data)
 
-                #Convert ensemble specific result into pred_data, and filter for NONE data
-                self.pred_data.append(pred_data)
-
-        if len(self.pred_data) == 1:
-            self.pred_data = self.pred_data[0]
+        
+        if len(self.sim_data) == 1:
+            self.sim_data = self.sim_data[0]
 
         if is_multilevel:
             self.treat_modeling_error()
@@ -326,9 +326,9 @@ class Ensemble:
             folder = self.ensemble.keys_da.get('savefolder', 'Predictions')
             if is_multilevel:
                 for l in range(self.tot_level):
-                    self.pred_data[l].to_pickle(f'{folder}/{save_prediction}_level{l}.pkl')
+                    self.sim_data[l].to_pickle(f'{folder}/{save_prediction}_level{l}.pkl')
             else:
-                self.pred_data.to_pickle(f'{folder}/{save_prediction}.pkl')
+                self.sim_data.to_pickle(f'{folder}/{save_prediction}.pkl')
 
         return success
         
