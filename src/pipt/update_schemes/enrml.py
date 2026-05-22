@@ -42,6 +42,17 @@ else:
 from pipt.misc_tools.analysis_tools import aug_state
 
 
+__all__ = [
+    'lmenrml_approx', 
+    'lmenrml_full', 
+    'lmenrml_subspace', 
+    'gnenrml_approx', 
+    'gnenrml_full', 
+    'gnenrml_subspace', 
+    'gnenrml_margis', 
+]
+
+
 class lmenrmlMixIn(Ensemble):
     """
     This is an implementation of EnRML using Levenberg-Marquardt. The update scheme is selected by a MixIn with multiple

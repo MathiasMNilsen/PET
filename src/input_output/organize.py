@@ -1,9 +1,12 @@
 """Descriptive description."""
 
 from copy import deepcopy
+from pathlib import Path
 import csv
 import datetime as dt
+import os
 import pandas as pd
+import yaml
 
 
 class Organize_input():
@@ -94,25 +97,12 @@ class Organize_input():
 
         # Check if a csv file has been included as "REPORTPOINT". If so, we read it and make a list,
         if 'reportpoint' in self.keys_fwd:
-            if isinstance(self.keys_fwd['reportpoint'], str) and self.keys_fwd['reportpoint'].endswith('.csv'):
-                with open(self.keys_fwd['reportpoint']) as csvfile:
-                    reader = csv.reader(csvfile)  # get a reader object
-                    pred_prim = []  # Initialize the list of csv data
-                    for rows in reader:  # Rows is a list of values in the csv file
-                        csv_data = [None] * len(rows)
-                        for ind, col in enumerate(rows):
-                            try:
-                                csv_data[ind] = int(col)
-                            except ValueError:
-                                csv_data[ind] = dt.datetime.strptime(
-                                    col, '%Y-%m-%d %H:%M:%S')
-
-                        pred_prim.extend(csv_data)
-                self.keys_fwd['reportpoint'] = pred_prim
-
+            if isinstance(self.keys_fwd['reportpoint'], str):
+                self.keys_fwd['reportpoint'] = report_point_file_reader(self.keys_fwd['reportpoint'])
             elif isinstance(self.keys_fwd['reportpoint'], dict):
-                self.keys_fwd['reportpoint'] = pd.date_range(**self.keys_fwd['reportpoint']).to_pydatetime().tolist()
-
+                self.keys_fwd['reportpoint'] = pd.date_range(
+                    **self.keys_fwd['reportpoint']
+                ).to_pydatetime().tolist()
             else:
                 pass
 
@@ -137,3 +127,60 @@ class Organize_input():
                 self.keys_fwd['reportpoint'] = [self.keys_fwd['reportpoint']]
             if not isinstance(self.keys_pr['assimindex'], list):
                 self.keys_pr['assimindex'] = [self.keys_pr['assimindex']]
+
+
+def report_point_file_reader(filepath):
+    """
+    Reads a file containing report points and returns a list of parsed values as integers or datetimes.
+
+    Supported file types:
+        - CSV (.csv): Each cell is parsed as an integer if possible, otherwise as a datetime (supports ISO and common formats).
+        - TXT (.txt): Each line is parsed as an ISO 8601 datetime string.
+        - YAML (.yaml): Each entry is parsed as a datetime (supports ISO and common formats).
+
+    Parameters
+    ----------
+    filepath : str
+        Path to the input file. Must exist and have a supported extension (.csv, .txt, .yaml).
+
+    Returns
+    -------
+    list
+        List of parsed report points. Elements are either int or pandas.Timestamp/datetime.datetime objects,
+        depending on the file content.
+
+    Raises
+    ------
+    AssertionError
+        If the file does not exist.
+    ValueError
+        If the file extension is not supported.
+
+    Notes
+    -----
+    - Empty cells in CSV files are skipped.
+    - For CSV and YAML, pandas.to_datetime is used for flexible datetime parsing.
+    - For TXT, each line must be a valid ISO 8601 datetime string.
+    """
+    assert os.path.isfile(filepath), f"File {filepath} does not exist."
+    if Path(filepath).suffix.lower() == ".csv":
+        df = pd.read_csv(filepath, header=None)
+        values = df.values.ravel()
+        rpoints = []
+        for v in values:
+            if pd.isna(v):
+                continue  # skip empty cells
+            try:
+                rpoints.append(int(v))
+            except (ValueError, TypeError):
+                rpoints.append(pd.to_datetime(v))
+
+    elif Path(filepath).suffix.lower() == ".txt":
+        with open(filepath) as file:
+            rpoints = [dt.datetime.fromisoformat(line.strip()) for line in file]
+    elif Path(filepath).suffix.lower() == ".yaml":
+        with open(filepath) as file:
+            rpoints = [pd.to_datetime(v) for v in yaml.safe_load(file)]
+    else:
+        raise ValueError(f"Unsupported file type: {filepath}")
+    return rpoints

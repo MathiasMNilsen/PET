@@ -18,6 +18,12 @@ from pipt.update_schemes.update_methods_ns.approx_update import approx_update
 from pipt.update_schemes.update_methods_ns.full_update import full_update
 from pipt.update_schemes.update_methods_ns.subspace_update import subspace_update
 
+__all__ = [
+    'esmda_approx', 
+    'esmda_full', 
+    'esmda_subspace', 
+    'esmda_geo'
+]
 
 class esmdaMixIn(Ensemble):
     """

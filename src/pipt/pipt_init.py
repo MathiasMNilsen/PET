@@ -4,7 +4,6 @@
 from fnmatch import filter  # to check if wildcard name is in list
 from importlib import import_module
 
-
 def init_da(da_input, en_input, sim):
     "initialize the ensemble object based on the DA inputs"
 
