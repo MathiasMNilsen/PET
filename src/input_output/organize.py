@@ -104,56 +104,79 @@ class ConfigNormalizer:
 
 def report_point_file_reader(filepath):
     """
-    Reads a file containing report points and returns a list of parsed values as integers or datetimes.
+    Read a file containing report points and return parsed values.
 
     Supported file types:
-        - CSV (.csv): Each cell is parsed as an integer if possible, otherwise as a datetime (supports ISO and common formats).
-        - TXT (.txt): Each line is parsed as an ISO 8601 datetime string.
-        - YAML (.yaml): Each entry is parsed as a datetime (supports ISO and common formats).
+        - .csv : Each cell is parsed as int or datetime
+        - .txt : Each line is parsed as int or datetime
+        - .yaml: Each entry is parsed as int or datetime
 
     Parameters
     ----------
     filepath : str
-        Path to the input file. Must exist and have a supported extension (.csv, .txt, .yaml).
+        Path to the input file.
 
     Returns
     -------
     list
-        List of parsed report points. Elements are either int or pandas.Timestamp/datetime.datetime objects,
-        depending on the file content.
+        List of parsed values (int or datetime-like objects).
 
     Raises
     ------
-    AssertionError
+    FileNotFoundError
         If the file does not exist.
     ValueError
-        If the file extension is not supported.
-
-    Notes
-    -----
-    - Empty cells in CSV files are skipped.
-    - For CSV and YAML, pandas.to_datetime is used for flexible datetime parsing.
-    - For TXT, each line must be a valid ISO 8601 datetime string.
+        If the file type is unsupported or parsing fails.
     """
-    assert os.path.isfile(filepath), f"File {filepath} does not exist."
-    if Path(filepath).suffix.lower() == ".csv":
+
+    def _parse_value(value, source):
+        """Parse a single value into int or datetime."""
+        if pd.isna(value) or (isinstance(value, str) and not value.strip()):
+            return None
+
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            try:
+                return pd.to_datetime(value)
+            except Exception:
+                raise ValueError(
+                    f"Unable to parse '{value}' in file '{source}' "
+                    "as integer or datetime."
+                )
+
+    if not os.path.isfile(filepath):
+        raise FileNotFoundError(f"File '{filepath}' does not exist.")
+
+    extension = Path(filepath).suffix.lower()
+    report_points = []
+
+    if extension == ".csv":
         df = pd.read_csv(filepath, header=None)
         values = df.values.ravel()
-        rpoints = []
-        for v in values:
-            if pd.isna(v):
-                continue  # skip empty cells
-            try:
-                rpoints.append(int(v))
-            except (ValueError, TypeError):
-                rpoints.append(pd.to_datetime(v))
 
-    elif Path(filepath).suffix.lower() == ".txt":
-        with open(filepath) as file:
-            rpoints = [dt.datetime.fromisoformat(line.strip()) for line in file]
-    elif Path(filepath).suffix.lower() == ".yaml":
-        with open(filepath) as file:
-            rpoints = [pd.to_datetime(v) for v in yaml.safe_load(file)]
+        for value in values:
+            parsed = _parse_value(value, filepath)
+            if parsed is not None:
+                report_points.append(parsed)
+
+    elif extension == ".txt":
+        with open(filepath, encoding="utf-8") as file:
+            for line in file:
+                parsed = _parse_value(line.strip(), filepath)
+                if parsed is not None:
+                    report_points.append(parsed)
+
+    elif extension == ".yaml":
+        with open(filepath, encoding="utf-8") as file:
+            data = yaml.safe_load(file) or []
+
+        for value in data:
+            parsed = _parse_value(value, filepath)
+            if parsed is not None:
+                report_points.append(parsed)
+
     else:
-        raise ValueError(f"Unsupported file type: {filepath}")
-    return rpoints
+        raise ValueError(f"Unsupported file type: '{extension}'")
+
+    return report_points

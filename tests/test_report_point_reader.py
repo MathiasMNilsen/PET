@@ -22,6 +22,16 @@ DATETIMES = [
 INDEX = [1, 2, 3]
 
 
+def test_report_point_file_reader_csv_int(tmp_path):
+    # Create a CSV file with integer report points
+    csv_content = "\n".join(str(i) for i in INDEX)
+    csv_file = tmp_path / "test_int.csv"
+    csv_file.write_text(csv_content)
+    points = report_point_file_reader(str(csv_file))
+    assert all(isinstance(val, int) for val in points)
+    assert points == INDEX
+
+
 def test_report_point_file_reader_csv_iso(tmp_path):
     # Create a CSV file datetimes (ISO)
     csv_content = "\n".join(DATETIMES_STR_ISO)
@@ -58,6 +68,15 @@ def test_report_point_file_reader_txt(tmp_path):
     assert all(isinstance(dt_val, dt.datetime) for dt_val in result)
     assert result == DATETIMES
 
+def test_report_point_file_reader_txt_int(tmp_path):
+    # Create a TXT file with integer report points
+    txt_content = "\n".join(str(i) for i in INDEX)
+    txt_file = tmp_path / "test_int.txt"
+    txt_file.write_text(txt_content)
+    result = report_point_file_reader(str(txt_file))
+    assert all(isinstance(val, int) for val in result)
+    assert result == INDEX
+
 def test_report_point_file_reader_yaml_iso(tmp_path):
     # Create a YAML file with ISO datetimes
     yaml_content = yaml.dump(DATETIMES_STR_ISO)
@@ -76,6 +95,15 @@ def test_report_point_file_reader_yaml(tmp_path):
     assert all(isinstance(dt_val, dt.datetime) for dt_val in result)
     assert result == DATETIMES
 
+def test_report_point_file_reader_yaml_int(tmp_path):
+    # Create a YAML file with integer report points
+    yaml_content = yaml.dump(INDEX)
+    yaml_file = tmp_path / "test_int.yaml"
+    yaml_file.write_text(yaml_content)
+    result = report_point_file_reader(str(yaml_file))
+    assert all(isinstance(val, int) for val in result)
+    assert result == INDEX
+
 
 def test_report_point_file_reader_unsupported(tmp_path):
     # Create an unsupported file type
@@ -85,5 +113,5 @@ def test_report_point_file_reader_unsupported(tmp_path):
         report_point_file_reader(str(other_file))
 
 def test_report_point_file_reader_missing_file():
-    with pytest.raises(AssertionError):
+    with pytest.raises(FileNotFoundError):
         report_point_file_reader("nonexistent.csv")
