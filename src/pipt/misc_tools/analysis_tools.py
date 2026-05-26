@@ -20,7 +20,9 @@ from misc.system_tools.environ_var import OpenBlasSingleThread  # only single th
 import multiprocessing as mp  # parallel updates
 import time
 import pickle
+import logging
 from importlib import import_module  # To import packages
+from misc.structures import PETDataFrame 
 
 from scipy.spatial import cKDTree
 
@@ -1605,106 +1607,75 @@ def truncSVD(matrix, r=None, energy=None, full_matrices=False):
 
     return U[:,:r], S[:r], VT[:r,:]
 
-from misc.structures import PETDataFrame 
+def get_outlier_index(
+    pred,
+    data,
+    data_var=None,
+    tresh=4.0
+):
+    """
+    Identify outlier ensemble members based on a normalized data-mismatch score.
 
-def remove_outliers(
-        pred: PETDataFrame,
-        data: PETDataFrame,
-        X: np.ndarray,
-        data_var: PETDataFrame | np.ndarray | None = None,
-        tresh: float = 4
-    ):
-    '''
-    Remove outliers from the ensemble based on a normalised data-mismatch score.
+    For each ensemble member j, the mismatch is:
 
-    For each ensemble member j the mismatch is:
+        h_j = sum_i ((Y_ij - d_i) / sigma_i)^2
 
-        hm_j = sum_i ((Y_ij - d_i) / sigma_i)^2
-
-    where sigma_i is the ensemble standard deviation of the i-th predicted
-    observable.  Members whose score deviates more than ``tresh`` standard
-    deviations from the ensemble mean are considered outliers and replaced by
-    a randomly selected non-outlier member.
+    where sigma_i is the ensemble standard deviation (or provided variance) for observable i.
+    Members whose score deviates more than `tresh` standard deviations from the mean are flagged as outliers.
 
     Parameters
     ----------
     pred : PETDataFrame
-        Predicted data ensemble.  Each cell must contain an ndarray whose
-        last axis indexes the ensemble member (i.e. shape (..., ne)).
-
+        Predicted data ensemble. Each cell must contain an ndarray whose last axis indexes the ensemble member (shape (..., ne)).
     data : PETDataFrame
-        Observed data.  Converted to a 1-D vector via ``to_matrix()``.
-    
-    X : ndarray, shape (nx, ne)
-        Ensemble state matrix (modified in-place copy).
-    
-    data_var : PETDataFrame or ndarray, optional
-        Data variance.  If not provided, the ensemble variance of the predicted
-        data is used as a scale for the outlier detection.  If provided, it must
-        be either a PETDataFrame with the same structure as ``pred`` or 
-        a 1-D array of length equal to the number of observed data points.
-
+        Observed data. Converted to a 1-D vector via `to_matrix()`.
+    data_var : PETDataFrame or np.ndarray or None, optional
+        Data variance. If not provided, the ensemble variance of the predicted data is used. If provided, must be compatible with pred.
     tresh : float, optional
-        Outlier threshold in numbers of standard deviations.  Default is 4.
+        Outlier threshold in numbers of standard deviations. Default is 4.
 
     Returns
     -------
-    pred_out : PETDataFrame
-        Predicted-data ensemble with outlier columns replaced.
-        
-    X_out : ndarray, shape (nx, ne)
-        State matrix with outlier columns replaced.
-    '''
-    Y = pred.to_matrix()                # (nd, ne)
-    d = data.to_matrix(squeeze=False)   # (nd,1)
+    outlier_indices : np.ndarray
+        Indices of outlier ensemble members.
+    members : np.ndarray
+        Array of ensemble member indices, with outliers replaced by randomly selected non-outlier members.
+    """
+    Y = pred.to_matrix()  # (nd, ne)
+    d = data.to_matrix(squeeze=False)  # (nd, 1)
     ne = Y.shape[1]
 
-    # Make sure d is a column vector
-    if len(d.shape) == 1:
+    # Ensure d is a column vector
+    if d.ndim == 1:
         d = d[:, np.newaxis]
 
-    # Data Variance
+    # Determine variance for normalization
     if data_var is not None:
-        if isinstance(data_var, PETDataFrame):
-            var = data_var.to_matrix(squeeze=False)     # (nd,1)
+        if isinstance(data_var, type(pred)):
+            var = data_var.to_matrix(squeeze=False)
         else:
             var = np.asarray(data_var)
             if var.ndim == 1:
                 var = var[:, np.newaxis]
     else:
-        var = np.var(Y, axis=1, ddof=1)[:, np.newaxis]  # (nd,1)
-    
-    # Calculate the data-mismatch score for each ensemble member
-    hm = np.sum(((Y - d) / np.sqrt(var))**2, axis=0)  # (ne,)
+        var = np.var(Y, axis=1, ddof=1)[:, np.newaxis]
 
-    # Identify outliers based on the sigma rule
-    outliers = np.argwhere(np.abs(hm - np.mean(hm)) > tresh*np.std(hm))
-    members = np.arange(ne)
-    members = np.delete(members, outliers)  # Non-outlier members
-    print(f'Outliers: {outliers.flatten()}')
+    # Compute normalized data-mismatch score for each ensemble member
+    mismatch = np.sum(((Y - d) / np.sqrt(var)) ** 2, axis=0)  # (ne,)
 
-    # Loop over outliers and replace with randomly selected non-outlier member
-    X_out = X.copy()
-    pred_out = pred.copy()
-    for outlier in outliers.flatten():
-        random_member_index = np.random.choice(members)
+    # Identify outliers using the sigma rule
+    mean_mismatch = np.mean(mismatch)
+    std_mismatch = np.std(mismatch)
+    outlier_mask = np.abs(mismatch - mean_mismatch) > tresh * std_mismatch
+    outlier_indices = np.where(outlier_mask)[0]
+    non_outlier_members = np.where(~outlier_mask)[0]
 
-        # Raplce in state matrix
-        X_out[:, outlier] = X[:, random_member_index]
+    # Find logger if available and log outlier information
+    if len(outlier_indices) > 0:
+        logger = logging.getLogger(__name__)
+        if logger is not None:
+            logger.info(f"Identified outliers: {outlier_indices}")
+        else:
+            print(f"Identified outliers:: {outlier_indices}")
 
-        # Replace in predicted data ensemble
-        for idx in pred_out.index:
-            for col in pred_out.columns:
-                val = pred_out.at[idx, col]
-
-                if val is not None:
-                    val = np.asarray(val)
-                    if val.ndim == 1:
-                        val[outlier] = val[random_member_index]
-                    else:
-                        val[..., outlier] = val[..., random_member_index]
-                    pred_out.at[idx, col] = val
-    
-    assert isinstance(pred_out, type(pred))
-    assert isinstance(X_out, type(X))
-    return pred_out, X_out
+    return outlier_indices, non_outlier_members

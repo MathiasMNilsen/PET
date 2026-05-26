@@ -1,94 +1,132 @@
 """Parse config files."""
 from misc import read_input_csv as ricsv
 from copy import deepcopy
-from input_output.organize import Organize_input
+from input_output.organize import ConfigNormalizer
+from pathlib import Path
 import tomli
 import tomli_w
 import yaml
 from yaml.loader import FullLoader
 import numpy as np
+import os
 
 
 def read(filename: str):
     ''' Read configuration file. Supported formats are toml, .yaml, .pipt and .popt.'''
-    if filename.endswith('.pipt') or filename.endswith('.popt'):
-        return read_txt(filename)
-    elif filename.endswith('.yaml'):
-        return read_yaml(filename)
-    elif filename.endswith('.toml'):
+    if Path(filename).suffix.lower() == ".toml":
         return read_toml(filename)
+    elif Path(filename).suffix.lower() in [".yaml", ".yml"]:    
+        return read_yaml(filename)
+    elif Path(filename).suffix.lower() in [".pipt", ".popt"]:
+        return read_txt(filename)
     else:
         raise ValueError('File format not supported. Supported formats are toml, .yaml, .pipt, .popt')
 
 
-def convert_txt_to_yaml(init_file):
-    # Read .pipt or .popt file
-    pr, fwd = read_txt(init_file)
-
-    # Write dictionaries to yaml file with same base file name
-    new_file = change_file_extension(init_file, 'yaml')
-    with open(new_file, 'wb') as f:
-        if 'daalg' in pr:
-            yaml.dump({'dataassim': pr, 'fwdsim': fwd}, f)
-        else:
-            yaml.dump({'optim': pr, 'fwdsim': fwd}, f)
-
-
-def read_yaml(init_file):
+def read_yaml(filepath: str):
     """
-    Read .yaml input file, parse and return dictionaries for PIPT/POPT.
+    Read and parse a .yaml configuration file for PIPT/POPT.
 
-    Parameters
-    ----------
-    init_file : str
-        .yaml file
+    The YAML file should contain one or more of the following top-level keys:
+    - 'dataassim' (dict): Data assimilation configuration
+    - 'optim' (dict): Optimization configuration
+    - 'fwdsim' (dict): Forward simulation configuration
+    - 'ensemble' (dict, optional): Ensemble configuration
 
     Returns
     -------
-    keys_da : dict
-        Parsed keywords from dataassim
-    keys_fwd : dict
-        Parsed keywords from fwdsim
+    tuple
+        (keys_pr, keys_fwd, keys_en)
+        - keys_pr: dict, parsed 'dataassim' or 'optim' section (empty if not present)
+        - keys_fwd: dict, parsed 'fwdsim' section (empty if not present)
+        - keys_en: dict, parsed 'ensemble' section (empty if not present)
+
+    Raises
+    ------
+    FileNotFoundError
+        If the file does not exist.
+    ValueError
+        If the YAML file is missing required sections.
+    yaml.YAMLError
+        If the YAML file is invalid.
     """
-    # Make a !ndarray tag to convert a sequence to np.array
+    if not os.path.isfile(filepath):
+        raise FileNotFoundError(f"YAML file '{filepath}' does not exist.")
+
+    # Register a custom constructor for !ndarray if needed
     def ndarray_constructor(loader, node):
         array = loader.construct_sequence(node)
         return np.array(array)
-
-    # Add constructor to yaml with tag !ndarray
     yaml.add_constructor('!ndarray', ndarray_constructor)
 
-    # Read yaml file
-    with open(init_file, 'rb') as fid:
-        y = yaml.load(fid, Loader=FullLoader)
+    with open(filepath, "rb") as f:
+        try:
+            config = yaml.load(f, Loader=FullLoader)
+        except yaml.YAMLError as e:
+            raise yaml.YAMLError(f"Error parsing YAML file '{filepath}': {e}")
 
-    # Check for ensemble
-    if 'ensemble' in y.keys():
-        keys_en = y['ensemble']
-        check_mand_keywords_en(keys_en)
-    else:
-        keys_en = {}
+    if not isinstance(config, dict):
+        raise ValueError(f"YAML file '{filepath}' does not contain a valid dictionary at the top level.")
 
-    # Check for dataassim
-    if 'dataassim' in y.keys():
-        keys_pr = y['dataassim']
-        check_mand_keywords_da(keys_pr)
-    elif 'optim' in y.keys():
-        keys_pr = y['optim']
-        check_mand_keywords_opt(keys_pr)
-    else:
-        keys_pr = {}
-    
-    if 'fwdsim' in y.keys():
-        keys_fwd = y['fwdsim']
-    else:
-        keys_fwd = {}
+    # Extract sections
+    cfg_ens = config.get("ensemble", {})
+    cfg_sim = config.get("fwdsim") or config.get("simulator") or {}
+    cfg_prb = config.get("dataassim") or config.get("optim") or {}
 
-    # Organize keywords
-    org = Organize_input(keys_pr, keys_fwd, keys_en)
-    org.organize()
+    # Normalize configuration fields for consistency
+    cfg_prb, cfg_sim, cfg_ens = ConfigNormalizer.normalize_config(cfg_prb, cfg_sim, cfg_ens)
 
-    return org.get_keys_pr(), org.get_keys_fwd(), org.get_keys_en()
+    return cfg_prb, cfg_sim, cfg_ens
+
+
+def read_toml(filepath: str):
+    """
+    Read and parse a .toml configuration file for PIPT/POPT.
+
+    The TOML file should contain one or more of the following top-level keys:
+    - 'dataassim' (dict): Data assimilation configuration
+    - 'optim' (dict): Optimization configuration
+    - 'fwdsim' (dict): Forward simulation configuration
+    - 'ensemble' (dict, optional): Ensemble configuration
+
+    Returns
+    -------
+    tuple
+        (keys_pr, keys_fwd, keys_en)
+        - keys_pr: dict, parsed 'dataassim' or 'optim' section (empty if not present)
+        - keys_fwd: dict, parsed 'fwdsim' section (empty if not present)
+        - keys_en: dict, parsed 'ensemble' section (empty if not present)
+
+    Raises
+    ------
+    FileNotFoundError
+        If the file does not exist.
+    ValueError
+        If the TOML file is missing required sections.
+    tomli.TOMLDecodeError
+        If the TOML file is invalid.
+    """
+    if not os.path.isfile(filepath):
+        raise FileNotFoundError(f"TOML file '{filepath}' does not exist.")
+
+    with open(filepath, 'rb') as f:
+        try:
+            config = tomli.load(f)
+        except tomli.TOMLDecodeError as e:
+            raise tomli.TOMLDecodeError(f"Error parsing TOML file '{filepath}': {e}")
+
+    if not isinstance(config, dict):
+        raise ValueError(f"TOML file '{filepath}' does not contain a valid dictionary at the top level.")
+
+    # Extract sections
+    cfg_ens = config.get("ensemble", {})
+    cfg_sim = config.get("fwdsim") or config.get("simulator") or {}
+    cfg_prb = config.get("dataassim") or config.get("optim") or {}
+
+    # Normalize configuration fields for consistency
+    cfg_prb, cfg_sim, cfg_ens = ConfigNormalizer.normalize_config(cfg_prb, cfg_sim, cfg_ens)
+
+    return cfg_prb, cfg_sim, cfg_ens
 
 
 def convert_txt_to_toml(init_file):
@@ -103,45 +141,17 @@ def convert_txt_to_toml(init_file):
         else:
             tomli_w.dump({'optim': pr, 'fwdsim': fwd}, f)
 
+def convert_txt_to_yaml(init_file):
+    # Read .pipt or .popt file
+    pr, fwd = read_txt(init_file)
 
-def read_toml(init_file):
-    """
-    Read .toml configuration file, parse and output dictionaries for PIPT/POPT
-
-    Parameters
-    ----------
-    init_file : str
-        toml configuration file
-    """
-    # Read
-    with open(init_file, 'rb') as fid:
-        t = tomli.load(fid)
-
-    # Check for dataassim and fwdsim
-    if 'ensemble' in t.keys():
-        keys_en = t['ensemble']
-        check_mand_keywords_en(keys_en)
-    else:
-        keys_en = {}
-    if 'optim' in t.keys():
-        keys_pr = t['optim']
-        check_mand_keywords_opt(keys_pr)
-    elif 'dataassim' in t.keys():
-        keys_pr = t['dataassim']
-        check_mand_keywords_da(keys_pr)
-    else:
-        keys_pr = {}
-    if 'fwdsim' in t.keys():
-        keys_fwd = t['fwdsim']
-    else:
-        raise KeyError
-
-    # Organize keywords
-    org = Organize_input(keys_pr, keys_fwd, keys_en)
-    org.organize()
-
-    return org.get_keys_pr(), org.get_keys_fwd(), org.get_keys_en()
-
+    # Write dictionaries to yaml file with same base file name
+    new_file = change_file_extension(init_file, 'yaml')
+    with open(new_file, 'wb') as f:
+        if 'daalg' in pr:
+            yaml.dump({'dataassim': pr, 'fwdsim': fwd}, f)
+        else:
+            yaml.dump({'optim': pr, 'fwdsim': fwd}, f)
 
 def read_txt(init_file):
     """
@@ -205,10 +215,9 @@ def read_txt(init_file):
     keys_fwd = parse_keywords(clean_lines_fwd)
     check_mand_keywords_fwd(keys_fwd)
 
-    org = Organize_input(keys_pr, keys_fwd)
-    org.organize()
-
-    return org.get_keys_pr(), org.get_keys_fwd()
+    # Normalize configuration fields for consistency
+    cfg_prb, cfg_sim, cfg_ens = ConfigNormalizer.normalize_config(keys_pr, keys_fwd)
+    return cfg_prb, cfg_sim, cfg_ens
 
 
 def read_clean_file(init_file):

@@ -269,19 +269,29 @@ class Assimilate:
 
     def _remove_outliers(self) -> None:
         """Remove outlier ensemble members from simulation and state data."""
+        outlier_idx, non_outlier_idx = at.get_outlier_index(
+            self.ensemble.pred_data, self.ensemble.data_df, self.ensemble.data_var_df,
+        )
+        if len(outlier_idx) == 0:
+            return
+        idx = np.arange(self.ensemble.ne)
+        for outlier in outlier_idx:
+            new_idx = np.random.choice(non_outlier_idx)
+            idx[outlier] = new_idx
+            self.ensemble.logger.info(f"Replaced outlier {outlier} with member {new_idx}")
+
+        # Remove outliers from state ensemble
         state_attribute = "enX_temp" if self.ensemble.enX_temp is not None else "enX"
-        filtered_sim, filtered_state = at.remove_outliers(
-            self.ensemble.sim_data,
-            self.ensemble.data_df,
-            getattr(self.ensemble, state_attribute),
-            self.ensemble.data_var_df,
-        )
-        self.ensemble.sim_data = filtered_sim
-        self.ensemble.pred_data = self.filter_pred_data(
-            self.ensemble.data_df,
-            self.ensemble.sim_data,
-        )
-        setattr(self.ensemble, state_attribute, filtered_state)
+        enX_filtered = getattr(self.ensemble, state_attribute)[:, idx]
+        setattr(self.ensemble, state_attribute, enX_filtered)
+
+        # Filter outliers from dataframes
+        filter_outliers = lambda cell: cell[..., idx] if cell.ndim > 1 else cell[idx]
+        self.ensemble.pred_data = self.ensemble.pred_data.map(filter_outliers)
+        self.ensemble.sim_data = self.ensemble.sim_data.map(filter_outliers)
+        if hasattr(self.ensemble, "adjoints") and self.ensemble.adjoints is not None:
+            self.ensemble.adjoints = self.ensemble.adjoints.map(filter_outliers)
+
 
     def _save_iteration_information(self) -> None:
         """Run configured iteration-info hooks."""
