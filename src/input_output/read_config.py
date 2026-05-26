@@ -217,7 +217,11 @@ def read_txt(init_file):
 
     # Normalize configuration fields for consistency
     cfg_prb, cfg_sim, cfg_ens = ConfigNormalizer.normalize_config(keys_pr, keys_fwd)
-    return cfg_prb, cfg_sim, cfg_ens
+  
+    if not cfg_ens:
+        return cfg_prb, cfg_sim
+    else:
+        return cfg_prb, cfg_sim, cfg_ens
 
 
 def read_clean_file(init_file):

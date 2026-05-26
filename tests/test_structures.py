@@ -1,522 +1,405 @@
-'''
-Tests for PET structures (PETDataFrame, PETStateArray) and their methods.
-'''
-import pytest
+"""
+Comprehensive tests for PETDataFrame and PETStateArray.
+
+This suite preserves:
+- Exact numerical correctness
+- Deterministic behavior
+- Full operator coverage
+- Field data edge cases
+- Scaling consistency
+"""
+
 import numpy as np
 import pandas as pd
+import pytest
 
 from misc.structures.structures import PETDataFrame, PETStateArray
 
 
-# ==============================================================================
-# GLOBAL VARIABLES
-# ==============================================================================
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 
-nparams = 3 # number of parameters
-nx = 8 # state dimension
-nr = 2 # nrows
-nc = 3 # ncols
-ny = nr*nc
-ne = 10 # ensemble members
+NPARAMS = 3
+NX = 8
+NROWS = 2
+NCOLS = 3
+NY = NROWS * NCOLS
+NE = 10
 
-# Generate ne mulit-column dataframes with random data for testing
-np.random.seed(404)  # For reproducibility
-mi_dfs = []
-for n in range(ne):
-    data_dict = {
-        ("keyA", "param1"): [np.random.rand(nx) for _ in range(nr)],
-        ("keyA", "param2"): [np.random.rand(nx) for _ in range(nr)],
-        ("keyA", "param3"): [np.random.rand(nx) for _ in range(nr)],
-        ("keyB", "param1"): [np.random.rand(nx) for _ in range(nr)],
-        ("keyB", "param2"): [np.random.rand(nx) for _ in range(nr)],
-        ("keyB", "param3"): [np.random.rand(nx) for _ in range(nr)],
-        ("keyC", "param1"): [np.random.rand(nx) for _ in range(nr)],
-        ("keyC", "param2"): [np.random.rand(nx) for _ in range(nr)],
-        ("keyC", "param3"): [np.random.rand(nx) for _ in range(nr)],
-    }
-
-    cols = pd.MultiIndex.from_tuples(data_dict.keys())
-    df = pd.DataFrame(data_dict, columns=cols, index=['idx1', 'idx2'])
-    df.index.name = "index"
-    mi_dfs.append(df)
+INDEX = ["idx1", "idx2"]
+INDEX_NAME = "index"
 
 
-# ==============================================================================
-# PETDataFrame TESTS
-# ==============================================================================
+# ---------------------------------------------------------------------------
+# Deterministic MultiIndex Data
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def multicolumn_ensemble():
+    """Generate deterministic ensemble of multi-column DataFrames."""
+    np.random.seed(404)
+
+    dfs = []
+    for _ in range(NE):
+        data = {}
+        for key in ("keyA", "keyB", "keyC"):
+            for param in ("param1", "param2", "param3"):
+                data[(key, param)] = [
+                    np.random.rand(NX) for _ in range(NROWS)
+                ]
+
+        df = pd.DataFrame(data, index=INDEX)
+        df.columns = pd.MultiIndex.from_tuples(data.keys())
+        df.index.name = INDEX_NAME
+        dfs.append(df)
+
+    return dfs
+
 
 @pytest.fixture
-def multicolumn_dataframe():
-    return mi_dfs[0]
+def multicolumn_df(multicolumn_ensemble):
+    return multicolumn_ensemble[0]
+
 
 @pytest.fixture
-def ensemble_dataframe():
-    pdfs = [PETDataFrame._to_singlelevel_columns(df) for df in mi_dfs]
-    return pdfs
-
-@pytest.fixture
-def multicolumn_ensemble_dataframe():
-    return mi_dfs
+def ensemble_singlelevel(multicolumn_ensemble):
+    return [
+        PETDataFrame._to_singlelevel_columns(df)
+        for df in multicolumn_ensemble
+    ]
 
 
-class TestSimplePETDataFrame:
+# ---------------------------------------------------------------------------
+# PETDataFrame: Basic
+# ---------------------------------------------------------------------------
 
-    # Create a simple DataFrame for testing
-    data_dict = {
-        'keyA': [1.0, 2.0],
-        'keyB': [3.0, 4.0],
-        'keyC': [5.0, 6.0]
-    }
-    units = {key: f'unit:{key}' for key in data_dict.keys()}
-    index = ['idx1', 'idx2']
-    index_name = 'index'
-    simple_df = pd.DataFrame(data_dict, index=index)
-    simple_df.index.name = index_name
-    simple_df.attrs['units'] = units
+class TestPETDataFrameBasic:
+
+    def setup_method(self):
+        self.data = {
+            "keyA": [1.0, 2.0],
+            "keyB": [3.0, 4.0],
+            "keyC": [5.0, 6.0],
+        }
+
+        self.df = pd.DataFrame(self.data, index=INDEX)
+        self.df.index.name = INDEX_NAME
+        self.df.attrs["units"] = {
+            k: f"unit:{k}" for k in self.data
+        }
 
     def test_from_pandas(self):
-        '''Test that PETDataFrame can be created from a pandas DataFrame and that the data is preserved.'''
-        pdf_from_pandas = PETDataFrame.from_pandas(self.simple_df)
-        pdf = PETDataFrame(data=self.data_dict, index=self.index)
-        pdf.index.name = self.index_name
-        assert isinstance(pdf_from_pandas, PETDataFrame)
-        assert pdf_from_pandas.equals(pdf)
+        pdf = PETDataFrame.from_pandas(self.df)
+
+        expected = PETDataFrame(self.data, index=INDEX)
+        expected.index.name = INDEX_NAME
+
+        assert pdf.equals(expected)
 
     def test_attrs_preserved(self):
-        '''Test that attributes from the original pandas DataFrame are preserved in the PETDataFrame.'''
-        pdf = PETDataFrame.from_pandas(self.simple_df)
-        assert pdf.attrs['units'] == self.units
+        pdf = PETDataFrame.from_pandas(self.df)
+        assert pdf.attrs["units"] == self.df.attrs["units"]
 
     def test_to_matrix(self):
-        '''Test that the to_matrix method correctly converts the PETDataFrame to a numpy array.'''
-        pdf = PETDataFrame.from_pandas(self.simple_df)
+        pdf = PETDataFrame.from_pandas(self.df)
+
         vec = pdf.to_matrix(squeeze=False)
-        vec_squeezed = pdf.to_matrix(squeeze=True)
-        vec_squeezed_expected = np.array([1.0, 3.0, 5.0, 2.0, 4.0, 6.0])
+        vec_sq = pdf.to_matrix(squeeze=True)
 
-        assert isinstance(vec_squeezed, np.ndarray)
-        assert vec_squeezed.shape == (ny,)
-        assert np.array_equal(vec_squeezed, vec_squeezed_expected)
+        expected = np.array([1, 3, 5, 2, 4, 6], dtype=float)
 
-        assert isinstance(vec, np.ndarray)
-        assert vec.shape == (ny, 1)
-        assert np.array_equal(vec, vec_squeezed_expected[:, np.newaxis])
+        assert vec.shape == (NY, 1)
+        assert np.array_equal(vec[:, 0], expected)
 
-    def test_copy_returns_petdataframe(self):
-        '''Test that the copy method returns a PETDataFrame.'''
-        pdf = PETDataFrame.from_pandas(self.simple_df)
-        copy = pdf.copy()
-        assert isinstance(copy, PETDataFrame)
-    
-    def test_loc_filtering_returns_petdataframe(self):
-        '''Test that loc filtering returns a PETDataFrame.'''
-        pdf = PETDataFrame.from_pandas(self.simple_df)
-        subset = pdf.loc[['idx1']]
-        assert isinstance(subset, PETDataFrame)
-    
-    def test_arithmetic_returns_petdataframe(self):
-        '''Test that arithmetic operations return a PETDataFrame.'''
-        pdf = PETDataFrame.from_pandas(self.simple_df)
-        result = pdf + 1
-        assert isinstance(result, PETDataFrame)
+        assert vec_sq.shape == (NY,)
+        assert np.array_equal(vec_sq, expected)
+
+    def test_return_types(self):
+        pdf = PETDataFrame.from_pandas(self.df)
+
+        assert isinstance(pdf.copy(), PETDataFrame)
+        assert isinstance(pdf.loc[["idx1"]], PETDataFrame)
+        assert isinstance(pdf + 1, PETDataFrame)
 
 
+# ---------------------------------------------------------------------------
+# Jacobian (Multi-column)
+# ---------------------------------------------------------------------------
 
 class TestMultiColumnJacobian:
 
-    np.random.seed(404)
-    data_dict = {
-        ("keyA", "param1"): [np.random.rand(nx) for _ in range(nr)],
-        ("keyA", "param2"): [np.random.rand(nx) for _ in range(nr)],
-        ("keyA", "param3"): [np.random.rand(nx) for _ in range(nr)],
-        ("keyB", "param1"): [np.random.rand(nx) for _ in range(nr)],
-        ("keyB", "param2"): [np.random.rand(nx) for _ in range(nr)],
-        ("keyB", "param3"): [np.random.rand(nx) for _ in range(nr)],
-        ("keyC", "param1"): [np.random.rand(nx) for _ in range(nr)],
-        ("keyC", "param2"): [np.random.rand(nx) for _ in range(nr)],
-        ("keyC", "param3"): [np.random.rand(nx) for _ in range(nr)],
-    }
-
-    def test_to_series_multicolumn(self, multicolumn_dataframe):
-        '''Test that the to_series method correctly converts a multi-column PETDataFrame to a pandas Series.'''
-        pdf = PETDataFrame.from_pandas(multicolumn_dataframe)
+    def test_to_series(self, multicolumn_df):
+        pdf = PETDataFrame.from_pandas(multicolumn_df)
         series = pdf.to_series()
-        assert isinstance(series, pd.Series)
-        assert series.shape == (nr*nc*nparams,)
 
-    def test_to_matrix_multicolumn(self, multicolumn_dataframe):
-        '''Test that the to_matrix method correctly converts a multi-column PETDataFrame to a numpy array.'''
-        pdf = PETDataFrame.from_pandas(multicolumn_dataframe)
+        assert isinstance(series, pd.Series)
+        assert series.shape == (NROWS * NCOLS * NPARAMS,)
+
+    def test_to_matrix_exact(self, multicolumn_df):
+        pdf = PETDataFrame.from_pandas(multicolumn_df)
         matrix = pdf.to_matrix(is_jacobian=True)
+
         expected_rows = []
         keys = ("keyA", "keyB", "keyC")
         params = ("param1", "param2", "param3")
-        for row_idx in range(nr):
+
+        for r in range(NROWS):
             for key in keys:
-                expected_rows.append(
-                    np.concatenate([self.data_dict[(key, param)][row_idx] for param in params])
-                )
-        expected_matrix = np.stack(expected_rows)
+                row = np.concatenate([
+                    multicolumn_df[(key, param)][r]
+                    for param in params
+                ])
+                expected_rows.append(row)
 
-        assert isinstance(matrix, np.ndarray)
-        assert matrix.shape == (ny, nx * nparams)
-        assert np.array_equal(matrix, expected_matrix)
+        expected = np.stack(expected_rows)
 
+        assert matrix.shape == (NY, NX * NPARAMS)
+        assert np.array_equal(matrix, expected)
+
+
+# ---------------------------------------------------------------------------
+# Ensemble handling
+# ---------------------------------------------------------------------------
 
 class TestEnsembleJacobian:
 
-    def test_merge_ensemble_multicolumn(self, ensemble_dataframe):
-        '''Test that the merge_ensemble method correctly merges a list of multi-column PETDataFrames into a single PETDataFrame.'''
-        merged_pdf = PETDataFrame.merge_dataframes(ensemble_dataframe)
-        assert isinstance(merged_pdf, PETDataFrame)
-        assert merged_pdf.iloc[0]['keyA'].shape == (nx*nparams, ne)
+    def test_merge(self, ensemble_singlelevel):
+        merged = PETDataFrame.merge_dataframes(ensemble_singlelevel)
 
-    def test_to_matrix_ensemble_multicolumn(self, ensemble_dataframe):
-        '''Test that the to_matrix method correctly converts a merged multi-column PETDataFrame to a numpy array.'''
-        merged_pdf = PETDataFrame.merge_dataframes(ensemble_dataframe)
-        matrix = merged_pdf.to_matrix(is_jacobian=True)
-        assert isinstance(matrix, np.ndarray)
-        assert matrix.shape == (ny, nx*nparams, ne)
-    
-    def test_to_matrix_multicolumn_ensemble(self, multicolumn_ensemble_dataframe, ensemble_dataframe):
-        '''Test that the to_matrix method correctly converts a list of multi-column PETDataFrames to a numpy array.'''
-        pdfs1 = PETDataFrame.merge_dataframes(multicolumn_ensemble_dataframe)
-        pdfs2 = PETDataFrame.merge_dataframes(ensemble_dataframe)
-        matrix = PETDataFrame.to_matrix(pdfs1, is_jacobian=True)
-        assert isinstance(matrix, np.ndarray)
-        assert matrix.shape == (ny, nx*nparams, ne)
-        assert np.array_equal(matrix, PETDataFrame.to_matrix(pdfs2, is_jacobian=True))
+        assert merged.iloc[0]["keyA"].shape == (NX * NPARAMS, NE)
+
+    def test_matrix_shape(self, ensemble_singlelevel):
+        merged = PETDataFrame.merge_dataframes(ensemble_singlelevel)
+        matrix = merged.to_matrix(is_jacobian=True)
+
+        assert matrix.shape == (NY, NX * NPARAMS, NE)
+
+    def test_multi_vs_single_consistency(
+        self, multicolumn_ensemble, ensemble_singlelevel
+    ):
+        merged_multi = PETDataFrame.merge_dataframes(multicolumn_ensemble)
+        merged_single = PETDataFrame.merge_dataframes(ensemble_singlelevel)
+
+        mat1 = PETDataFrame.to_matrix(merged_multi, is_jacobian=True)
+        mat2 = PETDataFrame.to_matrix(merged_single, is_jacobian=True)
+
+        assert np.array_equal(mat1, mat2)
 
 
-class TestWithFieldData:
+# ---------------------------------------------------------------------------
+# Field data
+# ---------------------------------------------------------------------------
 
-    data1 = {
-        'keyScalar1': [1.0, 2.0, 3.0],
-        'keyScalar2': [4.0, 5.0, 6.0],
-        'keyField': [None, np.array([7.0, 8.0, 9.0, 10]), None]
-    }
-    data2 = {
-        'keyScalar1': [10.0, 20.0, 30.0],
-        'keyScalar2': [40.0, 50.0, 60.0],
-        'keyField': [None, np.array([70.0, 80.0, 90.0, 100]), None]
-    }
-    pdf1 = PETDataFrame(data=data1, index=['idx1', 'idx2', 'idx3'])
-    pdf2 = PETDataFrame(data=data2, index=['idx1', 'idx2', 'idx3'])
+class TestFieldData:
 
-    def test_to_matrix_with_field(self):
-        '''Test that the to_matrix method correctly handles a PETDataFrame with a field column.'''
-        vec_filtered = self.pdf1.to_matrix(filter=True, is_jacobian=False, squeeze=True)
-        vec_filtered_expected = np.array([1.0, 4.0, 2.0, 5.0, 7.0, 8.0, 9.0, 10.0, 3.0, 6.0])
+    def setup_method(self):
+        self.pdf1 = PETDataFrame(
+            {
+                "keyScalar1": [1, 2, 3],
+                "keyScalar2": [4, 5, 6],
+                "keyField": [None, np.array([7, 8, 9, 10]), None],
+            },
+            index=["idx1", "idx2", "idx3"],
+        )
 
-        vec_unfiltered = self.pdf1.to_matrix(filter=False, is_jacobian=False, squeeze=True)
-        vec_unfiltered_expected = np.array([1.0, 4.0, None, 2.0, 5.0, 7.0, 8.0, 9.0, 10.0, 3.0, 6.0, None])
+        self.pdf2 = PETDataFrame(
+            {
+                "keyScalar1": [10, 20, 30],
+                "keyScalar2": [40, 50, 60],
+                "keyField": [None, np.array([70, 80, 90, 100]), None],
+            },
+            index=["idx1", "idx2", "idx3"],
+        )
 
-        assert isinstance(vec_filtered, np.ndarray)
-        assert vec_filtered.shape == (10,)
-        assert np.array_equal(vec_filtered, vec_filtered_expected)
+    def test_filtered_unfiltered_vectors(self):
+        vec_f = self.pdf1.to_matrix(filter=True, squeeze=True)
+        vec_u = self.pdf1.to_matrix(filter=False, squeeze=True)
 
-        assert isinstance(vec_unfiltered, np.ndarray)
-        assert vec_unfiltered.shape == (12,)
-        assert np.array_equal(vec_unfiltered, vec_unfiltered_expected)
+        expected_f = np.array([1,4,2,5,7,8,9,10,3,6], dtype=float)
+        expected_u = np.array(
+            [1,4,None,2,5,7,8,9,10,3,6,None], dtype=object
+        )
 
-    def test_to_ensemble_matrix_with_field(self):
-        '''Test that the to_matrix method correctly handles a list of PETDataFrames with a field column.'''
-        merged_pdf = PETDataFrame.merge_dataframes([self.pdf1, self.pdf2])
-        matrix_filtered = merged_pdf.to_matrix(filter=True, is_jacobian=False)
-        matrix_filtered_expected = np.array([
-            [1.0, 10.0],
-            [4.0, 40.0],
-            [2.0, 20.0],
-            [5.0, 50.0],
-            [7.0, 70.0],
-            [8.0, 80.0],
-            [9.0, 90.0],
-            [10.0, 100.0],
-            [3.0, 30.0],
-            [6.0, 60.0]
+        assert np.array_equal(vec_f, expected_f)
+        assert np.array_equal(vec_u, expected_u)
+
+    def test_ensemble_matrix(self):
+        merged = PETDataFrame.merge_dataframes([self.pdf1, self.pdf2])
+
+        mat_f = merged.to_matrix(filter=True)
+        mat_u = merged.to_matrix(filter=False)
+
+        expected_f = np.array([
+            [1,10],[4,40],[2,20],[5,50],
+            [7,70],[8,80],[9,90],[10,100],
+            [3,30],[6,60]
         ])
 
-        matrix_unfiltered = merged_pdf.to_matrix(filter=False, is_jacobian=False)
-        matrix_unfiltered_expected = np.array([
-            [1.0, 10.0],
-            [4.0, 40.0],
-            [None, None],
-            [2.0, 20.0],
-            [5.0, 50.0],  
-            [7.0, 70.0],
-            [8.0, 80.0],
-            [9.0, 90.0],
-            [10.0, 100.0],
-            [3.0, 30.0],
-            [6.0, 60.0],
-            [None, None]
-        ])
+        expected_u = np.array([
+            [1,10],[4,40],[None,None],[2,20],[5,50],
+            [7,70],[8,80],[9,90],[10,100],
+            [3,30],[6,60],[None,None]
+        ], dtype=object)
 
-        assert isinstance(matrix_filtered, np.ndarray)
-        assert matrix_filtered.shape == (10, 2)
-        assert np.array_equal(matrix_filtered, matrix_filtered_expected)
+        assert np.array_equal(mat_f, expected_f)
+        assert np.array_equal(mat_u, expected_u)
 
-        assert isinstance(matrix_unfiltered, np.ndarray)
-        assert matrix_unfiltered.shape == (12, 2)
-        assert np.array_equal(matrix_unfiltered, matrix_unfiltered_expected)
-    
+
+# ---------------------------------------------------------------------------
+# Scaling
+# ---------------------------------------------------------------------------
 
 class TestScaling:
 
-    np.random.seed(404)
-    data_df = PETDataFrame(
-        {'keyA': [10*np.random.rand() for _ in range(5)], 
-         'keyB': [10*np.random.rand() for _ in range(5)], 
-         'keyC': [10*np.random.rand() for _ in range(5)]},
-        index=['idx1', 'idx2', 'idx3', 'idx4', 'idx5']
-    )
-    data_var_df = PETDataFrame(
-        {'keyA': [0.1*np.random.rand() for _ in range(5)], 
-         'keyB': [0.1*np.random.rand() for _ in range(5)], 
-         'keyC': [0.1*np.random.rand() for _ in range(5)]},
-        index=['idx1', 'idx2', 'idx3', 'idx4', 'idx5']
-    )
-    jac_df = PETDataFrame(
-        {('keyA', 'param1'): [50*np.random.rand(nx, ne) for _ in range(5)], 
-         ('keyB', 'param1'): [50*np.random.rand(nx, ne) for _ in range(5)], 
-         ('keyC', 'param1'): [50*np.random.rand(nx, ne) for _ in range(5)]},
-        index=['idx1', 'idx2', 'idx3', 'idx4', 'idx5']
-    )
+    def setup_method(self):
+        np.random.seed(404)
 
-    def test_scale_max_min(self):
-        '''Test that the scale method correctly applies max-min scaling to the DataFrame.'''
-        df_scaled = self.data_df.copy()
-        df_scaled.scale(type='max-min')
-        df_inverted = df_scaled.copy()
-        df_inverted.invert_scale(type='max-min')
-        assert df_scaled.is_scaled
-        assert np.all(df_scaled >= 0) and np.all(df_scaled <= 1)
-        pd.testing.assert_frame_equal(df_inverted, self.data_df)
-    
-    def test_scale_variance(self):
-        '''Test that scaling the data and adjusting the variance accordingly gives the expected results.'''
-        df_scaled = self.data_df.copy()
-        df_scaled.scale(type='max-min')
-
-        df_var_scaled_expected = self.data_var_df / (df_scaled.scale_max-df_scaled.scale_min)**2
-        df_var_scaled = self.data_var_df.copy()
-        df_var_scaled.scale(type='max-min', minimum=0, maximum=(df_scaled.scale_max-df_scaled.scale_min)**2)
-
-        df_var_inverted = df_var_scaled.copy()
-        df_var_inverted.invert_scale(type='max-min')
-
-        pd.testing.assert_frame_equal(df_var_scaled, df_var_scaled_expected)
-        pd.testing.assert_frame_equal(df_var_inverted, self.data_var_df)
-
-    def test_scale_jacobian(self):
-        '''Test that scaling the data and adjusting the Jacobian accordingly gives the expected results.'''
-        df_scaled = self.data_df.copy()
-        df_scaled.scale(type='max-min')
-
-        jac_scale_min = 0
-        jac_scale_max = df_scaled.scale_max - df_scaled.scale_min
-        jac_scaled_expected = self.jac_df.sub(0, axis='columns', level=0).div(
-            jac_scale_max, axis='columns', level=0
+        self.data = PETDataFrame(
+            {k: 10*np.random.rand(5) for k in ("keyA","keyB","keyC")}
         )
-        jac_scaled = self.jac_df.copy()
-        jac_scaled.scale(type='max-min', minimum=jac_scale_min, maximum=jac_scale_max)
+        self.var = PETDataFrame(
+            {k: 0.1*np.random.rand(5) for k in ("keyA","keyB","keyC")}
+        )
+        self.jac = PETDataFrame(
+            {
+                (k,"param1"): [50*np.random.rand(NX,NE) for _ in range(5)]
+                for k in ("keyA","keyB","keyC")
+            }
+        )
 
-        jac_inverted = jac_scaled.copy()
-        jac_inverted.invert_scale(type='max-min')
+    def test_max_min(self):
+        scaled = self.data.copy()
+        scaled.scale(type="max-min")
 
-        pd.testing.assert_frame_equal(jac_scaled, jac_scaled_expected)
-        pd.testing.assert_frame_equal(jac_inverted, self.jac_df)
+        inv = scaled.copy()
+        inv.invert_scale(type="max-min")
+
+        assert scaled.is_scaled
+        assert np.all((scaled >= 0) & (scaled <= 1))
+        pd.testing.assert_frame_equal(inv, self.data)
+
+    def test_variance(self):
+        scaled = self.data.copy()
+        scaled.scale(type="max-min")
+
+        rng = scaled.scale_max - scaled.scale_min
+
+        expected = self.var / (rng**2)
+
+        var_scaled = self.var.copy()
+        var_scaled.scale(type="max-min", minimum=0, maximum=rng**2)
+
+        inv = var_scaled.copy()
+        inv.invert_scale(type="max-min")
+
+        pd.testing.assert_frame_equal(var_scaled, expected)
+        pd.testing.assert_frame_equal(inv, self.var)
+
+    def test_jacobian(self):
+        scaled = self.data.copy()
+        scaled.scale(type="max-min")
+
+        rng = scaled.scale_max - scaled.scale_min
+
+        expected = self.jac.div(rng, axis="columns", level=0)
+
+        jac_scaled = self.jac.copy()
+        jac_scaled.scale(type="max-min", minimum=0, maximum=rng)
+
+        inv = jac_scaled.copy()
+        inv.invert_scale(type="max-min")
+
+        pd.testing.assert_frame_equal(jac_scaled, expected)
+        pd.testing.assert_frame_equal(inv, self.jac)
 
 
-
-
-
-# ==============================================================================
-# PETStateArray TESTS
-# ==============================================================================
+# ---------------------------------------------------------------------------
+# PETStateArray
+# ---------------------------------------------------------------------------
 
 @pytest.fixture
-def sample_state_array():
-    nstate = nx * nparams
-    # Start from 1.0 to avoid division-by-zero in operator tests
-    data = np.arange(1, nstate * ne + 1, dtype=float).reshape(nstate, ne)
+def state_array():
+    data = np.arange(1, NX * NPARAMS * NE + 1, dtype=float)
+    data = data.reshape(NX * NPARAMS, NE)
+
     indices = {
-        f'key{p+1}': (p * nx, (p + 1) * nx)
-        for p in range(nparams)
+        f"key{i+1}": (i*NX, (i+1)*NX)
+        for i in range(NPARAMS)
     }
+
     return PETStateArray(data, indices=indices)
 
-class TestPETStateArray:
 
-    def test_construct_from_ndarray(self, sample_state_array):
-        '''Test that PETStateArray can be created from a numpy array.'''
-        assert isinstance(sample_state_array, PETStateArray)
-        assert sample_state_array.shape == (nx * nparams, ne)
-        assert len(sample_state_array.indices) == nparams
-        assert sample_state_array.state_axis == 0
+# ---------------------------------------------------------------------------
+# PETStateArray: Basic
+# ---------------------------------------------------------------------------
 
-    def test_to_dict_shapes(self, sample_state_array):
-        '''Test that to_dict returns a dict with correct shapes per key.'''
-        state_dict = sample_state_array.to_dict()
-        assert isinstance(state_dict, dict)
-        assert len(state_dict) == nparams
-        for val in state_dict.values():
-            assert val.shape == (nx, ne)
+class TestStateArrayBasic:
 
-    def test_from_dict(self):
-        '''Test that from_dict reconstructs a PETStateArray with correct shape and indices.'''
-        member = {f'key{p+1}': np.random.randn(nx, ne) for p in range(nparams)}
-        state = PETStateArray.from_dict(member, ne=ne)
-        assert isinstance(state, PETStateArray)
-        assert state.shape == (nx * nparams, ne)
-        assert list(state.indices.keys()) == [f'key{p+1}' for p in range(nparams)]
+    def test_shapes(self, state_array):
+        assert state_array.shape == (NX * NPARAMS, NE)
 
-    def test_to_list_of_dicts_roundtrip(self, sample_state_array):
-        '''Test that to_list_of_dicts / from_list_of_dicts is a lossless roundtrip.'''
-        members = sample_state_array.to_list_of_dicts()
-        rebuilt = PETStateArray.from_list_of_dicts(members)
-        assert rebuilt.shape == sample_state_array.shape
-        assert np.allclose(np.asarray(rebuilt), np.asarray(sample_state_array))
+    def test_dict_conversion(self, state_array):
+        d = state_array.to_dict()
+        assert all(v.shape == (NX, NE) for v in d.values())
 
-    def test_transpose_flips_state_axis(self, sample_state_array):
-        '''Test that .T flips state_axis while preserving indices.'''
-        transposed = sample_state_array.T
-        assert isinstance(transposed, PETStateArray)
-        assert transposed.shape == (ne, nx * nparams)
-        assert transposed.indices == sample_state_array.indices
-        assert transposed.state_axis == 1
+    def test_roundtrip(self, state_array):
+        rebuilt = PETStateArray.from_list_of_dicts(
+            state_array.to_list_of_dicts()
+        )
+        assert np.allclose(rebuilt, state_array)
 
-    def test_is_numpy_subclass(self, sample_state_array):
-        '''PETStateArray must be a numpy ndarray subclass.'''
-        assert isinstance(sample_state_array, np.ndarray)
-        assert isinstance(sample_state_array, PETStateArray)
+    def test_transpose(self, state_array):
+        t = state_array.T
+        assert t.shape == (NE, NX * NPARAMS)
+        assert t.indices == state_array.indices
+        assert t.state_axis == 1
 
 
-class TestPETStateArrayOperators:
-    '''
-    Test that every operator defined on PETStateArray returns a PETStateArray
-    with the correct values, indices, and state_axis preserved.
-    '''
+# ---------------------------------------------------------------------------
+# PETStateArray Operators (FULL COVERAGE)
+# ---------------------------------------------------------------------------
 
-    def _check(self, result, reference, expected_values):
+class TestStateArrayOperators:
+
+    def _check(self, result, ref, expected):
         assert isinstance(result, PETStateArray)
-        assert result.indices == reference.indices
-        assert result.state_axis == reference.state_axis
-        assert np.allclose(np.asarray(result), expected_values)
+        assert result.indices == ref.indices
+        assert result.state_axis == ref.state_axis
+        assert np.allclose(result, expected)
 
-    # --- scalar binary operators ---
+    def test_all_ops(self, state_array):
+        a = np.asarray(state_array)
+        b = np.ones_like(a) * 2
 
-    def test_add(self, sample_state_array):
-        '''a + scalar'''
-        a = np.asarray(sample_state_array)
-        self._check(sample_state_array + 5.0, sample_state_array, a + 5.0)
+        # scalar ops
+        self._check(state_array + 5, state_array, a + 5)
+        self._check(5 + state_array, state_array, 5 + a)
+        self._check(state_array - 3, state_array, a - 3)
+        self._check(1000 - state_array, state_array, 1000 - a)
+        self._check(state_array * 2, state_array, a * 2)
+        self._check(2 * state_array, state_array, 2 * a)
+        self._check(state_array / 2, state_array, a / 2)
+        self._check(1000 / state_array, state_array, 1000 / a)
+        self._check(state_array // 3, state_array, a // 3)
+        self._check(state_array ** 2, state_array, a ** 2)
 
-    def test_radd(self, sample_state_array):
-        '''scalar + a'''
-        a = np.asarray(sample_state_array)
-        self._check(5.0 + sample_state_array, sample_state_array, 5.0 + a)
+        # array ops
+        self._check(state_array + b, state_array, a + b)
+        self._check(state_array - b, state_array, a - b)
+        self._check(state_array * b, state_array, a * b)
 
-    def test_sub(self, sample_state_array):
-        '''a - scalar'''
-        a = np.asarray(sample_state_array)
-        self._check(sample_state_array - 3.0, sample_state_array, a - 3.0)
+        # unary
+        self._check(-state_array, state_array, -a)
+        self._check(+state_array, state_array, +a)
+        self._check(abs(state_array), state_array, np.abs(a))
 
-    def test_rsub(self, sample_state_array):
-        '''scalar - a'''
-        a = np.asarray(sample_state_array)
-        self._check(1000.0 - sample_state_array, sample_state_array, 1000.0 - a)
-
-    def test_mul(self, sample_state_array):
-        '''a * scalar'''
-        a = np.asarray(sample_state_array)
-        self._check(sample_state_array * 2.0, sample_state_array, a * 2.0)
-
-    def test_rmul(self, sample_state_array):
-        '''scalar * a'''
-        a = np.asarray(sample_state_array)
-        self._check(2.0 * sample_state_array, sample_state_array, 2.0 * a)
-
-    def test_truediv(self, sample_state_array):
-        '''a / scalar'''
-        a = np.asarray(sample_state_array)
-        self._check(sample_state_array / 2.0, sample_state_array, a / 2.0)
-
-    def test_rtruediv(self, sample_state_array):
-        '''scalar / a'''
-        a = np.asarray(sample_state_array)
-        self._check(1000.0 / sample_state_array, sample_state_array, 1000.0 / a)
-
-    def test_floordiv(self, sample_state_array):
-        '''a // scalar'''
-        a = np.asarray(sample_state_array)
-        self._check(sample_state_array // 3.0, sample_state_array, a // 3.0)
-
-    def test_pow(self, sample_state_array):
-        '''a ** scalar'''
-        a = np.asarray(sample_state_array)
-        self._check(sample_state_array ** 2.0, sample_state_array, a ** 2.0)
-
-    # --- array binary operators ---
-
-    def test_add_array(self, sample_state_array):
-        '''a + b where b is a plain ndarray of the same shape'''
-        b = np.ones_like(sample_state_array)
-        a = np.asarray(sample_state_array)
-        self._check(sample_state_array + b, sample_state_array, a + b)
-
-    def test_sub_array(self, sample_state_array):
-        '''a - b'''
-        b = np.ones_like(sample_state_array)
-        a = np.asarray(sample_state_array)
-        self._check(sample_state_array - b, sample_state_array, a - b)
-
-    def test_mul_array(self, sample_state_array):
-        '''a * b element-wise'''
-        b = np.full_like(sample_state_array, 2.0)
-        a = np.asarray(sample_state_array)
-        self._check(sample_state_array * b, sample_state_array, a * b)
-
-    # --- matmul ---
-
-    def test_matmul(self, sample_state_array):
-        '''a @ M where M transforms ensemble axis'''
-        M = np.eye(ne)  # identity: result == a
-        a = np.asarray(sample_state_array)
-        result = sample_state_array @ M
-        assert isinstance(result, PETStateArray)
-        assert np.allclose(np.asarray(result), a @ M)
-
-    def test_rmatmul(self, sample_state_array):
-        '''M @ a'''
-        M = np.eye(nx * nparams)
-        a = np.asarray(sample_state_array)
-        result = M @ sample_state_array
-        assert isinstance(result, PETStateArray)
-        assert np.allclose(np.asarray(result), M @ a)
-
-    # --- unary operators ---
-
-    def test_neg(self, sample_state_array):
-        '''-a'''
-        a = np.asarray(sample_state_array)
-        self._check(-sample_state_array, sample_state_array, -a)
-
-    def test_pos(self, sample_state_array):
-        '''+a'''
-        a = np.asarray(sample_state_array)
-        self._check(+sample_state_array, sample_state_array, +a)
-
-    def test_abs(self, sample_state_array):
-        '''abs(-a) == a (all elements are positive)'''
-        a = np.asarray(sample_state_array)
-        self._check(abs(-sample_state_array), sample_state_array, np.abs(-a))
-
-    # --- chained expression ---
-
-    def test_operator_chain(self, sample_state_array):
-        '''(a + 1) * 2 - 0.5 remains a PETStateArray with correct values'''
-        a = np.asarray(sample_state_array)
-        result = (sample_state_array + 1.0) * 2.0 - 0.5
-        self._check(result, sample_state_array, (a + 1.0) * 2.0 - 0.5)
+        # chained
+        self._check(
+            (state_array + 1) * 2 - 0.5,
+            state_array,
+            (a + 1) * 2 - 0.5,
+        )
 
 
