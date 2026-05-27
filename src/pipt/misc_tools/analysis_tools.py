@@ -1674,7 +1674,7 @@ def get_outlier_index(
     if len(outlier_indices) > 0:
         logger = logging.getLogger(__name__)
         if logger is not None:
-            logger.info(f"Identified outliers: {outlier_indices}")
+            logger.info(f" Identified outliers: {outlier_indices}")
         else:
             print(f"Identified outliers:: {outlier_indices}")
 

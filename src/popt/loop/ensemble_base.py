@@ -131,7 +131,7 @@ class EnsembleOptimizationBaseClass(SupEnsemble):
             # Evaluate the objective function
             if run_success:
                 func_values = self.obj_func(
-                    self.pred_data,
+                    self.sim_data,
                     input_dict=self.sim.input_dict,
                     true_order=self.sim.true_order,
                     state=matrix_to_dict(self.invert_scale_state(x), self.idX),

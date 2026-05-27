@@ -278,7 +278,7 @@ class Assimilate:
         for outlier in outlier_idx:
             new_idx = np.random.choice(non_outlier_idx)
             idx[outlier] = new_idx
-            self.ensemble.logger.info(f"Replaced outlier {outlier} with member {new_idx}")
+            self.ensemble.logger(f"Replaced outlier {outlier} with member {new_idx}")
 
         # Remove outliers from state ensemble
         state_attribute = "enX_temp" if self.ensemble.enX_temp is not None else "enX"
@@ -341,14 +341,9 @@ class Assimilate:
         if self._load_restart_prediction_if_available():
             return
 
-        state = self.ensemble.enX if self.ensemble.enX_temp is None else self.ensemble.enX_temp
-        self.ensemble.calc_prediction(enX=state)
-
-        # Filter sim_data to get pred_data
-        self.ensemble.pred_data = self.filter_pred_data(
-            self.ensemble.data_df,
-            self.ensemble.sim_data,
-        )
+        enX = self.ensemble.enX if self.ensemble.enX_temp is None else self.ensemble.enX_temp
+        self.ensemble.calc_prediction(enX)
+        self.ensemble.pred_data = self.sim_to_pred_data(self.ensemble.sim_data)
 
         self._apply_prediction_scaling()
 
@@ -364,10 +359,8 @@ class Assimilate:
         with open(self.RESTART_RESULTS_FILE, "rb") as file:
             self.ensemble.sim_data = pickle.load(file)
 
-        self.ensemble.pred_data = self.filter_pred_data(
-            self.ensemble.data_df,
-            self.ensemble.sim_data,
-        )
+        self.ensemble.pred_data = self.sim_to_pred_data(self.ensemble.sim_data)
+
         os.rename(self.RESTART_RESULTS_FILE, self.SIM_RESULTS_FILE)
         print("--- Restart sim results used ---")
         return True
@@ -395,34 +388,25 @@ class Assimilate:
         with open(self._save_path(self.SIM_RESULTS_FILE), "wb") as file:
             pickle.dump(forecast, file)
 
-    def filter_pred_data(self, data_df: Any, pred_df: Any) -> Any:
-        """Filter predicted data to observed indices and columns.
+    def sim_to_pred_data(self, pred: Any) -> Any:
+        '''
+        Filter the simulator output to match the structure of the predicted data expected.
 
         Parameters
         ----------
-        data_df : pandas.DataFrame-like
-            Observed data frame.
-        pred_df : pandas.DataFrame-like or list[pandas.DataFrame-like]
-            Predicted data frame(s) to filter.
-
+        pred : Any
+            The raw output from the simulator, which may be a list of DataFrames or a single DataFrame.
+        
         Returns
         -------
-        pandas.DataFrame-like or list[pandas.DataFrame-like]
-            Prediction data aligned to ``data_df``.
-        """
-        if isinstance(pred_df, list):
-            return [self.filter_pred_data(data_df, frame) for frame in pred_df]
-
-        if data_df.index.dtype == pred_df.index.dtype:
-            pred_df = pred_df[pred_df.index.isin(data_df.index)]
-        elif data_df.index.size != pred_df.index.size:
-            raise ValueError("Index of pred_data and data_df do not match in type or size!")
-
-        pred_df = pred_df[data_df.columns]
-        if pred_df.empty:
-            raise ValueError("No matching indices between pred_data and data_df after filtering!")
-
-        return pred_df
+        Any
+            The processed predicted data, structured to match the ensemble's expected format for analysis.
+        '''
+        if isinstance(pred, list):
+            return [self.sim_to_pred_data(frame) for frame in pred]
+        index = self.ensemble.data_df.index
+        columns = self.ensemble.data_df.columns
+        return pred.filter_dataframe(index=index, columns=columns)
 
     def post_process_forecast(self) -> None:
         """Post-process predicted data after a forecast run."""

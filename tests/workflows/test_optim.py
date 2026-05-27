@@ -1,127 +1,196 @@
+"""
+Tests for optimization workflows using Gaussian ensembles.
+
+These tests validate:
+1. Convergence of EnOpt on a quadratic objective
+2. Line search optimization behavior
+3. High-dimensional optimization (Rosenbrock function)
+"""
+
+import os
+from pathlib import Path
+
+import numpy as np
+from scipy.optimize import rosen
+
 from popt.loop.ensemble_gaussian import GaussianEnsemble
 from popt.update_schemes.enopt import EnOpt
 from popt.update_schemes.linesearch import LineSearch
 from popt.cost_functions.quadratic import quadratic
-from scipy.optimize import rosen
-
-import numpy as np
-import os
 
 
-dim = 2
-kwens = {
-    'ne': 10,
-    'transform': True,
-    'natural_gradient': False,
-    'controls': {
-        'x': {'mean': [5]*dim, 'var': 1.0e-5, 'limits': [-10, 10]}
+# ----------------------------------------------------------------------
+# Configuration
+# ----------------------------------------------------------------------
+
+ENSEMBLE_CONFIG = {
+    "ne": 10,
+    "transform": True,
+    "natural_gradient": False,
+    "controls": {
+        "x": {
+            "mean": [5] * 2,
+            "var": 1.0e-5,
+            "limits": [-10, 10],
+        }
+    },
+}
+
+OPT_CONFIG = {
+    "maxiter": 50,
+    "tol": 1e-2,
+    "alpha": 0.25,
+    "alpha_maxiter": 4,
+    "resample": 0,
+    "optimizer": "GD",
+    "restartsave": False,
+    "restart": False,
+    "save_data": ["alpha", "obj_func_values"],
+}
+
+
+# ----------------------------------------------------------------------
+# Utilities
+# ----------------------------------------------------------------------
+
+def prepare_test_environment(tmp_path: Path, seed: int):
+    """
+    Set working directory and initialize random seed.
+    """
+    np.random.seed(seed)
+    os.chdir(tmp_path)
+
+
+def create_ensemble(config, objective):
+    """
+    Initialize Gaussian ensemble and extract key components.
+    """
+    ensemble = GaussianEnsemble(config, None, objective)
+
+    return {
+        "ensemble": ensemble,
+        "x0": ensemble.get_state(),
+        "cov": ensemble.get_cov(),
+        "bounds": ensemble.get_bounds(),
     }
-}
-
-kwopt = {
-    'maxiter': 50,
-    'tol': 1e-2,
-    'alpha': 0.25,
-    'alpha_maxiter': 4,
-    'resample': 0,
-    'optimizer': 'GD',
-    'restartsave': False,
-    'restart': False,
-    'save_data': ['alpha', 'obj_func_values']
-}
 
 
-def test_quadratic_enopt(temp_examples_dir):
-    np.random.seed(101122)
-    os.chdir(temp_examples_dir)
-    
-    ensemble = GaussianEnsemble(kwens, None, quadratic)
-    x0 = ensemble.get_state()
-    cov = ensemble.get_cov()
-    bounds = ensemble.get_bounds()
-    enopt = EnOpt(
-        ensemble.function, 
-        x0, 
-        args=(cov,), 
-        jac=ensemble.gradient, 
-        hess=ensemble.hessian, 
-        bounds=bounds, 
-        **kwopt
-    )
-    state = ensemble.get_state()
-    obj = enopt.obj_func_values
-    np.testing.assert_array_almost_equal(state, [0.5, 0.5], decimal=1)
-    np.testing.assert_array_almost_equal(obj, [0.0], decimal=1)
+# ----------------------------------------------------------------------
+# Tests
+# ----------------------------------------------------------------------
 
+def test_quadratic_enopt(tmp_path):
+    """
+    Verify EnOpt converges to optimum for quadratic function.
+    """
+    prepare_test_environment(tmp_path, seed=101122)
 
-def test_quadratic_linesearch(temp_examples_dir):
-    np.random.seed(101122)
-    os.chdir(temp_examples_dir)
-    
-    # Create ensemble
-    ensemble = GaussianEnsemble(kwens, None, quadratic)
+    data = create_ensemble(ENSEMBLE_CONFIG, quadratic)
+    ensemble = data["ensemble"]
 
-    # Get initial state
-    x0 = ensemble.get_state()
-    cov = ensemble.get_cov()
-    bounds = ensemble.get_bounds()
-
-    
-    # Run Optimization
-    res = LineSearch( 
-        x=x0,
-        fun=ensemble.function,
+    optimizer = EnOpt(
+        ensemble.function,
+        data["x0"],
+        args=(data["cov"],),
         jac=ensemble.gradient,
-        args=(cov,), 
-        bounds=bounds, 
+        hess=ensemble.hessian,
+        bounds=data["bounds"],
+        **OPT_CONFIG,
     )
 
-    np.testing.assert_array_almost_equal(res.x, [0.5, 0.5], decimal=1)
-    np.testing.assert_almost_equal(res.fun, 0.0, decimal=4)
+    state = ensemble.get_state()
+    objective_values = optimizer.obj_func_values
+
+    np.testing.assert_array_almost_equal(
+        state, [0.5, 0.5], decimal=1,
+        err_msg="EnOpt failed to converge to expected optimum"
+    )
+
+    np.testing.assert_array_almost_equal(
+        objective_values, [0.0], decimal=1,
+        err_msg="Objective value not minimized as expected"
+    )
 
 
-def test_rosenbrock_linesearch(temp_examples_dir):
-    np.random.seed(10_08_1997)
-    os.chdir(temp_examples_dir)
+def test_quadratic_linesearch(tmp_path):
+    """
+    Verify LineSearch converges on quadratic objective.
+    """
+    prepare_test_environment(tmp_path, seed=101122)
+
+    data = create_ensemble(ENSEMBLE_CONFIG, quadratic)
+
+    result = LineSearch(
+        x=data["x0"],
+        fun=data["ensemble"].function,
+        jac=data["ensemble"].gradient,
+        args=(data["cov"],),
+        bounds=data["bounds"],
+    )
+
+    np.testing.assert_array_almost_equal(
+        result.x, [0.5, 0.5], decimal=1,
+        err_msg="LineSearch did not converge to expected optimum"
+    )
+
+    np.testing.assert_almost_equal(
+        result.fun, 0.0, decimal=4,
+        err_msg="Final objective value is too large"
+    )
+
+
+def test_rosenbrock_linesearch(tmp_path):
+    """
+    Verify LineSearch (BFGS) converges on high-dimensional Rosenbrock problem.
+    """
+    prepare_test_environment(tmp_path, seed=10_08_1997)
 
     dim = 100
-    kw = {
-        'ne': 100,
-        'transform': False,
-        'natural_gradient': False,
-        'controls': {
-            'x': {'mean': [-2]*dim, 'var': 0.001, 'limits': [-2, 2]}
-        }
+
+    ensemble_config = {
+        "ne": 100,
+        "transform": False,
+        "natural_gradient": False,
+        "controls": {
+            "x": {
+                "mean": [-2] * dim,
+                "var": 0.001,
+                "limits": [-2, 2],
+            }
+        },
     }
 
-    # Define objective function
-    func = lambda x, *args, **kwargs: rosen(x)
+    # Objective wrapped for compatibility with ensemble
+    def rosenbrock(x, *args, **kwargs):
+        return rosen(x)
 
-    # Create ensemble
-    ensemble = GaussianEnsemble(kw, None, func)
+    data = create_ensemble(ensemble_config, rosenbrock)
 
-    # Get initial state
-    x0 = ensemble.get_state()
-    cov = ensemble.get_cov()
-    bounds = ensemble.get_bounds()
-
-    options = {
-        'maxiter': 1000,
-        'step_size': 1.0,
-        'ftol': 1e-8,
-    }
-
-    # Run Optimization
-    res = LineSearch( 
-        x=x0,
-        fun=ensemble.function,
-        jac=ensemble.gradient,
-        args=(cov,), 
-        bounds=bounds,
-        method='BFGS',
-        **options
+    result = LineSearch(
+        x=data["x0"],
+        fun=data["ensemble"].function,
+        jac=data["ensemble"].gradient,
+        args=(data["cov"],),
+        bounds=data["bounds"],
+        method="BFGS",
+        maxiter=1000,
+        step_size=1.0,
+        ftol=1e-8,
     )
-    
-    np.testing.assert_array_almost_equal(res.x, np.ones(dim), decimal=0)
-    assert np.linalg.norm(res.x - np.ones(dim)) < 0.1*np.sqrt(dim)
+
+    expected = np.ones(dim)
+
+    np.testing.assert_array_almost_equal(
+        result.x, expected, decimal=0,
+        err_msg="Solution deviates significantly from Rosenbrock optimum"
+    )
+
+    # Norm-based tolerance for high-dimensional case
+    error_norm = np.linalg.norm(result.x - expected)
+    tolerance = 0.1 * np.sqrt(dim)
+
+    assert error_norm < tolerance, (
+        f"Solution error too large: |x - x*| = {error_norm:.3f} "
+        f">= {tolerance:.3f}"
+    )
 

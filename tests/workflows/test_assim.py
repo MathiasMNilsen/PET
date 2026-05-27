@@ -1,7 +1,20 @@
 """
-Tests for Data Assimilation workflows using the Van der Pol oscillator as a test case.
+Integration tests for Data Assimilation workflows using the Van der Pol oscillator.
+
+Tested algorithms:
+- ESMDA (Ensemble Smoother with Multiple Data Assimilation)
+- LM-EnRML (Levenberg-Marquardt Ensemble Randomized Maximum Likelihood)
+- GN-EnRML (Gauss-Newton Ensemble Randomized Maximum Likelihood)
+
+These tests validate multiple ensemble-based assimilation algorithms by
+verifying:
+1. Reduction in data misfit
+2. Improvement of inferred parameters relative to prior
 """
+
 import os
+from pathlib import Path
+
 import yaml
 import pytest
 import numpy as np
@@ -12,238 +25,254 @@ from pipt.loop.assimilation import Assimilate
 from input_output import read_config
 from pipt import pipt_init
 
+
+# ----------------------------------------------------------------------
+# Fixtures
+# ----------------------------------------------------------------------
+
 @pytest.fixture
 def num_cores():
-    '''
-    Returns the number of CPU cores to use for parallel runs in tests.
-    Uses half of the available cores, but at least 1.
-    '''
-    n = max(os.cpu_count()//2, 1)
-    return n
+    """
+    Return number of CPU cores for parallel execution.
+
+    Uses half of available cores, with a minimum of 1.
+    """
+    return max(os.cpu_count() // 2, 1)
 
 
-def _setup(seed=12345):
+# ----------------------------------------------------------------------
+# Test utilities
+# ----------------------------------------------------------------------
+
+def setup_synthetic_case(seed: int = 12345):
+    """
+    Create synthetic prior ensemble and observation data.
+
+    Outputs:
+        - prior_ensemble.npz
+        - true_data.pkl
+        - var.pkl
+    """
     rng = np.random.default_rng(seed)
 
-    # True state
-    x1_0, x2_0, mu = 1.0, 0.0, 1.0
+    # True parameters
+    x1_true, x2_true, mu_true = 1.0, 0.0, 1.0
 
-    # Make prior ensemble
+    # Prior ensemble
     ne = 1000
     X1 = 0.05 + 0.1 * rng.standard_normal(ne)
     X2 = 0.05 + 0.1 * rng.standard_normal(ne)
-    MU = 1.5  + 0.5 * rng.standard_normal(ne)
-    np.savez("prior_ensemble.npz", 
-        x1=X1[np.newaxis,:], 
-        x2=X2[np.newaxis,:], 
-        mu=MU[np.newaxis,:]
+    MU = 1.5 + 0.5 * rng.standard_normal(ne)
+
+    np.savez(
+        "prior_ensemble.npz",
+        x1=X1[np.newaxis, :],
+        x2=X2[np.newaxis, :],
+        mu=MU[np.newaxis, :],
     )
 
-    # Observation times and report points
-    time_steps = np.arange(0, 16, 1, dtype=float)       # 0..15
-    report_points = np.arange(1, 16, 1, dtype=int)      # 1..15
+    # Time configuration
+    time_steps = np.arange(0, 16, dtype=float)
+    report_points = np.arange(1, 16)
 
-    # True run
-    res = _integrate(x1_0, x2_0, mu, time_steps, atol=1e-5, rtol=1e-5)
+    # True simulation
+    result = _integrate(x1_true, x2_true, mu_true, time_steps,
+                        atol=1e-5, rtol=1e-5)
 
-    # Perturb observations with noise, (observations are x1 at report points)
+    # Observations (with noise)
     sigma = 0.1
-    obs = res[report_points, 0] + sigma * rng.standard_normal(len(report_points))
+    observations = result[report_points, 0] + sigma * rng.standard_normal(len(report_points))
 
-    # DataFrame for true observations
-    df_true = pd.DataFrame({"x1": obs}, index=report_points)
-    df_true.index.name = "steps"
-    df_true.to_pickle("true_data.pkl")
+    # Store observations
+    df_obs = pd.DataFrame({"x1": observations}, index=report_points)
+    df_obs.index.name = "steps"
+    df_obs.to_pickle("true_data.pkl")
 
-    # Variance DataFrame in PET format    
+    # Store variance (PET format)
     variance = sigma ** 2
     df_var = pd.DataFrame(
-        {"x1": [f"['abs', {variance}]" for _ in range(len(report_points))]},
+        {"x1": [f"['abs', {variance}]" for _ in report_points]},
         index=report_points,
     )
     df_var.index.name = "steps"
     df_var.to_pickle("var.pkl")
 
 
-def _make_config_file(name, kwda, parallel_runs=1):
-    kwens = {
-        'ne': 1000,
-        'state': ['x1', 'x2', 'mu'],
-        'importstate': 'prior_ensemble.npz',
-        'prior_x1': {'var': 1.0},
-        'prior_x2': {'var': 1.0},
-        'prior_mu': {'var': 1.0},
+def create_config_file(filename: str, data_assimilation_cfg: dict, parallel_runs: int):
+    """
+    Write YAML configuration file for data assimilation run.
+    """
+    ensemble_cfg = {
+        "ne": 1000,
+        "state": ["x1", "x2", "mu"],
+        "importstate": "prior_ensemble.npz",
+        "prior_x1": {"var": 1.0},
+        "prior_x2": {"var": 1.0},
+        "prior_mu": {"var": 1.0},
     }
-    kwsim = {
-        'reporttype': 'steps',
-        'reportpoints': list(range(1, 16)),
-        'datatype': ['x1'],
-        'parallel': parallel_runs,
-        'compute_adjoints': False,
+
+    simulator_cfg = {
+        "reporttype": "steps",
+        "reportpoints": list(range(1, 16)),
+        "datatype": ["x1"],
+        "parallel": parallel_runs,
+        "compute_adjoints": False,
     }
+
     config = {
-        'ensemble': kwens,
-        'dataassim': kwda,
-        'fwdsim': kwsim,
+        "ensemble": ensemble_cfg,
+        "dataassim": data_assimilation_cfg,
+        "simulator": simulator_cfg,
     }
-    with open(f"{name}.yaml", 'w') as f:
+
+    with open(f"{filename}.yaml", "w") as f:
         yaml.dump(config, f)
 
-def _data_mismatch(d, Y, cov):
-    n = Y.shape[1]
-    dm = 0.0
-    for i in range(n):
-        r = Y[:, i] - d
-        dm += np.squeeze(r.T @ np.linalg.solve(cov, r) / n)
-    return dm
+
+def compute_data_misfit(observed, predicted, cov):
+    """
+    Compute normalized data misfit across ensemble members.
+    """
+    n_ens = predicted.shape[1]
+    misfit = 0.0
+
+    for i in range(n_ens):
+        residual = predicted[:, i] - observed
+        misfit += (residual.T @ np.linalg.solve(cov, residual)) / n_ens
+
+    return float(np.squeeze(misfit))
 
 
+def run_assimilation(config_file: str):
+    """
+    Initialize and run assimilation given a config file.
+    """
+    cfg_da, cfg_sim, cfg_ens = read_config.read(config_file)
 
-def test_EMSDA_approx(tmp_path, num_cores):
-    np.random.seed(12345)
-
-    # Make test folder and change to it
-    path = tmp_path / "esmda_test"
-    path.mkdir()
-    os.chdir(path)
-
-    # Setup data and prior ensemble
-    _setup(seed=12345)
-
-    # Make config file for EMSDA
-    kwda = {
-        'daalg': ['esmda', 'esmda'],
-        'analysis': 'approx',
-        'mda': {'tot_assim_steps': 8, 'inflation_param': 8*[8]},
-        'energy': 0.99,
-        'obsname': 'steps',
-        'data': 'true_data.pkl',
-        'datavar': 'var.pkl',
-        'save_folder': 'results',
-        'analysisdebug': ['state', 'pred_data', 'ensemble_misfit'],
-    }
-    _make_config_file(name="config_emsda", kwda=kwda, parallel_runs=num_cores)
-
-    # Run assimilation
-    cfg_da, cfg_sim, cfg_ens = read_config.read("config_emsda.yaml")
     ensemble = pipt_init.init_da(
-        cfg_da, 
-        cfg_ens, 
+        cfg_da,
+        cfg_ens,
         VanDerPolOscillator(cfg_sim),
     )
-    Assimilate(ensemble).run()
 
-    # Check data mismatch
-    dm = _data_mismatch(
-        d=ensemble.vecObs,
-        Y=ensemble.pred_data.to_matrix(),
+    Assimilate(ensemble).run()
+    return ensemble
+
+
+def assert_assimilation_quality(ensemble, misfit_threshold=60.0):
+    """
+    Validate assimilation performance:
+        - Data misfit is below threshold
+        - Parameter estimate improves
+    """
+    # Data misfit check
+    dm = compute_data_misfit(
+        observed=ensemble.vecObs,
+        predicted=ensemble.pred_data.to_matrix(),
         cov=np.diag(ensemble.cov_data),
     )
-    assert dm < 60.0, f"Data mismatch too high: {dm} >= 60.0"
 
-    # Check mu-parameter
+    assert dm < misfit_threshold, f"Data mismatch too high: {dm:.2f} >= {misfit_threshold}"
+
+    # Parameter improvement (mu)
     mu_true = 1.0
-    mu_post_mean = ensemble.enX[2, :].mean()
-    mu_prior_mean = ensemble.prior_enX[2, :].mean()
-    assert abs(mu_post_mean - mu_true) < 0.2*abs(mu_prior_mean - mu_true)
+    mu_prior = ensemble.prior_enX[2, :].mean()
+    mu_post = ensemble.enX[2, :].mean()
+
+    prior_error = abs(mu_prior - mu_true)
+    post_error = abs(mu_post - mu_true)
+
+    assert post_error < 0.2 * prior_error, (
+        f"Insufficient parameter improvement: "
+        f"{post_error:.3f} >= 0.2 * {prior_error:.3f}"
+    )
 
 
-def test_LM_EnRML_approx(tmp_path, num_cores):
-    np.random.seed(12345)
-
-    # Make test folder and change to it
-    path = tmp_path / "lm_enrml_test"
+def prepare_test_environment(tmp_path: Path, folder_name: str):
+    """
+    Create isolated test directory and initialize synthetic data.
+    """
+    path = tmp_path / folder_name
     path.mkdir()
     os.chdir(path)
+    setup_synthetic_case(seed=12345)
 
-    # Setup data and prior ensemble
-    _setup(seed=12345)
 
-    # Make config file for LM-EnRML
-    kwda = {
-        'daalg': ['enrml', 'lmenrml'],
-        'analysis': 'approx',
-        'iteration': {'max_iter': 8, 'lambda': 10, 'lambda_factor': 5, 'trunc_energy': 0.99},
-        'energy': 0.99,
-        'obsname': 'steps',
-        'data': 'true_data.pkl',
-        'datavar': 'var.pkl',
-        'save_folder': 'results',
-        'analysisdebug': ['state', 'pred_data', 'ensemble_misfit'],
+# ----------------------------------------------------------------------
+# Tests
+# ----------------------------------------------------------------------
+
+def test_esmda_approx(tmp_path, num_cores):
+    """Test ESMDA (approx analysis)."""
+    prepare_test_environment(tmp_path, "esmda_test")
+
+    da_cfg = {
+        "daalg": ["esmda", "esmda"],
+        "analysis": "approx",
+        "mda": {
+            "tot_assim_steps": 8,
+            "inflation_param": 8 * [8],
+        },
+        "energy": 0.99,
+        "obsname": "steps",
+        "data": "true_data.pkl",
+        "datavar": "var.pkl",
+        "save_folder": "results",
+        "analysisdebug": ["state", "pred_data", "ensemble_misfit"],
     }
-    _make_config_file(name="config_lm_enrml", kwda=kwda, parallel_runs=num_cores)
+    create_config_file("config_esmda", da_cfg, num_cores)
 
-    # Run assimilation
-    cfg_da, cfg_sim, cfg_ens = read_config.read("config_lm_enrml.yaml")
-    ensemble = pipt_init.init_da(
-        cfg_da, 
-        cfg_ens, 
-        VanDerPolOscillator(cfg_sim),
-    )
-    Assimilate(ensemble).run()
-
-    # Check data mismatch
-    dm = _data_mismatch(
-        d=ensemble.vecObs,
-        Y=ensemble.pred_data.to_matrix(),
-        cov=np.diag(ensemble.cov_data),
-    )
-    assert dm < 60.0, f"Data mismatch too high: {dm} >= 60.0"
-
-    # Check mu-parameter
-    mu_true = 1.0
-    mu_post_mean = ensemble.enX[2, :].mean()
-    mu_prior_mean = ensemble.prior_enX[2, :].mean()
-    assert abs(mu_post_mean - mu_true) < 0.2*abs(mu_prior_mean - mu_true)
+    ensemble = run_assimilation("config_esmda.yaml")
+    assert_assimilation_quality(ensemble)
 
 
-def test_GN_EnRML_approx(tmp_path, num_cores):
-    np.random.seed(12345)
+def test_lm_enrml_approx(tmp_path, num_cores):
+    """Test LM-EnRML (approx analysis)."""
+    prepare_test_environment(tmp_path, "lm_enrml_test")
 
-    # Make test folder and change to it
-    path = tmp_path / "gn_enrml_test"
-    path.mkdir()
-    os.chdir(path)
-
-    # Setup data and prior ensemble
-    _setup(seed=12345)
-
-    # Make config file for GN-EnRML
-    kwda = {
-        'daalg': ['enrml', 'gnenrml'],
-        'analysis': 'approx',
-        'iteration': {'max_iter': 8, 'gamma': 0.5, 'gamma_factor': 5, 'trunc_energy': 0.99},
-        'energy': 0.99,
-        'obsname': 'steps',
-        'data': 'true_data.pkl',
-        'datavar': 'var.pkl',
-        'save_folder': 'results',
-        'analysisdebug': ['state', 'pred_data', 'ensemble_misfit'],
+    da_cfg = {
+        "daalg": ["enrml", "lmenrml"],
+        "analysis": "approx",
+        "iteration": {
+            "max_iter": 8,
+            "lambda": 10,
+            "lambda_factor": 5,
+            "trunc_energy": 0.99,
+        },
+        "energy": 0.99,
+        "obsname": "steps",
+        "data": "true_data.pkl",
+        "datavar": "var.pkl",
+        "save_folder": "results",
+        "analysisdebug": ["state", "pred_data", "ensemble_misfit"],
     }
-    _make_config_file(name="config_gn_enrml", kwda=kwda, parallel_runs=num_cores)
+    create_config_file("config_lm_enrml", da_cfg, num_cores)
 
-    # Run assimilation
-    cfg_da, cfg_sim, cfg_ens = read_config.read("config_gn_enrml.yaml")
-    ensemble = pipt_init.init_da(
-        cfg_da, 
-        cfg_ens, 
-        VanDerPolOscillator(cfg_sim),
-    )
-    Assimilate(ensemble).run()
+    ensemble = run_assimilation("config_lm_enrml.yaml")
+    assert_assimilation_quality(ensemble)
 
-    # Check data mismatch
-    dm = _data_mismatch(
-        d=ensemble.vecObs,
-        Y=ensemble.pred_data.to_matrix(),
-        cov=np.diag(ensemble.cov_data),
-    )
-    assert dm < 60.0, f"Data mismatch too high: {dm} >= 60.0"
 
-    # Check mu-parameter
-    mu_true = 1.0
-    mu_post_mean = ensemble.enX[2, :].mean()
-    mu_prior_mean = ensemble.prior_enX[2, :].mean()
-    dx0 = abs(mu_prior_mean - mu_true)
-    dx1 = abs(mu_post_mean - mu_true)
-    assert dx1 < 0.2*dx0, f"Parameter improvement too low: {dx1} >= 0.2*{dx0}"
-    
+def test_gn_enrml_approx(tmp_path, num_cores):
+    """Test GN-EnRML (approx analysis)."""
+    prepare_test_environment(tmp_path, "gn_enrml_test")
+
+    da_cfg = {
+        "daalg": ["enrml", "gnenrml"],
+        "analysis": "approx",
+        "iteration": {
+            "max_iter": 8,
+            "gamma": 0.5,
+            "gamma_factor": 5,
+            "trunc_energy": 0.99,
+        },
+        "energy": 0.99,
+        "obsname": "steps",
+        "data": "true_data.pkl",
+        "datavar": "var.pkl",
+        "save_folder": "results",
+        "analysisdebug": ["state", "pred_data", "ensemble_misfit"],
+    }
+    create_config_file("config_gn_enrml", da_cfg, num_cores)
+
+    ensemble = run_assimilation("config_gn_enrml.yaml")
+    assert_assimilation_quality(ensemble)

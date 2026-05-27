@@ -108,6 +108,21 @@ class PETDataFrame(pd.DataFrame):
         out.attrs = first.attrs.copy()
         return out
     
+    def filter_dataframe(self, index=None, columns=None) -> "PETDataFrame":
+        """Return a new PETDataFrame filtered to the specified columns and index."""
+        filtered = self.copy()
+        if index is not None:
+            if hasattr(index, "dtype") and index.dtype != filtered.index.dtype:
+                raise ValueError(
+                    "Provided index has different dtype than DataFrame index."
+                )
+            filtered = filtered.loc[index]
+        if columns is not None:
+            filtered = filtered.filter(items=columns)
+
+        return filtered
+
+    
     def scale(self, type='max-min', **kwargs) -> None:
         '''
         Scale each column of DataFrame using the specified method.

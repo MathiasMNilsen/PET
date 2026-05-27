@@ -122,6 +122,55 @@ class TestPETDataFrameBasic:
         assert isinstance(pdf.loc[["idx1"]], PETDataFrame)
         assert isinstance(pdf + 1, PETDataFrame)
 
+# ---------------------------------------------------------------------------
+# PETDataFrame: Filtering
+# ---------------------------------------------------------------------------
+
+class TestFilterDataFrame:
+
+    def setup_method(self):
+        self.data = {
+            "A": [1, 2, 3],
+            "B": [4, 5, 6],
+            "C": [7, 8, 9],
+        }
+        self.index = pd.Index(["x", "y", "z"], name="idx")
+        self.df = PETDataFrame(self.data, index=self.index)
+
+    def test_filter_columns(self):
+        filtered = self.df.filter_dataframe(columns=["A", "C"])
+        assert list(filtered.columns) == ["A", "C"]
+        assert np.all(filtered["A"] == [1, 2, 3])
+        assert np.all(filtered["C"] == [7, 8, 9])
+        assert isinstance(filtered, PETDataFrame)
+
+    def test_filter_index(self):
+        filtered = self.df.filter_dataframe(index=["x", "z"])
+        assert list(filtered.index) == ["x", "z"]
+        assert np.all(filtered.loc["x"] == [1, 4, 7])
+        assert np.all(filtered.loc["z"] == [3, 6, 9])
+        assert isinstance(filtered, PETDataFrame)
+
+    def test_filter_both(self):
+        filtered = self.df.filter_dataframe(columns=["B"], index=["y"])
+        assert list(filtered.columns) == ["B"]
+        assert list(filtered.index) == ["y"]
+        assert filtered.at["y", "B"] == 5
+        assert isinstance(filtered, PETDataFrame)
+
+    def test_filter_none(self):
+        filtered = self.df.filter_dataframe()
+        pd.testing.assert_frame_equal(filtered, self.df)
+        assert isinstance(filtered, PETDataFrame)
+
+    def test_filter_wrong_index_dtype(self):
+        wrong_index = pd.Index([0, 1], dtype=int)
+        with pytest.raises(ValueError):
+            self.df.filter_dataframe(index=wrong_index)
+
+    def test_return_type(self):
+        filtered = self.df.filter_dataframe(columns=["A"])
+        assert isinstance(filtered, PETDataFrame)
 
 # ---------------------------------------------------------------------------
 # Jacobian (Multi-column)
@@ -147,7 +196,7 @@ class TestMultiColumnJacobian:
         for r in range(NROWS):
             for key in keys:
                 row = np.concatenate([
-                    multicolumn_df[(key, param)][r]
+                    multicolumn_df[(key, param)].iloc[r]
                     for param in params
                 ])
                 expected_rows.append(row)
