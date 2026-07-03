@@ -363,7 +363,7 @@ def get_optimize_result(obj):
     return save_dict
 
 
-def save_optimize_results(intermediate_result):
+def save_optimize_results(intermediate_result, folder=None):
     """
     Save optimize results
 
@@ -377,7 +377,11 @@ def save_optimize_results(intermediate_result):
         intermediate_result = OptimizeResult({'x': intermediate_result})
 
     # Make folder (if it does not exist)
-    if 'save_folder' in intermediate_result:
+    if folder is not None:
+        save_folder = folder
+        if not os.path.exists(save_folder):
+            os.makedirs(save_folder)
+    elif 'save_folder' in intermediate_result:
         save_folder = intermediate_result['save_folder']
         if not os.path.exists(save_folder):
             os.makedirs(save_folder)

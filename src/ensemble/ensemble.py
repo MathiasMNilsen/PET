@@ -234,7 +234,7 @@ class Ensemble:
                         sim_output.append(self.sim.run_fwd_sim(state, member_index))
 
                 # Number of parallel runs
-                if self.sim.input_dict.get('hpc', False):  # Run prediction in parallel on hpc
+                elif self.sim.input_dict.get('hpc', False):  # Run prediction in parallel on hpc
                     sim_output = self.run_on_HPC(sim_input, batch_size=nparallel)
 
                 # Parallelization on local machine using p_map      
