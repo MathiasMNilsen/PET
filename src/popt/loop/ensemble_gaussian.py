@@ -6,11 +6,11 @@ from copy import deepcopy
 
 # Internal imports
 from popt.misc_tools import optim_tools as ot
-from popt.loop.ensemble_base import EnsembleOptimizationBaseClass
+from popt.loop.ensemble_base import EnsembleOptimizationBase
 
 __all__ = ['GaussianEnsemble']
 
-class GaussianEnsemble(EnsembleOptimizationBaseClass):
+class GaussianEnsemble(EnsembleOptimizationBase):
     """
     Gaussian Ensemble class for ensemble-based optimization.
 
@@ -59,87 +59,84 @@ class GaussianEnsemble(EnsembleOptimizationBaseClass):
         self.resample_index = None
     
     def gradient(self, x, *args, **kwargs):
-        '''
-        Ensemble-based Gradient (EnOpt).
+        """
+        Estimate the ensemble gradient (EnOpt) at a given state.
 
         Parameters
         ----------
         x : ndarray
-            Control vector, shape (number of controls, )
-        
+            Control vector, shape (number of controls, ).
         args : tuple
-            Covarice matrix, shape (number of controls, number of controls)
-        
+            First positional argument must be the covariance matrix with shape
+            (number of controls, number of controls).
+
         Returns
         -------
-        gradient : ndarray
-            Ensemble gradient, shape (number of controls, )
-        '''
-        # Update state vector
+        ndarray
+            Ensemble gradient, shape (number of controls, ).
+
+        Raises
+        ------
+        ValueError
+            If required inputs are missing or have invalid shapes.
+        """
+        if len(args) < 1:
+            raise ValueError("gradient requires covariance matrix as first positional argument.")
+
+        x = np.asarray(x)
+        if x.ndim != 1:
+            raise ValueError(f"Expected x to be a 1D vector, got shape {x.shape}.")
+
+        cov = np.asarray(args[0])
+        if cov.shape != (self.dimX, self.dimX):
+            raise ValueError(
+                f"Covariance shape mismatch: expected {(self.dimX, self.dimX)}, got {cov.shape}."
+            )
+
+        nr = self._aux_input()
+
+        # Update internal state and covariance used by downstream methods.
         self.stateX = x
-
-        # Set covariance equal to the input
-        self.covX = args[0]
-
-        # Generate state ensemble
+        self.covX = cov
         self.ne = self.num_samples
-        nr = self._aux_input()   
+
+        # Draw perturbations and recenter ensemble around current state.
         enX = np.random.multivariate_normal(self.stateX, self.covX, self.ne).T
+        enX = enX - enX.mean(axis=1, keepdims=True) + self.stateX[:, None]
+        enX = np.clip(enX, self.lb[:, None], self.ub[:, None])
 
-        # Shift ensemble to have correct mean
-        enX = enX - enX.mean(axis=1, keepdims=True) + self.stateX[:,None]
-
-        # Truncate to bounds
-        if (self.lb is not None) and (self.ub is not None):
-            if self.transform:
-                enX = np.clip(enX, 0, 1)
-            else:
-                enX = np.clip(enX, self.lb[:, None], self.ub[:, None])
-
-        # Evaluate objective function for ensemble
-        enF = self.function(enX, *args, **kwargs)
-
-        # Store ensembles
+        enF = self.function(enX, **kwargs)
         self.enX = enX
-        self.enF = enF
-    
-        # Make function ensemble to a list (for Multilevel) 
-        if not isinstance(self.enF, list):
-            self.enF = [self.enF]
+        self.enF = enF if isinstance(enF, list) else [enF]
 
-        # Define some variables for gradient calculation
-        index = 0       
+        start_idx = 0
         nlevels = len(self.enF)
         grad_ml = np.zeros((nlevels, self.dimX))
 
-        # Loop over levels (only one level if not multilevel)
-        for id_level in range(nlevels):
-            dF = self.enF[id_level] - np.repeat(self.stateF, nr)
-            ne = self.enF[id_level].shape[0] 
+        # Loop over levels (single level when not multilevel).
+        for levelID in range(nlevels):
+            dF = self.enF[levelID] - np.repeat(self.stateF, nr)
+            ne = dF.shape[0]
 
-            # Calculate ensemble gradient for level
-            g = np.zeros(self.dimX)
-            for n in range(ne):
-                g = g + dF[n] * (self.enX[:, index+n] - self.stateX)
-
-            grad_ml[id_level] = g/ne
-            index += ne
+            dx = self.enX[:, start_idx:start_idx + ne] - self.stateX[:, None]
+            grad_ml[levelID] = np.squeeze(dx @ dF) / ne
+            start_idx += ne
 
         if 'multilevel' in self.keys_en:
-            weight = np.array(self.multilevel['ml_weights'])
-            if len(weight) > 1:
-                if not np.sum(weight) == 1.0:
-                    weight = weight / np.sum(weight)
-                grad = np.dot(grad_ml, weight)
+            weight = np.asarray(self.multilevel['ml_weights'], dtype=float)
+            if weight.size > 1:
+                weight_sum = np.sum(weight)
+                if weight_sum != 1.0:
+                    weight = weight / weight_sum
+                grad = np.dot(weight, grad_ml)
             else:
                 grad = grad_ml[0]
         else:
             grad = grad_ml[0]
 
-        # Check if natural or averaged gradient (default is natural)
+        # Check if natural or averaged gradient (default is natural).
         if not self.keys_en.get('natural_gradient', True):
-            cov_inv = np.linalg.inv(self.covX)
-            grad = np.matmul(cov_inv, grad)
+            grad = np.linalg.solve(self.covX, grad)
 
         return grad
 
@@ -176,23 +173,19 @@ class GaussianEnsemble(EnsembleOptimizationBaseClass):
         if not isinstance(self.enF, list):
             self.enF = [self.enF]
 
-        # Define some variables for gradient calculation
-        index = 0       
+        # Define some variables for Hessian calculation
+        index = 0
         nlevels = len(self.enF)
         hess_ml = np.zeros((nlevels, self.dimX, self.dimX))
 
         # Loop over levels (only one level if not multilevel)
-        for id_level in range(nlevels):
-            dF = self.enF[id_level] - np.repeat(self.stateF, nr)
-            ne = self.enF[id_level].shape[0] 
+        for levelID in range(nlevels):
+            dF = self.enF[levelID] - np.repeat(self.stateF, nr)
+            ne = self.enF[levelID].shape[0]
 
-            # Calculate ensemble Hessian for level
-            h = np.zeros((self.dimX, self.dimX))
-            for n in range(ne):
-                dx = (self.enX[:, index+n] - self.stateX)
-                h = h + dF[n] * (np.outer(dx, dx) - self.covX)
-
-            hess_ml[id_level] = h/ne
+            # Vectorized Hessian estimate for this level.
+            dx = self.enX[:, index:index + ne] - self.stateX[:, None]
+            hess_ml[levelID] = (dx * dF) @ dx.T / ne - self.covX * np.mean(dF)
             index += ne
 
         if 'multilevel' in self.keys_en:
@@ -206,8 +199,10 @@ class GaussianEnsemble(EnsembleOptimizationBaseClass):
         
         # Check if natural or averaged Hessian (default is natural)
         if not self.keys_en.get('natural_gradient', True):
-            cov_inv = np.linalg.inv(self.covX)
-            hessian = cov_inv @ hessian @ cov_inv
+            hessian = np.linalg.solve(
+                self.covX,
+                np.linalg.solve(self.covX, hessian).T
+            ).T
         
         return hessian
 

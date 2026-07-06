@@ -6,15 +6,16 @@ import warnings
 
 from copy import deepcopy
 from scipy.special import polygamma
+from sympy import symbols, solve, im, re
 
 # Internal imports
 from popt.misc_tools import optim_tools as ot
 from pipt.misc_tools import analysis_tools as at
-from popt.loop.ensemble_base import EnsembleOptimizationBaseClass
+from popt.loop.ensemble_base import EnsembleOptimizationBase
 
 __all__ = ['GeneralizedEnsemble']
 
-class GeneralizedEnsemble(EnsembleOptimizationBaseClass):
+class GeneralizedEnsemble(EnsembleOptimizationBase):
 
     def __init__(self, options, simulator, objective):
         '''
@@ -54,7 +55,7 @@ class GeneralizedEnsemble(EnsembleOptimizationBaseClass):
             elif marginal == 'BetaMC':
                 lb, ub = np.array(self.bounds).T
                 state = self.get_state()
-                var = np.diag(self.cov)
+                var = np.diag(self.covX)
                 self.margs = BetaMC(lb, ub, 0.1*np.sqrt(var[0]))
                 default_theta = np.array([var_to_concentration(state[i], var[i], lb[i], ub[i]) for i in range(self.dim)])
                 self.theta = options.get('theta', default_theta)
@@ -117,29 +118,33 @@ class GeneralizedEnsemble(EnsembleOptimizationBaseClass):
 
         H = np.linalg.inv(self.corr)-np.eye(dim)
         O = np.ones((dim,dim))-np.eye(dim)
-        enF = self.enF - np.repeat(self.stateF, nr)
+        enF = np.asarray(self.enF) - np.repeat(self.stateF, nr)
 
-        for n in range(self.ne):
+        G = self.margs.grad_log_pdf(self.enX, self.theta, mean=x)
+        K = np.asarray(self.margs.hess_log_pdf(self.enX, self.theta, mean=x))
 
-            X = self.enX[n]
-            Z = self.enZ[n]
-            
-            # Marginal terms
-            G = self.margs.grad_log_pdf(X, self.theta, mean=x)              # ∇log(p)
-            K = self.margs.hess_log_pdf(X, self.theta, mean=x)              # ∇²log(p)
+        rho = self.margs.pdf(self.enX, self.theta, mean=x) / stats.norm.pdf(self.enZ)
+        DZ = self.enZ @ H.T
+        D = -rho * DZ
+        M_ii = (G + rho * self.enZ) * D - np.diag(H) * rho**2
+        M_ij = -(rho[:, :, None] * rho[:, None, :]) * H
+        M = np.eye(dim)[None, :, :] * M_ii[:, :, None] + M_ij * O
 
-            # Copula terms
-            rho  = self.margs.pdf(X, self.theta, mean=x)/stats.norm.pdf(Z)   # p(X)/φ(Z) 
-            D    = - rho*np.matmul(H,Z)                                      # ∇log(c)
-            M_ii = (G+rho*Z)*D - np.diag(H)*rho**2
-            M_ij = - np.outer(rho,rho)*H
-            M    = np.diag(M_ii) + M_ij*O                                    # ∇²log(c) 
-            
-            # calc grad and hess
-            grad_log_p = G + D
-            hess_log_p = np.diag(K)+M
-            self.avg_grad += enF[n]*grad_log_p
-            self.avg_hess += enF[n]*(np.outer(grad_log_p, grad_log_p) + hess_log_p)
+        grad_log_p = G + D
+        if K.ndim == 1:
+            K = np.broadcast_to(np.diag(K), (self.enX.shape[0], dim, dim))
+        else:
+            K = np.eye(dim)[None, :, :] * K[:, :, None]
+        hess_log_p = K + M
+
+        weights = enF[:, None]
+        self.avg_grad = np.sum(weights * grad_log_p, axis=0)
+        self.avg_hess = np.sum(
+            weights[:, :, None] * (
+                np.einsum('ni,nj->nij', grad_log_p, grad_log_p) + hess_log_p
+            ),
+            axis=0,
+        )
 
         self.avg_grad = -self.avg_grad*self.grad_scale/ne
         self.avg_hess = self.avg_hess*self.hess_scale/ne
@@ -157,8 +162,9 @@ class GeneralizedEnsemble(EnsembleOptimizationBaseClass):
         return self.avg_hess
     
     def mutation_gradient(self, x, *args, **kwargs):
-        # Set the ensemble state equal to the input control vector x
-        self.state = ot.update_optim_state(x, self.state, list(self.state.keys()))
+        
+       # Update state vector
+        self.stateX = x
 
         if args:
             self.theta, self.corr = args
@@ -179,18 +185,14 @@ class GeneralizedEnsemble(EnsembleOptimizationBaseClass):
         if self.enF is None:
             self.enF = self.function(self._trafo_ensemble(x).T)
 
-        enF = self.enF - np.repeat(self.stateF, nr)
+        enF = np.asarray(self.enF) - np.repeat(self.stateF, nr)
 
-        self.nat_grad = np.zeros(dim)
-        self.nat_hess = np.zeros(dim)
-        for n in range(ne):
+        dm_log_p = self.margs.grad_theta_log_pdf(self.enX, self.theta, mean=x)
+        hm_log_p = self.margs.hess_theta_log_pdf(self.enX, self.theta, mean=x)
 
-            X = self.enX[n]
-            dm_log_p = self.margs.grad_theta_log_pdf(X, self.theta, mean=x)
-            hm_log_p = self.margs.hess_theta_log_pdf(X, self.theta, mean=x)
-
-            self.nat_grad += enF[n]*dm_log_p
-            self.nat_hess += enF[n]*(hm_log_p + dm_log_p**2)
+        weights = enF[:, None]
+        self.nat_grad = np.sum(weights * dm_log_p, axis=0)
+        self.nat_hess = np.sum(weights * (hm_log_p + dm_log_p**2), axis=0)
         
         # Fisher
         self.nat_grad = self.nat_grad/ne
@@ -208,7 +210,7 @@ class GeneralizedEnsemble(EnsembleOptimizationBaseClass):
         return self.nat_hess
         
     def var2eps(self):
-        var = np.diag(self.cov)
+        var = np.diag(self.covX)
         a = self.theta[:,0]
         b = self.theta[:,1]
 
@@ -255,29 +257,30 @@ class BetaMC:
         return stats.beta(a,b, loc=self.lb, scale=self.ub-self.lb).ppf(u)
     
     def grad_log_pdf(self, x, theta, **kwargs):
+        scale = self.ub - self.lb
         u = (x-self.lb)/(self.ub-self.lb)
         m = self._get_mode(**kwargs)
         c = theta
-        return c*m/u - c*(1-m)/(1-u)
+        return (c*m)/(scale*u) - (c*(1-m))/(scale*(1-u))
 
     def hess_log_pdf(self, x, theta, **kwargs):
+        scale = self.ub - self.lb
         u = (x-self.lb)/(self.ub-self.lb)
         m = self._get_mode(**kwargs)
         c = theta
-        return -c*m/u**2 - c*(1-m)/(1-u)**2
+        return -c*m/(scale**2 * u**2) - c*(1-m)/(scale**2 * (1-u)**2)
     
     def grad_theta_log_pdf(self, x, theta, **kwargs):
+        a, b = self._mc_to_ab(self._get_mode(**kwargs), theta)
         u = (x-self.lb)/(self.ub-self.lb)
         m = self._get_mode(**kwargs)
-        c = theta
-        return c*np.log(u/(1-u)) - c*kappa(m,c)
+        return m*np.log(u) + (1-m)*np.log(1-u) + polygamma(0, theta + 2) - m*polygamma(0, a) - (1-m)*polygamma(0, b)
     
     def hess_theta_log_pdf(self, x, theta, **kwargs):
         m = self._get_mode(**kwargs)
         c = theta
-        p1 = polygamma(1, 1+c*m)
-        p2 = polygamma(1, 1+c*(1-m))
-        return -c**2*(p1+p2)
+        a, b = self._mc_to_ab(m, c)
+        return polygamma(1, c + 2) - m**2 * polygamma(1, a) - (1-m)**2 * polygamma(1, b)
     
 class Beta:
 
@@ -403,7 +406,6 @@ def epsilon_trafo(x, enX, eps, lower=None, upper=None):
     return enY
 
 
-from sympy import symbols, solve, im, re
 def var_to_concentration(mode, var, lb=0, ub=1):
 
     mode = (mode-lb)/(ub-lb)
