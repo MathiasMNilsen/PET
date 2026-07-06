@@ -52,7 +52,7 @@ class EnOpt(OptimizerBase):
 
         # Keep args empty for wrapped callables to avoid duplicating covariance
         # (EnOpt passes covariance explicitly during each update).
-        super().__init__(x0=x, fun=fun, jac=jac, hess=hess, args=args, bounds=bounds, **options)
+        super().__init__(x0=x, fun=fun, jac=jac, hess=hess, args=(), bounds=bounds, **options)
 
         self.callback = callback if callable(callback) else None
 
@@ -91,6 +91,8 @@ class EnOpt(OptimizerBase):
         self.hk = options.get("hess0", None)
 
         if self.fk is None:
+            if self.logger:
+                self.logger('Computing initial function value...')
             self.fk = self.fun(self.xk)
 
         self.obj_func_values = self.fk
@@ -182,8 +184,8 @@ class EnOpt(OptimizerBase):
         cov = shrink * (self.cov + self.beta * self.cov_step) if self.nesterov else shrink * self.cov
         x_for_grad = self.xk + self.beta * self.state_step if self.nesterov else self.xk
 
-        gradient = self.jac(x_for_grad, cov, 'dummy arg', epf=self.epf)
-        hessian = self._evaluate_hessian()
+        gradient = self.jac(x_for_grad, cov, epf=self.epf)
+        hessian = self.hess(x_for_grad, cov)
 
         if self.use_hessian:
             inv_hessian = np.linalg.inv(hessian)
@@ -196,15 +198,6 @@ class EnOpt(OptimizerBase):
 
         return gradient, hessian
 
-    def _evaluate_hessian(self):
-        try:
-            return self.hess()
-        except TypeError:
-            try:
-                return self.hess(self.xk, self.cov)
-            except TypeError:
-                return self.hess(self.xk)
-
     def _accept_step(self, new_state, new_func_values, new_step, hessian):
         self.xk_old = self.xk
         self.fk_old = self.fk
@@ -215,10 +208,10 @@ class EnOpt(OptimizerBase):
         self.state_step = new_step
         if hasattr(self.optimizer, "get_step_size"):
             self.alpha = self.optimizer.get_step_size()
-
-        self.cov_step = self.alpha_cov * hessian + self.beta * self.cov_step
+        
+        grad_cov = self.bound_handler.hess_from_unit_cube(hessian)
+        self.cov_step = self.alpha_cov * grad_cov + self.beta * self.cov
         self.cov = ot.get_sym_pos_semidef(self.cov - self.cov_step)
-        self.args = (self.cov,)
 
         if self.xk.size == 1 and hasattr(self.optimizer, "step_size"):
             self.optimizer.step_size /= 2

@@ -245,9 +245,6 @@ def zoom(alo, ahi, f, df, f0, df0, maxiter, c1, c2, iter_id=0):
     logger('──────────────────────────────────────────────────')
     return None
 
-
-
-
 def line_search_backtracking(step_size, xk, pk, fun, jac, fk=None, jk=None, **kwargs):
     '''
     Backtracking line search algorithm to find step size alpha that satisfies the Wolfe conditions.

@@ -320,13 +320,13 @@ class TrustRegion(OptimizerBase):
         sk = sk.reshape(-1, 1)
         yk = yk.reshape(-1, 1)
 
-        ykTsk = float(yk.T @ sk)
-        skTBksk = float(sk.T @ Bk @ sk)
+        ykTsk = (yk.T @ sk).item()
+        skTBksk = (sk.T @ Bk @ sk).item()
         if ykTsk <= 0 or skTBksk <= 0:
             return Bk
 
-        term1 = (yk @ yk.T) / ykTsk
-        term2 = (Bk @ sk @ sk.T @ Bk) / skTBksk
+        term1 = np.matmul(yk, yk.T) / ykTsk
+        term2 = np.matmul(np.matmul(Bk, sk), np.matmul(sk.T, Bk)) / skTBksk
         return Bk + term1 - term2
 
     def _get_restart_state(self) -> dict:

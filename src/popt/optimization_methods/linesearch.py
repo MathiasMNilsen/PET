@@ -295,7 +295,7 @@ class LineSearch(OptimizerBase):
             pk=pk,
             fun=lambda x, *a, **kw: np.mean(self.fun(x, *a, **kw)),
             jac=self.jac,
-            fk=self.fk,
+            fk=np.mean(self.fk),
             jk=self.jk,
             **self.line_search_options
         )
@@ -367,17 +367,19 @@ class LineSearch(OptimizerBase):
         if self.step_size is None:
             self.step_size = 0.25 / np.linalg.norm(pk, np.inf)
 
-        alpha = self.step_size
+        alpha = float(np.asarray(self.step_size).reshape(-1)[0])
 
         if self.iteration > 1:
             slope = np.dot(pk, self.jk)
             if self.step_size_adapt == 1 and slope != 0:
-                alpha = 2 * (self.fk - self.fk_old) / slope
+                fk = float(np.asarray(np.mean(self.fk)).reshape(-1)[0])
+                fk_old = float(np.asarray(np.mean(self.fk_old)).reshape(-1)[0])
+                alpha = 2 * (fk - fk_old) / slope
             elif self.step_size_adapt == 2 and slope != 0:
                 slope_old = np.dot(self.pk_old, self.jk_old)
                 alpha = self.step_size * slope_old / slope
 
-        alpha = abs(alpha)
+        alpha = float(abs(alpha))
 
         if alpha >= amax:
             alpha = 0.75 * amax

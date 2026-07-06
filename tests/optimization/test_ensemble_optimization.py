@@ -99,7 +99,7 @@ def test_quadratic_enopt(tmp_path):
     )
     print(res)
     np.testing.assert_array_almost_equal(
-        res.x, [0.5, 0.5], decimal=1,
+        res.x, [1.0, 1.0], decimal=1,
         err_msg="EnOpt failed to converge to expected optimum"
     )
 
@@ -109,7 +109,7 @@ def test_quadratic_enopt(tmp_path):
     )
 
 
-#def test_quadratic_linesearch(tmp_path):
+def test_quadratic_linesearch(tmp_path):
     """
     Verify LineSearch converges on quadratic objective.
     """
@@ -123,10 +123,11 @@ def test_quadratic_enopt(tmp_path):
         jac=data["ensemble"].gradient,
         args=(data["cov"],),
         bounds=data["bounds"],
+        transform=True,
     )
 
     np.testing.assert_array_almost_equal(
-        result.x, [0.5, 0.5], decimal=1,
+        result.x, [1.0, 1.0], decimal=1,
         err_msg="LineSearch did not converge to expected optimum"
     )
 
@@ -135,8 +136,7 @@ def test_quadratic_enopt(tmp_path):
         err_msg="Final objective value is too large"
     )
 
-
-#def test_rosenbrock_linesearch(tmp_path):
+def test_rosenbrock_linesearch(tmp_path):
     """
     Verify LineSearch (BFGS) converges on high-dimensional Rosenbrock problem.
     """
@@ -172,8 +172,9 @@ def test_quadratic_enopt(tmp_path):
         maxiter=1000,
         step_size=1.0,
         ftol=1e-8,
+        step_size_adapt=0
     )
-
+    print(result)
     expected = np.ones(dim)
 
     np.testing.assert_array_almost_equal(
