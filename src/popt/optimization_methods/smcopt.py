@@ -5,8 +5,8 @@ import time
 import pprint
 
 # Internal imports
-from popt.loop.optimize import Optimize
-import popt.update_schemes.subroutines.optimizers as opt
+from popt.ensembles.optimize import Optimize
+import popt.optimization_methods.subroutines.optimizers as opt
 from popt.misc_tools import optim_tools as ot
 
 

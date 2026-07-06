@@ -5,7 +5,7 @@ import os
 import numpy as np
 from pathlib import Path
 from scipy.optimize import rosen, rosen_der
-from popt.loop import GaussianEnsemble, GeneralizedEnsemble
+from popt.ensembles import GaussianEnsemble, GeneralizedEnsemble
 
 
 # ----------------------------------------------------------------------

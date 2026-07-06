@@ -11,7 +11,7 @@ from sympy import symbols, solve, im, re
 # Internal imports
 from popt.misc_tools import optim_tools as ot
 from pipt.misc_tools import analysis_tools as at
-from popt.loop.ensemble_base import EnsembleOptimizationBase
+from popt.ensembles.ensemble_base import EnsembleOptimizationBase
 
 __all__ = ['GeneralizedEnsemble']
 

@@ -6,7 +6,7 @@ from copy import deepcopy
 
 # Internal imports
 from popt.misc_tools import optim_tools as ot
-from popt.loop.ensemble_base import EnsembleOptimizationBase
+from popt.ensembles.ensemble_base import EnsembleOptimizationBase
 
 __all__ = ['GaussianEnsemble']
 

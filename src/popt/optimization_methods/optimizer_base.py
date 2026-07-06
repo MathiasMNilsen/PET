@@ -323,7 +323,7 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
         **options
             Optimizer configuration such as tolerances, logging, restart, and
             persistence options.
-            - maxiter: Maximum number of iterations (default: 20)
+            - maxiter: Maximum number of iterations (default: 100)
             - ftol: Relative function tolerance for convergence (default: 1e-5)
             - xtol: Relative change in state for convergence (default: 1e-8)
             - logit: Enable logging (default: True)
@@ -355,7 +355,7 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
 
         # Core iteration controls.
         self.iteration = 0
-        self.maxiter = options.get('maxiter', 20)
+        self.maxiter = options.get('maxiter', 100)
 
         # Restart/checkpoint controls.
         self.restart = options.get('restart', False)

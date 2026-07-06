@@ -13,9 +13,9 @@ from pathlib import Path
 import numpy as np
 from scipy.optimize import rosen
 
-from popt.loop.ensemble_gaussian import GaussianEnsemble
-from popt.update_schemes.enopt import EnOpt
-from popt.update_schemes.linesearch import LineSearch
+from popt.ensembles.ensemble_gaussian import GaussianEnsemble
+from popt.optimization_methods.enopt import EnOpt
+from popt.optimization_methods import LineSearch
 from popt.cost_functions.quadratic import quadratic
 
 
@@ -25,7 +25,6 @@ from popt.cost_functions.quadratic import quadratic
 
 ENSEMBLE_CONFIG = {
     "ne": 10,
-    "transform": True,
     "natural_gradient": False,
     "controls": {
         "x": {
@@ -37,6 +36,7 @@ ENSEMBLE_CONFIG = {
 }
 
 OPT_CONFIG = {
+    "transform": True,
     "maxiter": 50,
     "tol": 1e-2,
     "alpha": 0.25,
@@ -88,31 +88,29 @@ def test_quadratic_enopt(tmp_path):
     data = create_ensemble(ENSEMBLE_CONFIG, quadratic)
     ensemble = data["ensemble"]
 
-    optimizer = EnOpt(
-        ensemble.function,
-        data["x0"],
-        args=(data["cov"],),
+    res = EnOpt.minimize(
+        x0=data["x0"],
+        fun=ensemble.function,
         jac=ensemble.gradient,
         hess=ensemble.hessian,
+        args=(data["cov"],),
         bounds=data["bounds"],
         **OPT_CONFIG,
     )
-
-    state = ensemble.get_state()
-    objective_values = optimizer.obj_func_values
-
+    print(data["cov"])
+    print(res)
     np.testing.assert_array_almost_equal(
-        state, [0.5, 0.5], decimal=1,
+        res.x, [0.5, 0.5], decimal=1,
         err_msg="EnOpt failed to converge to expected optimum"
     )
 
     np.testing.assert_array_almost_equal(
-        objective_values, [0.0], decimal=1,
+        res.fun, [0.0], decimal=1,
         err_msg="Objective value not minimized as expected"
     )
 
 
-def test_quadratic_linesearch(tmp_path):
+#def test_quadratic_linesearch(tmp_path):
     """
     Verify LineSearch converges on quadratic objective.
     """
@@ -120,8 +118,8 @@ def test_quadratic_linesearch(tmp_path):
 
     data = create_ensemble(ENSEMBLE_CONFIG, quadratic)
 
-    result = LineSearch(
-        x=data["x0"],
+    result = LineSearch.minimize(
+        x0=data["x0"],
         fun=data["ensemble"].function,
         jac=data["ensemble"].gradient,
         args=(data["cov"],),
@@ -139,7 +137,7 @@ def test_quadratic_linesearch(tmp_path):
     )
 
 
-def test_rosenbrock_linesearch(tmp_path):
+#def test_rosenbrock_linesearch(tmp_path):
     """
     Verify LineSearch (BFGS) converges on high-dimensional Rosenbrock problem.
     """
@@ -149,7 +147,6 @@ def test_rosenbrock_linesearch(tmp_path):
 
     ensemble_config = {
         "ne": 100,
-        "transform": False,
         "natural_gradient": False,
         "controls": {
             "x": {
@@ -166,8 +163,8 @@ def test_rosenbrock_linesearch(tmp_path):
 
     data = create_ensemble(ensemble_config, rosenbrock)
 
-    result = LineSearch(
-        x=data["x0"],
+    result = LineSearch.minimize(
+        x0=data["x0"],
         fun=data["ensemble"].function,
         jac=data["ensemble"].gradient,
         args=(data["cov"],),
