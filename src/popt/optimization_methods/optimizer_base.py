@@ -604,11 +604,13 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
             x = self.bound_handler.unit_cube_to_state(x)
     
             try:
+                # check if args empty, if so, don't pass them to func
+                if not args:
+                    args = self.args
                 kwargs["epf"] = self.epf
                 result = func(
                     x,
                     *args,
-                    *self.args,
                     **kwargs,
                 )
             except TypeError:

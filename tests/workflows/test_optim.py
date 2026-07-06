@@ -13,8 +13,8 @@ from pathlib import Path
 import numpy as np
 from scipy.optimize import rosen
 
-from popt.ensembles.ensemble_gaussian import GaussianEnsemble
-from popt.optimization_methods.enopt import EnOpt
+from popt.ensembles import GaussianEnsemble
+from popt.optimization_methods import EnOpt
 from popt.optimization_methods import LineSearch
 from popt.cost_functions.quadratic import quadratic
 
@@ -97,7 +97,6 @@ def test_quadratic_enopt(tmp_path):
         bounds=data["bounds"],
         **OPT_CONFIG,
     )
-    print(data["cov"])
     print(res)
     np.testing.assert_array_almost_equal(
         res.x, [0.5, 0.5], decimal=1,
