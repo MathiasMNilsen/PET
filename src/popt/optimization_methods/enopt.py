@@ -92,10 +92,6 @@ class EnOpt(OptimizerBase):
 
         if self.fk is None:
             self.fk = self.fun(self.xk)
-        if self.jk is None:
-            self.jk = self.jac(self.xk, self.cov, epf=self.epf)
-        if self.hk is None:
-            self.hk = self._evaluate_hessian()
 
         self.obj_func_values = self.fk
 
