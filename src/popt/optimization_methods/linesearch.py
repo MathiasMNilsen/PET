@@ -173,7 +173,7 @@ class LineSearch(OptimizerBase):
     @classmethod
     def minimize(cls, x0, fun, method='GD', jac=None, hess=None, args=(), bounds=None, callback=None, **options):
         """
-        Run the optimization process and return results.
+        Run Line Search optimization.
 
         Parameters
         ----------

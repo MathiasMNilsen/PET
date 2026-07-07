@@ -13,15 +13,11 @@ __all__ = ["EnOpt"]
 
 
 class EnOpt(OptimizerBase):
-    r"""Ensemble gradient optimization (EnOpt).
-
-    This implementation follows the same OptimizerBase lifecycle as
-    LineSearch/TrustRegion, while preserving EnOpt-specific update logic.
-    """
+    """Ensemble-based optimization (EnOpt)."""
 
     VALID_OPTIMIZERS = ("GD", "Adam", "AdaMax", "Steihaug")
 
-    def __init__(self, fun, x, args=(), jac=None, hess=None, bounds=None, callback=None, **options):
+    def __init__(self, fun, x, jac=None, hess=None, args=(), bounds=None, callback=None, **options):
         """Initialize an EnOpt optimizer instance.
 
         Parameters
@@ -30,25 +26,47 @@ class EnOpt(OptimizerBase):
             Objective function.
         x : ndarray
             Initial control/state vector.
-        args : tuple, optional
-            The first tuple element is interpreted as the initial covariance.
         jac : callable
             Ensemble gradient function.
-        hess : callable
+        hess : callable, optional
             Ensemble Hessian function.
+        args : tuple, optional
+            The first tuple element is interpreted as the initial covariance.
         bounds : sequence, optional
             Lower and upper bounds for each state variable.
         callback : callable, optional
             Callback invoked after successful updates.
         **options
-            EnOpt and OptimizerBase options.
+            EnOpt and OptimizerBase configuration.
+            - maxiter: Maximum number of iterations (default: 100).
+            - tol: Convergence tolerance for objective improvement (default: 1e-6).
+            - ftol: Function tolerance used by the shared optimizer base. Defaults to ``tol`` when provided.
+            - step_size: Initial optimizer step size. Overrides ``alpha`` when provided.
+            - alpha: Initial optimizer step size (default: 0.1).
+            - alpha_cov: Covariance update scaling factor (default: 0.001).
+            - beta: Momentum parameter used in the optimizer and optional Nesterov updates (default: 0.0).
+            - nesterov: Whether to evaluate search quantities with Nesterov momentum (default: False).
+            - alpha_maxiter: Maximum number of backtracking trials per iteration (default: 5).
+            - resample: Number of covariance resampling attempts if no improvement is found (default: 0).
+            - hessian: Whether to use the Hessian in the search direction computation (default: False).
+            - normalize: Whether to normalize the gradient or Hessian-derived search quantities (default: True).
+            - cov_factor: Covariance shrink factor applied during resampling (default: 0.5).
+            - optimizer: Update rule name. Supported values are ``GD``, ``Adam``, ``AdaMax``, and ``Steihaug`` (default: ``GD``).
+            - gtol: Tolerance for convergence based on projected gradient infinity norm (default: 1e-5).
+            - savefolder: Directory used when persisting iteration results (default: ``Iteration_Results``).
+            - saveit: Whether to save optimization results at each iteration (default: False).
+            - fun0: Initial objective value to reuse instead of recomputing it.
+            - jac0: Initial gradient value to reuse instead of recomputing it.
+            - hess0: Initial Hessian value to reuse instead of recomputing it.
+            - restart: Restart optimization from a restart file (default: False).
+            - restartsave: Save a restart file after each successful iteration (default: False).
+            - restart_file: Restart file path.
+            - logit: Enable optimizer logging.
+            - logger_name: Log file name.
+            - epf: Optional EPF settings handled by OptimizerBase.
         """
         if jac is None:
             raise ValueError("EnOpt requires a Jacobian (ensemble gradient) callable.")
-        if hess is None:
-            raise ValueError("EnOpt requires a Hessian callable.")
-        if len(args) < 1:
-            raise ValueError("EnOpt requires initial covariance as args[0].")
 
         # Keep args empty for wrapped callables to avoid duplicating covariance
         # (EnOpt passes covariance explicitly during each update).
@@ -107,13 +125,60 @@ class EnOpt(OptimizerBase):
         if self.saveit:
             ot.save_optimize_results(self.optimize_results, folder=self.savefolder)
 
-        if options.get("autorun", True):
-            self.optimization_loop()
-            self.optimize_results = self._update_optimize_result()
-
     @classmethod
-    def minimize(cls, x0, fun, jac, hess, args=(), bounds=None, callback=None, **options):
-        """Run EnOpt and return OptimizeResult."""
+    def minimize(cls, x0, fun, jac, hess=None, args=(), bounds=None, callback=None, **options):
+        """Run EnOpt and return OptimizeResult.
+
+        Parameters
+        ----------
+        x0 : ndarray
+            Initial control/state vector.
+        fun : callable
+            Objective function.
+        jac : callable
+            Ensemble gradient function.
+        hess : callable, optional
+            Ensemble Hessian function.
+        args : tuple, optional
+            The first tuple element is interpreted as the initial covariance.
+        bounds : sequence, optional
+            Lower and upper bounds for each state variable.
+        callback : callable, optional
+            Callback invoked after successful updates.
+        **options
+            EnOpt and OptimizerBase configuration.
+            - maxiter: Maximum number of iterations (default: 100).
+            - tol: Convergence tolerance for objective improvement (default: 1e-6).
+            - ftol: Function tolerance used by the shared optimizer base. Defaults to ``tol`` when provided.
+            - step_size: Initial optimizer step size. Overrides ``alpha`` when provided.
+            - alpha: Initial optimizer step size (default: 0.1).
+            - alpha_cov: Covariance update scaling factor (default: 0.001).
+            - beta: Momentum parameter used in the optimizer and optional Nesterov updates (default: 0.0).
+            - nesterov: Whether to evaluate search quantities with Nesterov momentum (default: False).
+            - alpha_maxiter: Maximum number of backtracking trials per iteration (default: 5).
+            - resample: Number of covariance resampling attempts if no improvement is found (default: 0).
+            - hessian: Whether to use the Hessian in the search direction computation (default: False).
+            - normalize: Whether to normalize the gradient or Hessian-derived search quantities (default: True).
+            - cov_factor: Covariance shrink factor applied during resampling (default: 0.5).
+            - optimizer: Update rule name. Supported values are ``GD``, ``Adam``, ``AdaMax``, and ``Steihaug`` (default: ``GD``).
+            - gtol: Tolerance for convergence based on projected gradient infinity norm (default: 1e-5).
+            - savefolder: Directory used when persisting iteration results (default: ``Iteration_Results``).
+            - saveit: Whether to save optimization results at each iteration (default: False).
+            - fun0: Initial objective value to reuse instead of recomputing it.
+            - jac0: Initial gradient value to reuse instead of recomputing it.
+            - hess0: Initial Hessian value to reuse instead of recomputing it.
+            - restart: Restart optimization from a restart file (default: False).
+            - restartsave: Save a restart file after each successful iteration (default: False).
+            - restart_file: Restart file path.
+            - logit: Enable optimizer logging.
+            - logger_name: Log file name.
+            - epf: Optional EPF settings handled by OptimizerBase.
+
+        Returns
+        -------
+        OptimizeResult
+            The optimization result.
+        """
         optimizer = cls(
             fun=fun,
             x=x0,
@@ -122,7 +187,7 @@ class EnOpt(OptimizerBase):
             hess=hess,
             bounds=bounds,
             callback=callback,
-            **{**options, "autorun": False},
+            **options,
         )
         optimizer.optimization_loop()
         return optimizer.optimize_results
@@ -135,24 +200,21 @@ class EnOpt(OptimizerBase):
         while resampling_iter <= self.max_resample:
             shrink = self.cov_factor ** resampling_iter
             self._apply_optimizer_backtracking(np.sqrt(self.cov_factor) ** resampling_iter)
-
-            gradient, hessian = self._compute_search_quantities(shrink)
-            self.jk = gradient
-            self.hk = hessian
+            self.jk, self.hk = self._compute_search_quantities(shrink)
 
             self.alpha_iter = 0
             while self.alpha_iter <= self.alpha_iter_max:
                 new_state, new_step = self.optimizer.apply_update(
                     self.xk,
-                    gradient,
-                    hessian=hessian,
+                    self.jk,
+                    hessian=self.hk,
                     iter=self.iteration,
                 )
                 new_state = self.bound_handler.project_to_bounds(new_state)
                 new_func_values = self.fun(new_state)
 
                 if np.mean(self.fk) - np.mean(new_func_values) > self.obj_func_tol:
-                    self._accept_step(new_state, new_func_values, new_step, hessian)
+                    self._accept_step(new_state, new_func_values, new_step, self.hk)
                     return True
 
                 if self.alpha_iter < self.alpha_iter_max:
@@ -181,19 +243,21 @@ class EnOpt(OptimizerBase):
         return False
 
     def _compute_search_quantities(self, shrink):
-        cov = shrink * (self.cov + self.beta * self.cov_step) if self.nesterov else shrink * self.cov
-        x_for_grad = self.xk + self.beta * self.state_step if self.nesterov else self.xk
+        cov_step = self.beta * self.cov_step if self.nesterov else 0.0
+        state_step = self.beta * self.state_step if self.nesterov else 0.0
+
+        cov = shrink * (self.cov + cov_step)
+        x_for_grad = self.xk + state_step
 
         gradient = self.jac(x_for_grad, cov, epf=self.epf)
-        hessian = self.hess(x_for_grad, cov)
+        hessian = self.hess(x_for_grad, cov) if self.hess is not None else None
 
         if self.use_hessian:
-            inv_hessian = np.linalg.inv(hessian)
-            gradient = inv_hessian @ (self.cov @ self.cov) @ gradient
-            if self.normalize:
-                hessian = hessian / np.maximum(np.linalg.norm(hessian, np.inf), 1e-12)
+            gradient = np.linalg.inv(hessian) @ (self.cov @ self.cov) @ gradient
         elif self.normalize:
             gradient = gradient / np.maximum(np.linalg.norm(gradient, np.inf), 1e-12)
+
+        if self.normalize and hessian is not None:
             hessian = hessian / np.maximum(np.linalg.norm(hessian, np.inf), 1e-12)
 
         return gradient, hessian
@@ -209,9 +273,10 @@ class EnOpt(OptimizerBase):
         if hasattr(self.optimizer, "get_step_size"):
             self.alpha = self.optimizer.get_step_size()
         
-        grad_cov = self.bound_handler.hess_from_unit_cube(hessian)
-        self.cov_step = self.alpha_cov * grad_cov + self.beta * self.cov
-        self.cov = ot.get_sym_pos_semidef(self.cov - self.cov_step)
+        if hessian is not None:
+            grad_cov = self.bound_handler.hess_from_unit_cube(hessian)
+            self.cov_step = self.alpha_cov * grad_cov + self.beta * self.cov
+            self.cov = ot.get_sym_pos_semidef(self.cov - self.cov_step)
 
         if self.xk.size == 1 and hasattr(self.optimizer, "step_size"):
             self.optimizer.step_size /= 2

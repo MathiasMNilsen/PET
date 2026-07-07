@@ -97,7 +97,7 @@ def test_quadratic_enopt(tmp_path):
         bounds=data["bounds"],
         **OPT_CONFIG,
     )
-    print(res)
+
     np.testing.assert_array_almost_equal(
         res.x, [1.0, 1.0], decimal=1,
         err_msg="EnOpt failed to converge to expected optimum"

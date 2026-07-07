@@ -25,7 +25,7 @@ jac_inf_symbol = f"\u2016jac(x{subk})\u2016\u221E"
 
 
 class TrustRegion(OptimizerBase):
-    """Trust-region optimizer compatible with OptimizerBase.
+    """Trust-region Optimizer.
 
     The class supports exact Hessian trust-region subproblems (iterative or
     CG-Steihaug) and optional BFGS Hessian approximation via ``hess='BFGS'``.
@@ -45,7 +45,52 @@ class TrustRegion(OptimizerBase):
         callback=None,
         **options,
     ):
-        """Initialize a trust-region optimizer instance."""
+        """Initialize a trust-region optimizer instance.
+
+        Parameters
+        ----------
+        x0 : ndarray
+            Initial parameter vector.
+        fun : callable
+            Objective function.
+        jac : callable
+            Gradient function.
+        hess : callable or {'BFGS'}
+            Hessian function, or ``'BFGS'`` to use a quasi-Newton Hessian approximation.
+        method : {'iterative', 'CG-Steihaug'} or callable, optional
+            Trust-region subproblem solver.
+        args : tuple, optional
+            Extra positional arguments passed to the wrapped callables.
+        bounds : sequence, optional
+            Lower and upper bounds for each state variable.
+        callback : callable, optional
+            Callback invoked after successful updates.
+        **options
+            Trust-region and optimizer configuration.
+            - trust_radius: Initial trust-region radius (default: 1.0).
+            - trust_radius_max: Maximum trust-region radius (default: ``100 * trust_radius``).
+            - trust_radius_min: Minimum trust-region radius before termination (default: ``trust_radius / 1000``).
+            - trust_radius_cuts: Maximum number of radius reductions before rejecting a step (default: 4).
+            - rho_tol: Minimum ratio between actual and predicted reduction for step acceptance (default: 1e-6).
+            - eta1: Threshold for rejecting a step (default: 0.05).
+            - eta2: Threshold for increasing the trust-region radius (default: 0.5).
+            - gam1: Factor used to decrease the trust-region radius (default: 0.5).
+            - gam2: Factor used to increase the trust-region radius when the boundary is hit (default: 1.5).
+            - resample: Whether to recompute gradient and Hessian after rejected steps (default: False).
+            - gtol: Tolerance for convergence based on projected gradient infinity norm (default: 1e-5).
+            - convergence_criteria: Optional callable for custom convergence checks.
+            - savefolder: Directory used when persisting iteration results (default: ``Iteration_Results``).
+            - saveit: Whether to save optimization results at each iteration (default: False).
+            - fun0: Initial objective value to reuse instead of recomputing it.
+            - jac0: Initial gradient value to reuse instead of recomputing it.
+            - hess0: Initial Hessian value to reuse instead of recomputing it.
+            - restart: Restart optimization from a restart file (default: False).
+            - restartsave: Save a restart file after each successful iteration (default: False).
+            - restart_file: Restart file path.
+            - logit: Enable optimizer logging.
+            - logger_name: Log file name.
+            - epf: Optional EPF settings handled by OptimizerBase.
+        """
         if jac is None:
             raise ValueError("TrustRegion requires a Jacobian (gradient) function.")
 
@@ -120,8 +165,58 @@ class TrustRegion(OptimizerBase):
         bounds=None,
         callback=None,
         **options,
-    ):
-        """Run the optimization process and return results."""
+    ) -> OptimizeResult:
+        """Run Trust-Region optimization.
+
+        Parameters
+        ----------
+        x0 : ndarray
+            Initial parameter vector.
+        fun : callable
+            Objective function.
+        jac : callable
+            Gradient function.
+        hess : callable or {'BFGS'}
+            Hessian function, or ``'BFGS'`` to use a quasi-Newton Hessian approximation.
+        method : {'iterative', 'CG-Steihaug'} or callable, optional
+            Trust-region subproblem solver.
+        args : tuple, optional
+            Extra positional arguments passed to the wrapped callables.
+        bounds : sequence, optional
+            Lower and upper bounds for each state variable.
+        callback : callable, optional
+            Callback invoked after successful updates.
+        **options
+            Trust-region and optimizer configuration.
+            - trust_radius: Initial trust-region radius (default: 1.0).
+            - trust_radius_max: Maximum trust-region radius (default: ``100 * trust_radius``).
+            - trust_radius_min: Minimum trust-region radius before termination (default: ``trust_radius / 1000``).
+            - trust_radius_cuts: Maximum number of radius reductions before rejecting a step (default: 4).
+            - rho_tol: Minimum ratio between actual and predicted reduction for step acceptance (default: 1e-6).
+            - eta1: Threshold for rejecting a step (default: 0.05).
+            - eta2: Threshold for increasing the trust-region radius (default: 0.5).
+            - gam1: Factor used to decrease the trust-region radius (default: 0.5).
+            - gam2: Factor used to increase the trust-region radius when the boundary is hit (default: 1.5).
+            - resample: Whether to recompute gradient and Hessian after rejected steps (default: False).
+            - gtol: Tolerance for convergence based on projected gradient infinity norm (default: 1e-5).
+            - convergence_criteria: Optional callable for custom convergence checks.
+            - savefolder: Directory used when persisting iteration results (default: ``Iteration_Results``).
+            - saveit: Whether to save optimization results at each iteration (default: False).
+            - fun0: Initial objective value to reuse instead of recomputing it.
+            - jac0: Initial gradient value to reuse instead of recomputing it.
+            - hess0: Initial Hessian value to reuse instead of recomputing it.
+            - restart: Restart optimization from a restart file (default: False).
+            - restartsave: Save a restart file after each successful iteration (default: False).
+            - restart_file: Restart file path.
+            - logit: Enable optimizer logging.
+            - logger_name: Log file name.
+            - epf: Optional EPF settings handled by OptimizerBase.
+
+        Returns
+        -------
+        OptimizeResult
+            The optimization result represented as a ``scipy.optimize.OptimizeResult`` object.
+        """
         optimizer = cls(
             x0,
             fun,
