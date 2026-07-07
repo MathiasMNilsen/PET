@@ -30,7 +30,7 @@ dependencies = [
     "p_tqdm",
     "opencv-python",
     "pytest",
-    "tomli; python_version < '3.11'",
+    "tomli",
     "tomli-w",
     "pyyaml",
     "six",
