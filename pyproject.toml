@@ -29,18 +29,15 @@ dependencies = [
     "pandas",
     "p_tqdm",
     "opencv-python",
+    "pytest",
     "tomli; python_version < '3.11'",
     "tomli-w",
     "pyyaml",
     "six",
-    "sympy"
+    "sympy",
 ]
 
 [project.optional-dependencies]
-test = [
-    "pytest"
-]
-
 doc = [
     "mkdocs-material",
     "mkdocstrings",
