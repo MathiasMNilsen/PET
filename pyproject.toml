@@ -26,20 +26,21 @@ dependencies = [
     "PyWavelets",
     "psutil",
     "geostat @ git+https://github.com/Python-Ensemble-Toolbox/Geostatistics@main",
-    "pytest",
     "pandas",
     "p_tqdm",
-    #"mat73",
     "opencv-python",
-    #"rips",
-    "tomli",
+    "tomli; python_version < '3.11'",
     "tomli-w",
     "pyyaml",
-    #"scikit-learn",
-    #"pylops"
+    "six",
+    "sympy"
 ]
 
 [project.optional-dependencies]
+test = [
+    "pytest"
+]
+
 doc = [
     "mkdocs-material",
     "mkdocstrings",
