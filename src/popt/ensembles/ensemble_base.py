@@ -9,13 +9,13 @@ from copy import deepcopy
 # Internal imports
 from popt.misc_tools import optim_tools as ot
 from pipt.misc_tools import analysis_tools as at
-from ensemble.ensemble import Ensemble as SupEnsemble
+from ensemble import BaseEnsemble
 from simulator.simple_models import noSimulation
 from pipt.misc_tools.ensemble_tools import matrix_to_dict
 
 __all__ = ['EnsembleOptimizationBase']
 
-class EnsembleOptimizationBase(SupEnsemble):
+class EnsembleOptimizationBase(BaseEnsemble):
     '''
     Base class for the popt ensemble
     '''

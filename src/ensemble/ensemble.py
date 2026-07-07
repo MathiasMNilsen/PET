@@ -25,6 +25,8 @@ import pipt.misc_tools.data_tools as dtools
 from misc.system_tools.environ_var import OpenBlasSingleThread  # Single threaded OpenBLAS runs
 from misc.structures.structures import PETDataFrame, PETStateArray
 
+__all__ = ["BaseEnsemble"]
+
 # Settings
 #######################################################################################################
 progbar_settings = {
@@ -36,7 +38,7 @@ progbar_settings = {
 }
 #######################################################################################################
 
-class Ensemble:
+class BaseEnsemble:
     """
     Class for organizing misc. variables and simulator for an ensemble-based inversion run. Here, the forecast step
     and prediction runs are performed. General methods that are useful in various ensemble loops have also been

@@ -1,5 +1,7 @@
 import logging
 
+__all__ = ["PetLogger"]
+
 class PetLogger:
     '''
     A custom logger that logs messages and key-value pairs in a formatted table.
