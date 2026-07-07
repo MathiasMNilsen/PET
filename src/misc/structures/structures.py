@@ -219,7 +219,7 @@ class PETDataFrame(pd.DataFrame):
         if is_jacobian:
             arr = np.stack(arr, axis=0)
         else:
-            arr = np.row_stack(arr)
+            arr = np.vstack(arr)
 
         return np.squeeze(arr) if squeeze else arr
 
