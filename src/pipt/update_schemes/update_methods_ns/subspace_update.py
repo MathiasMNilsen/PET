@@ -1,64 +1,107 @@
-"""Stochastic iterative ensemble smoother (IES, i.e. EnRML) with *subspace* implementation."""
+"""Stochastic iterative ensemble smoother (IES) with subspace implementation."""
 
 import numpy as np
-from scipy.linalg import solve, lu_solve, lu_factor
+from scipy.linalg import solve, sqrtm
+
 import pipt.misc_tools.analysis_tools as at
 
 
 class subspace_update():
     """
-    Ensemble subspace update, as described in  Raanes, P. N., Stordal, A. S., &
-    Evensen, G. (2019). Revising the stochastic iterative ensemble smoother.
-    Nonlinear Processes in Geophysics, 26(3), 325–338. https://doi.org/10.5194/npg-26-325-2019
-    More information about the method is found in Evensen, G., Raanes, P. N., Stordal, A. S., & Hove, J. (2019).
-    Efficient Implementation of an Iterative Ensemble Smoother for Data Assimilation and Reservoir History Matching.
-    Frontiers in Applied Mathematics and Statistics, 5(October), 114. https://doi.org/10.3389/fams.2019.00047
+    Ensemble subspace update (weight-space IES).
+
+    The update is formulated in the ensemble weight space W (shape ne × ne)
+    rather than model space, making it efficient when ne ≪ nx. The caller
+    checks ``self.w_step`` (not ``self.step``) to apply the update.
+
+    References
+    ----------
+    Raanes, P. N., Stordal, A. S., & Evensen, G. (2019).
+    Revising the stochastic iterative ensemble smoother.
+    Nonlinear Processes in Geophysics, 26(3), 325-338.
+    https://doi.org/10.5194/npg-26-325-2019
+
+    Evensen, G., Raanes, P. N., Stordal, A. S., & Hove, J. (2019).
+    Efficient implementation of an iterative ensemble smoother for data
+    assimilation and reservoir history matching.
+    Frontiers in Applied Mathematics and Statistics, 5, 47.
+    https://doi.org/10.3389/fams.2019.00047
     """
 
     def update(self, enX, enY, enE, **kwargs):
-
-        if self.iteration == 1:  # method requires some initiallization
-            self.current_W = np.zeros((self.ne, self.ne))
-            self.E = np.dot(enE, self.proj)
-        
-        # Center ensemble matrices
-        Y = np.dot(enY, self.proj)
-
-        omega = np.eye(self.ne) + np.dot(self.current_W, self.proj)
-        S = lu_solve(lu_factor(omega.T), Y.T).T
-
-        # Compute scaled misfit (residual between predicted and observed data)
-        enRes = self.scale(enY - enE, self.scale_data)
-
-        # Truncate SVD of S
-        Us, Ss, VsT = at.truncSVD(S, energy=self.trunc_energy)
-        Sinv = np.diag(1/Ss)
-
-        # Compute update step
-        X = Sinv @ Us.T @ self.scale(self.E, self.scale_data)
-        eigval, eigvec = np.linalg.eig(X @ X.T)
-        X2 = Us @ Sinv.T @ eigvec
-        X3 = S.T @ X2
-
-        lam_term = np.eye(len(eigval)) + (1+self.lam) * np.diag(eigval)
-        deltaM = X3 @ solve(lam_term, X3.T @ self.current_W)
-        deltaD = X3 @ solve(lam_term, X2.T @ enRes)
-        self.w_step = -self.current_W/(1 + self.lam) - (deltaD - deltaM)/(1 + self.lam)
-        
-
-    def scale(self, data, scaling):
         """
-        Scale the data perturbations by the data error standard deviation.
+        Perform the subspace (weight-space) LM update.
 
-        Args:
-            data (np.ndarray): data perturbations
-            scaling (np.ndarray): data error standard deviation
+        Sets ``self.w_step`` (shape ne × ne) on the instance and returns
+        ``None`` — the caller applies the weight update, not a state-space step.
 
-        Returns:
-            np.ndarray: scaled data perturbations
+        Parameters
+        ----------
+        enX : np.ndarray, shape (nx, ne)
+            State ensemble matrix (unused directly; included for interface parity).
+        enY : np.ndarray, shape (nd, ne)
+            Predicted data ensemble matrix.
+        enE : np.ndarray, shape (nd, ne)
+            Perturbed observations ensemble.
+
+        Returns
+        -------
+        None
         """
+        ny, ne = enY.shape
 
-        if len(scaling.shape) == 1:
-            return (scaling ** (-1))[:, None] * data
+        scy = getattr(self, 'scale_data', np.ones(ny))
+        PI  = getattr(self, 'proj',
+                      (np.eye(ne) - np.ones((ne, ne)) / ne) / np.sqrt(ne - 1))
+
+        # Initialise weight matrix and projected observation perturbations once
+        if self.iteration == 1:
+            self.current_W = np.zeros((ne, ne))
+            self.E = enE @ PI                                # shape: (nd, ne)
+
+        Y = enY @ PI                                         # shape: (nd, ne)
+
+        # S = Y @ Omega^{-1},  Omega = I + W @ PI
+        Omega = np.eye(ne) + self.current_W @ PI             # shape: (ne, ne)
+        S = np.linalg.solve(Omega.T, Y.T).T                  # shape: (nd, ne)
+
+        # Scaled observation residuals
+        enRes = self.solve(scy, enY - enE)                   # shape: (nd, ne)
+
+        # Truncated SVD of S
+        Us, Ss, VsT = at.truncSVD(S, energy=self.trunc_energy)  # (nd,nr), (nr,), (nr,ne)
+        Sinv = (1 / Ss)[:, None]                             # shape: (nr, 1)
+
+        # Projected observation perturbations in reduced space
+        X  = Sinv * (Us.T @ self.solve(scy, self.E))         # shape: (nr, ne)
+        eigval, eigvec = np.linalg.eig(X @ X.T)             # shape: (nr,), (nr, nr)
+        X2 = (Us * Sinv.T) @ eigvec                          # shape: (nd, nr)
+        X3 = S.T @ X2                                        # shape: (ne, nr)
+
+        lam_term = np.eye(len(eigval)) + (1 + self.lam) * np.diag(eigval)  # shape: (nr, nr)
+        deltaM = X3 @ self.solve(lam_term, X3.T @ self.current_W)  # shape: (ne, ne)
+        deltaD = X3 @ self.solve(lam_term, X2.T @ enRes)           # shape: (ne, ne)
+
+        self.w_step = (
+            -self.current_W / (1 + self.lam)
+            - (deltaD - deltaM) / (1 + self.lam)
+        )
+        return None
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def solve(self, A, B):
+        """Apply A⁻¹ B, supporting both matrix (2-D) and diagonal (1-D) A."""
+        if np.ndim(A) == 2:
+            return solve(A, B)
         else:
-            return solve(scaling, data)
+            return (A ** (-1))[:, None] * B
+
+    def sqrtm(self, A):
+        """Matrix square root, supporting both matrix and diagonal inputs."""
+        if np.ndim(A) == 2:
+            return sqrtm(A)
+        else:
+            return np.sqrt(A)

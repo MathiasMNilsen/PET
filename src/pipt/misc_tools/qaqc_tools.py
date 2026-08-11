@@ -10,7 +10,7 @@ import matplotlib.collections as mcoll
 from matplotlib.colors import ListedColormap
 import itertools
 import logging
-from pipt.misc_tools import cov_regularization
+from pipt.localization import build_localization_instance
 from scipy.interpolate import interp1d
 from scipy.io import loadmat
 import cv2
@@ -107,11 +107,13 @@ class QAQC:
             os.mkdir(self.folder)  # if not generate
 
         if 'localization' in self.keys:
-            self.localization = cov_regularization.localization(self.keys['localization'],
-                                                                self.keys['truedataindex'],
-                                                                self.keys['datatype'],
-                                                                self.keys['staticvar'],
-                                                                self.ne)
+            self.localization = build_localization_instance(
+                self.keys['localization'],
+                self.keys['truedataindex'],
+                self.keys['datatype'],
+                self.keys['staticvar'],
+                self.ne,
+            )
         self.pred_data = None
         self.state = None
         self.en_fcst = {}

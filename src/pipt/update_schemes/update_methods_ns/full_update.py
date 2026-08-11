@@ -1,88 +1,112 @@
-"""EnRML (IES) as in 2013."""
+"""Full (model-space) LM ensemble update."""
 
 import numpy as np
-from copy import deepcopy
-import copy as cp
-from scipy.linalg import solve, solve_banded, cholesky, lu_solve, lu_factor, inv
-import pickle
+from scipy.linalg import solve, sqrtm
+
 import pipt.misc_tools.analysis_tools as at
 
 
 class full_update():
     """
-    Full LM Update scheme as defined in "Chen, Y., & Oliver, D. S. (2013). Levenberg–Marquardt forms of the iterative ensemble
-    smoother for efficient history matching and uncertainty quantification. Computational Geosciences, 17(4), 689–703.
-    https://doi.org/10.1007/s10596-013-9351-5". Note that for a EnKF or ES update, or for update within GN scheme, lambda = 0.
+    Full LM update as in Chen & Oliver (2013).
 
-    !!! note
-        no localization is implemented for this method yet.
+    Unlike the approximate update, the state-error covariance is represented
+    in model space via the ``Am`` matrix, which adds an explicit regularisation
+    term pulling the ensemble toward the prior.
+
+    Reference
+    ---------
+    Chen, Y., & Oliver, D. S. (2013). Levenberg-Marquardt forms of the iterative
+    ensemble smoother for efficient history matching and uncertainty quantification.
+    Computational Geosciences, 17(4), 689-703.
+    https://doi.org/10.1007/s10596-013-9351-5
+
+    Note
+    ----
+    No localization is implemented for this update scheme.
     """
 
     def update(self, enX, enY, enE, **kwargs):
+        """
+        Perform the full LM update.
 
-        # Get prior ensemble if provided
+        Parameters
+        ----------
+        enX : np.ndarray, shape (nx, ne)
+            State ensemble matrix.
+        enY : np.ndarray, shape (nd, ne)
+            Predicted data ensemble matrix.
+        enE : np.ndarray, shape (nd, ne)
+            Perturbed observations ensemble.
+
+        Returns
+        -------
+        np.ndarray, shape (nx, ne)
+            Update step to be added to the state ensemble.
+        """
+        nx, ne = enX.shape
+        ny, _  = enY.shape
+
+        # Scaling factors and projection matrix
+        cov    = getattr(self, 'cov_data',    np.eye(ny))
+        scx    = getattr(self, 'scale_state', np.ones(nx))
+        scy    = getattr(self, 'scale_data',  self.sqrtm(cov))
+        PI     = getattr(self, 'proj',
+                         (np.eye(ne) - np.ones((ne, ne)) / ne) / np.sqrt(ne - 1))
+
         priorX = kwargs.get('prior', self.prior_enX)
 
+        # Build Am matrix once per outer iteration
         if self.Am is None:
-            self.ext_Am() # do this only once 
+            self.ext_Am()
 
-        # Scale and center the ensemble matrecies
-        enYcentered = self.scale(np.dot(enY, self.proj), self.scale_data) 
-        enXcentered = self.scale(np.dot(enX, self.proj), self.state_scaling)
+        # Anomaly matrices
+        Y_anom = self.solve(scy, enY @ PI)               # shape: (nd, ne)
+        X_anom = self.solve(scx, enX @ PI)               # shape: (nx, ne)
+        D_anom = self.solve(scy, enE - enY)              # shape: (nd, ne)
 
-        # Perform tuncated SVD
-        u_d, s_d, v_d = at.truncSVD(enYcentered, energy=self.trunc_energy)
+        # Truncated SVD of predicted-data anomalies
+        Ur, Sr, VrT = at.truncSVD(Y_anom, energy=self.trunc_energy)  # (nd,nr), (nr,), (nr,ne)
 
-        # Compute the update step
-        x_1 = np.dot(u_d.T, self.scale(enE - enY, self.scale_data))
-        x_2 = solve(((self.lam + 1) * np.eye(len(s_d)) + np.diag(s_d ** 2)), x_1)
-        x_3 = np.dot(np.dot(v_d.T, np.diag(s_d)), x_2)
-        delta_m1 = np.dot((self.state_scaling[:, None]*enXcentered), x_3)
+        # ── Data-misfit term (δm₁) ──────────────────────────────────────────
+        X1 = Ur.T @ D_anom                               # shape: (nr, ne)
+        X2 = self.solve(1 + self.lam + Sr ** 2, X1)      # shape: (nr, ne)
+        X3 = VrT.T @ np.diag(Sr) @ X2                   # shape: (ne, ne)
+        delta_m1 = (scx[:, None] * X_anom) @ X3         # shape: (nx, ne)
 
-        x_4 = np.dot(self.Am.T, (self.state_scaling**(-1))[:, None]*(enX - priorX))
-        x_5 = np.dot(self.Am, x_4)
-        x_6 = np.dot(enXcentered.T, x_5)
-        x_7 = np.dot(v_d.T, solve(((self.lam + 1) * np.eye(len(s_d)) + np.diag(s_d ** 2)), np.dot(v_d, x_6)))
-        delta_m2 = -np.dot((self.state_scaling[:, None]*enXcentered), x_7)
+        # ── Regularisation term (δm₂) -- model-space prior pull ─────────────
+        X4 = self.Am.T @ self.solve(scx, enX - priorX)  # shape: (nr', ne)
+        X5 = self.Am @ X4                                # shape: (nx,  ne)
+        X6 = X_anom.T @ X5                              # shape: (ne,  ne)
+        X7 = VrT.T @ self.solve(1 + self.lam + Sr ** 2,
+                                VrT @ X6)               # shape: (ne, ne)
+        delta_m2 = -(scx[:, None] * X_anom) @ X7        # shape: (nx, ne)
 
-        self.step = delta_m1 + delta_m2
-    
+        return delta_m1 + delta_m2
 
-    def scale(self, data, scaling):
-        """
-        Scale the data perturbations by the data error standard deviation.
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
-        Args:
-            data (np.ndarray): data perturbations
-            scaling (np.ndarray): data error standard deviation
+    def ext_Am(self):
+        """Compute and cache the Am matrix from the scaled prior ensemble."""
+        delta = self.state_scaling[:, None] * (self.prior_enX @ self.proj)
+        U, S, _ = np.linalg.svd(delta, full_matrices=False)
 
-        Returns:
-            np.ndarray: scaled data perturbations
-        """
+        # Truncate to the energy threshold
+        r = int(np.searchsorted(np.cumsum(S) / S.sum(), self.trunc_energy)) + 1
+        self.Am = U[:, :r] * (S[:r] ** (-1))[None, :]   # shape: (nx, r), notation from paper
 
-        if len(scaling.shape) == 1:
-            return (scaling ** (-1))[:, None] * data
+    def solve(self, A, B):
+        """Apply A⁻¹ B, supporting both matrix (2-D) and diagonal (1-D) A."""
+        if np.ndim(A) == 2:
+            return solve(A, B)
         else:
-            return solve(scaling, data)
-    
-    def ext_Am(self, *args, **kwargs):
-        """
-        The class is initialized by calculating the required Am matrix.
-        """
+            return (A ** (-1))[:, None] * B
 
-        delta_scaled_prior = self.state_scaling[:, None] * np.dot(self.prior_enX, self.proj)
-        u_d, s_d, v_d = np.linalg.svd(delta_scaled_prior, full_matrices=False)
-
-        # remove the last singular value/vector. This is because numpy returns all ne values, while the last is actually
-        # zero. This part is a good place to include eventual additional truncation.
-        energy = 0
-        trunc_index = len(s_d) - 1  # inititallize
-        for c, elem in enumerate(s_d):
-            energy += elem
-            if energy / sum(s_d) >= self.trunc_energy:
-                trunc_index = c  # take the index where all energy is preserved
-                break
-        u_d, s_d, v_d = u_d[:, :trunc_index +
-                                1], s_d[:trunc_index + 1], v_d[:trunc_index + 1, :]
-        self.Am = np.dot(u_d, np.eye(trunc_index + 1) *
-                         ((s_d ** (-1))[:, None]))  # notation from paper
+    def sqrtm(self, A):
+        """Matrix square root, supporting both matrix and diagonal inputs."""
+        if np.ndim(A) == 2:
+            return sqrtm(A)
+        else:
+            return np.sqrt(A)

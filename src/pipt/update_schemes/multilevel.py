@@ -147,12 +147,12 @@ class esmda_hybrid(multilevel,hybrid_update,esmdaMixIn):
                 self.E[l] = np.dot(self.ml_enObs[l], self.proj[l])
 
         # Calculate update step
-        self.update(
+        self.step = self.update(
             enX = self.enX,
             enY = self.enPred,
             enE = self.ml_enObs
         )
-        if hasattr(self, 'step'):
+        if self.step is not None:
             limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
             self.enX_temp = []
             for l in range(self.tot_level):
