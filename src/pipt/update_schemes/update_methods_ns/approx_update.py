@@ -1,17 +1,10 @@
 """EnRML (IES) without the prior increment term."""
 
 import numpy as np
-from copy import deepcopy
-import copy as cp
-from scipy.linalg import solve, sqrtm
-import pickle
 import warnings
+from scipy.linalg import solve, sqrtm
 
-import pipt.misc_tools.ensemble_tools as entools
 import pipt.misc_tools.analysis_tools as at
-import pipt.misc_tools.extract_tools as extract
-
-from pipt.localization import _calc_loc
 
 
 class approx_update():
@@ -50,7 +43,7 @@ class approx_update():
         )  # shape: (ne, ne) such that A@PI = A - mean(A)/sqrt(ne-1) for any ensemble matrix A of shape (na, ne) 
 
         # Check for adjoint-based update
-        if kwargs.get('enAdj', None):
+        if kwargs.get('enAdj', None) is not None:
             Y = kwargs['enAdj'].mean(axis=-1) @ enX @ PI    # shape: (nd, ne)
         else:
             Y = enY @ PI                                    # shape: (nd, ne) --> Such that Cyy ≈ Y @ Y.T
@@ -100,15 +93,16 @@ class approx_update():
         # DISTANCE-BASED LOCALIZATION
         elif self.localization.name == 'distance_loc':
 
-            # Matrix X: (ne, nd)
+            # Gain-factor matrix X shape: (nr, nd)
             if self.keys_da.get('emp_cov', False):
-                X_anom = X_anom * np.sqrt(ne - 1)           # Undo 1/sqrt(ne-1) normalisation
+                A = X_anom * np.sqrt(ne - 1)                # Undo 1/sqrt(ne-1) normalisation; shape: (nx, ne)
                 X = (VrT.T @ eigvec) @ self.solve(d, eigvec.T @ (invSr * Ur.T))
             else:
+                A = scx[:, None] * X_anom                   # shape: (nx, ne)
                 X = VrT.T @ (Sr[:, None] * self.solve(1 + self.lam + Sr**2, Ur.T))
 
-            T_loc = self.localization()                     # shape: (nx, nd) --> Localisation mask
-            K_loc = T_loc * (scx[:, None] * X_anom @ X)     # shape: (nx, nd) --> Localized gain matrix
+            T_loc = self.localization()                     # shape: (nx, nd) -- sparse localisation mask
+            K_loc = T_loc.multiply(A @ X)                   # shape: (nx, nd) -- elementwise sparse × dense
             return K_loc @ D_anom                           # shape: (nx, ne)
 
         # LOCAL ANALYSIS
