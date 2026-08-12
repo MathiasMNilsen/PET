@@ -75,6 +75,7 @@ class approx_update():
         # AUTO-ADAPTIVE LOCALIZATION
         if self.localization.name == 'autoadaloc':
             y_proj = self.localization.info.get('projection', 'rank-r')
+            assert y_proj in ['rank-r', 'ensemble'], "Projection method must be either 'rank-r' or 'ensemble'."
 
             if y_proj == 'rank-r':
                 Y_anom_proj = np.diag(Sr) @ VrT             # shape: (nr, ne) --> Y_proj = U.T @ Y_anom

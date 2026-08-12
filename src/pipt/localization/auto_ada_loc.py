@@ -127,13 +127,6 @@ class AutoAdaptiveLocalization(LocalizationBase):
                 "Supported methods are 'adaptive', 'fixed', and 'universal'."
             )
 
-        # Ensure that the projection method is valid
-        if self.projection not in ["rank-r", "ensemble"]:
-            raise ValueError(
-                f"Invalid projection method '{self.projection}'. "
-                "Supported methods are 'rank-r' and 'ensemble'."
-            )
-
     def __call__(
             self, 
             X: np.ndarray, 
