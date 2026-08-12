@@ -39,8 +39,8 @@ def _make_data(data_type: str = "pressure", time: float = 1.0, cell: int = 5) ->
 
 def _make_info(
     taper: str = "region",
-    y_pos: int = 5,
     x_pos: int = 5,
+    y_pos: int = 5,
     z_pos: int = 0,
     radius: int = 4,
     z_range: str = ":",
@@ -53,7 +53,7 @@ def _make_info(
 ) -> dict:
     """Build a minimal info dict with one inline CSV row (trailing comma trick)."""
     row = (
-        f"{taper} {y_pos} {x_pos} {z_pos} {radius} {z_range} "
+        f"{taper} {x_pos} {y_pos} {z_pos} {radius} {z_range} "
         f"{anisotropy} {rotation} {data_type} {time} {param},"
     )
     return {"field": FIELD, "taper_func": taper_func, row: None}
@@ -330,7 +330,7 @@ class TestDistanceLocalizationConfig:
     def test_inline_csv_row_populates_entry(self):
         """An inline CSV row must create an entry with the correct taper and position."""
         data = _make_data()
-        info = _make_info(taper="region", y_pos=3, x_pos=7, z_pos=0, radius=5)
+        info = _make_info(taper="region", x_pos=3, y_pos=7, z_pos=0, radius=5)
         loc = DistanceLocalization(info, data=data, parameters=["perm"])
         key = ("pressure", 1.0, "perm")
         assert key in loc._entries
@@ -359,11 +359,11 @@ class TestDistanceLocalizationOutput:
     # helpers
     # ------------------------------------------------------------------
 
-    def _loc(self, taper="region", taper_func="region", radius=4, y_pos=5, x_pos=5):
+    def _loc(self, taper="region", taper_func="region", radius=4, x_pos=5, y_pos=5):
         data = _make_data()
         info = _make_info(
             taper=taper, taper_func=taper_func, radius=radius,
-            y_pos=y_pos, x_pos=x_pos,
+            x_pos=x_pos, y_pos=y_pos,
         )
         return DistanceLocalization(info, data=data, parameters=["perm"])
 
@@ -386,8 +386,8 @@ class TestDistanceLocalizationOutput:
     # ------------------------------------------------------------------
 
     def test_region_kernel_activates_exactly_one_cell(self):
-        """Region kernel at (y=5, x=5, z=0) must activate only cell index 5*NY+5."""
-        result = self._loc(y_pos=5, x_pos=5)()
+        """Region kernel at (x=5, y=5, z=0) must activate only cell index 5*NY+5."""
+        result = self._loc(x_pos=5, y_pos=5)()
         dense = result.toarray().ravel()
         expected_idx = 5 * NY + 5      # flat index in (NZ, NX, NY) field
         assert dense[expected_idx] == pytest.approx(1.0)
@@ -396,8 +396,8 @@ class TestDistanceLocalizationOutput:
         assert np.all(dense[~mask] == 0.0)
 
     def test_region_kernel_position_corner(self):
-        """Region kernel placed at corner (y=0, x=0) must activate cell index 0."""
-        result = self._loc(y_pos=0, x_pos=0)()
+        """Region kernel placed at corner (x=0, y=0) must activate cell index 0."""
+        result = self._loc(x_pos=0, y_pos=0)()
         dense = result.toarray().ravel()
         assert dense[0] == pytest.approx(1.0)
         assert np.sum(dense > 0) == 1
@@ -415,14 +415,14 @@ class TestDistanceLocalizationOutput:
 
     def test_gc_center_cell_is_maximum(self):
         """GC weight at the kernel center cell must equal the global maximum."""
-        result = self._loc(taper="gc", taper_func="gc", radius=8, y_pos=5, x_pos=5)()
+        result = self._loc(taper="gc", taper_func="gc", radius=8, x_pos=5, y_pos=5)()
         dense = result.toarray().ravel()
         center_idx = 5 * NY + 5
         assert dense[center_idx] == pytest.approx(dense.max(), rel=1e-10)
 
     def test_gc_taper_decreases_from_center_along_row(self):
         """GC weights along the row through the kernel center must taper outward."""
-        result = self._loc(taper="gc", taper_func="gc", radius=8, y_pos=5, x_pos=5)()
+        result = self._loc(taper="gc", taper_func="gc", radius=8, x_pos=5, y_pos=5)()
         grid = result.toarray().reshape(NZ, NX, NY)[0]  # shape (NX, NY)
         row = grid[5, :]                          # row at x=5, y=0..9
         left_half  = row[:6]                      # y=0..5 → should increase to center
@@ -432,7 +432,7 @@ class TestDistanceLocalizationOutput:
 
     def test_gc_taper_decreases_from_center_along_column(self):
         """GC weights along the column through the kernel center must also taper outward."""
-        result = self._loc(taper="gc", taper_func="gc", radius=8, y_pos=5, x_pos=5)()
+        result = self._loc(taper="gc", taper_func="gc", radius=8, x_pos=5, y_pos=5)()
         grid = result.toarray().reshape(NZ, NX, NY)[0]  # shape (NX, NY)
         col = grid[:, 5]                          # column at y=5, x=0..9
         top_half    = col[:6]                     # x=0..5 → increase toward center

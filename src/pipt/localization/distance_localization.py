@@ -36,6 +36,7 @@ class LocalizationEntry:
     z_range:          object
     anisotropy_ratio: float = 1.0
     rotation_deg:     float = 0.0
+    filepath:         Optional[str] = None   # used when taper == 'import'
 
 
 # ===========================================================
@@ -306,17 +307,17 @@ class DistanceLocalization(LocalizationBase):
         Each entry is a single space-separated line with 11 fields
         (or 12 if the data-type name contains a space)::
 
-            taper  y_pos  x_pos  z_pos  radius  z_range  aniso  rotation  data_type  time  param
+            taper  x_pos  y_pos  z_pos  radius  z_range  aniso  rotation  data_type  time  param
 
         For two-word data types (e.g. ``WOPR PRO1``) use 12 fields::
 
-            taper  y_pos  x_pos  z_pos  radius  z_range  aniso  rotation  word1  word2  time  param
+            taper  x_pos  y_pos  z_pos  radius  z_range  aniso  rotation  word1  word2  time  param
 
         Field descriptions:
 
         - **taper** — kernel tag: ``gc``, ``fb``, or ``region``.
-        - **y_pos** — observation y-cell index on the grid (0-based).
-        - **x_pos** — observation x-cell index on the grid (0-based).
+        - **x_pos** — observation x-cell index on the grid (0-based), along the ``nx`` axis.
+        - **y_pos** — observation y-cell index on the grid (0-based), along the ``ny`` axis.
         - **z_pos** — observation layer index on the grid (0-based).
         - **radius** — kernel half-radius in grid cells. For ``gc`` the
           full support spans ``2 × radius`` cells from the center.
@@ -515,7 +516,26 @@ class DistanceLocalization(LocalizationBase):
             if not parts:
                 continue
 
-            # key: (data_type, time, param) - single or two-word data_type
+            # ── import rows: "import filename z_range data_type time param"
+            # (6 fields for single-word data type, 7 for two-word)
+            if parts[0] == 'import':
+                if len(parts) == 6:
+                    key = (parts[3].lower(), float(parts[4]), parts[5].lower())
+                else:
+                    key = (f"{parts[3].lower()} {parts[4].lower()}",
+                           float(parts[5]), parts[6].lower())
+                if key not in entries:
+                    continue
+                entries[key] = LocalizationEntry(
+                    taper    = 'import',
+                    positions = None,
+                    radius   = None,
+                    z_range  = parts[2],
+                    filepath = parts[1],
+                )
+                continue
+
+            # ── standard rows: 11 fields (single-word) or 12 (two-word data type)
             if len(parts) == 11:
                 key = (parts[8].lower(), float(parts[9]), parts[10].lower())
             else:
@@ -553,17 +573,24 @@ class DistanceLocalization(LocalizationBase):
                 continue
             key = self._cache_key(entry)
             if key not in cache:
-                cache[key] = self._kernel.build(
-                    radius           = entry.radius,
-                    anisotropy_ratio = entry.anisotropy_ratio,
-                    rotation_deg     = entry.rotation_deg,
-                    field_shape      = self.field,
-                    ensemble_size    = self.ensemble_size,
-                )
+                if entry.taper == 'import':
+                    data = np.load(entry.filepath)
+                    arr  = data[data.files[0]] if hasattr(data, 'files') and data.files else data
+                    cache[key] = arr.reshape(self.field)   # ensure (nz, nx, ny)
+                else:
+                    cache[key] = self._kernel.build(
+                        radius           = entry.radius,
+                        anisotropy_ratio = entry.anisotropy_ratio,
+                        rotation_deg     = entry.rotation_deg,
+                        field_shape      = self.field,
+                        ensemble_size    = self.ensemble_size,
+                    )
         return cache
 
     @staticmethod
     def _cache_key(entry: LocalizationEntry) -> tuple:
+        if entry.taper == 'import':
+            return ('import', entry.filepath)
         return (entry.taper, entry.radius, entry.anisotropy_ratio, entry.rotation_deg)
 
     # ------------------------------------------------------------------
@@ -572,15 +599,26 @@ class DistanceLocalization(LocalizationBase):
 
     def _resolve_mask(self, key: Tuple[str, float, str]) -> np.ndarray:
         """Return the repositioned spatial mask for an entry key."""
-        entry  = self._entries[key]
-        kernel = self._mask_cache[self._cache_key(entry)]
-        masks  = [self._place_kernel(kernel, pos) for pos in entry.positions]
-        mask   = np.maximum.reduce(masks)
+        entry = self._entries[key]
+
+        if entry.taper == 'import':
+            # pre-computed full 3-D mask loaded from .npz
+            mask = self._mask_cache[self._cache_key(entry)]  # shape: (nz, nx, ny)
+        else:
+            kernel = self._mask_cache[self._cache_key(entry)]
+            masks  = [self._place_kernel(kernel, pos) for pos in entry.positions]
+            mask   = np.maximum.reduce(masks)                 # shape: (nz, nx, ny)
 
         if entry.z_range != ":":
-            mask = mask[int(entry.z_range)]
+            z    = int(entry.z_range)
+            flat = mask[z].flatten()                          # shape: (nx*ny,)
+            if self.actnum is not None:
+                nz, nx, ny    = self.field
+                layer_actnum  = self.actnum.reshape(nz, nx, ny)[z].flatten()
+                return flat[layer_actnum]
+            return flat
 
-        flat = mask.flatten()
+        flat = mask.flatten()                                  # shape: (nz*nx*ny,)
         return flat[self.actnum] if self.actnum is not None else flat
 
     def _place_kernel(self, kernel: np.ndarray, position: List[int]) -> np.ndarray:
@@ -592,12 +630,12 @@ class DistanceLocalization(LocalizationBase):
         Parameters
         ----------
         kernel : np.ndarray, shape (ky, kx)
-        position : [y_pos, x_pos, z_pos]
+        position : [x_pos, y_pos, z_pos]
         """
         result             = np.zeros(self.field)
         nz, nx, ny         = self.field
         ky, kx             = kernel.shape
-        y_pos, x_pos, z_pos = position
+        x_pos, y_pos, z_pos = position
 
         x_min = x_pos - kx // 2;  x_max = x_min + kx
         y_min = y_pos - ky // 2;  y_max = y_min + ky
