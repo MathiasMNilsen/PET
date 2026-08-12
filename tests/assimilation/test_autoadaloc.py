@@ -44,7 +44,7 @@ def test_config_autoadaloc():
         "field": [1, 5, 5],
         "actnum": None,
         "threshold": "fixed",
-        "nstd": 0.4,
+        "cutoff": 0.4,
         "type": "soft",
         "projection": "rank-r"
     }
@@ -54,7 +54,7 @@ def test_config_autoadaloc():
     assert loc.name == "autoadaloc"
     assert loc.field == [1, 5, 5]
     assert loc.actnum is None
-    assert loc.nstd == 0.4
+    assert loc.cutoff == 0.4
     assert loc.tapertype == "soft"
     assert loc.threshold == "fixed"
 
@@ -65,14 +65,14 @@ def test_autoadaloc_no_trunc():
         "field": [4, 2],
         "actnum": None,
         "threshold": "fixed",
-        "nstd": 0.005,
+        "cutoff": 0.005,
         "type": "hard",
         "projection": "rank-r",
     }
     loc = AutoAdaptiveLocalization(loc_info)
-    step = loc(X, Y)
-    assert step.shape == (NX, NY)
-    np.testing.assert_allclose(step, X@Y.T)
+    taper = loc(X, Y)
+    assert taper.shape == (NX, NY)
+    np.testing.assert_allclose(taper, np.ones((NX, NY)))
 
 
 def test_autoadaloc_partial_trunc():
@@ -81,22 +81,17 @@ def test_autoadaloc_partial_trunc():
         "field": [4, 2],
         "actnum": None,
         "threshold": "fixed",
-        "nstd": 0.4,
+        "cutoff": 0.4,
         "type": "hard",
         "projection": "rank-r"
     }
     loc = AutoAdaptiveLocalization(loc_info)
-    step_loc  = loc(X, Y)
-    step_full = X @ Y.T
+    taper_result = loc(X, Y)
 
-    # Expected step
-    taper_matrix = np.where(np.abs(R) >= loc.nstd, 1, 0)
-    step_expected = taper_matrix * (X @ Y.T)
+    # Expected taper matrix
+    taper_expected = np.where(np.abs(R) >= loc.cutoff, 1, 0)
 
-    assert not np.array_equal(step_full, step_expected)
-    np.testing.assert_allclose(step_loc[step_loc != 0], step_full[step_loc != 0])
-    np.testing.assert_allclose(step_loc[step_loc == 0], 0)
-    np.testing.assert_allclose(step_loc, step_expected)
+    np.testing.assert_allclose(taper_result, taper_expected)
 
 
 def test_autoadaloc_full_trunc():
@@ -105,14 +100,14 @@ def test_autoadaloc_full_trunc():
         "field": [4, 2],
         "actnum": None,
         "threshold": "fixed",
-        "nstd": 1.0,
+        "cutoff": 1.0,
         "type": "hard",
         "projection": "rank-r"
     }
     loc = AutoAdaptiveLocalization(loc_info)
-    step = loc(X, Y)
-    assert step.shape == (NX, NY)
-    np.testing.assert_allclose(step, np.zeros((NX, NY)))
+    taper = loc(X, Y)
+    assert taper.shape == (NX, NY)
+    np.testing.assert_allclose(taper, np.zeros((NX, NY)))
 
 
 def test_approx_update_with_autoadaloc():
@@ -122,7 +117,7 @@ def test_approx_update_with_autoadaloc():
         "field": [4, 2],
         "actnum": None,
         "threshold": "fixed",
-        "nstd": 0.4,
+        "cutoff": 0.4,
         "type": "hard",
         "projection": "rank-r"
     }
@@ -165,7 +160,8 @@ def test_approx_update_with_autoadaloc():
     # Calculate step manually with localization
     loc = AutoAdaptiveLocalization(loc_info)
     Y_anom_proj = np.diag(Sr) @ VrT
-    Cxy_loc = loc(X=X_anom, Y=Y_anom_proj)
+    taper = loc(X=X_anom, Y=Y_anom_proj)
+    Cxy_loc = taper * (X_anom @ Y_anom_proj.T)
     step_loc_expected = Cxy_loc @ X2
 
     np.testing.assert_allclose(step_loc, step_loc_expected)
@@ -180,7 +176,7 @@ def compares_with_old_autoadaloc():
         "field": [4, 2],
         "actnum": None,
         "threshold": "fixed",
-        "nstd": 0.7,
+        "cutoff": 0.7,
         "type": "hard",
         "projection": "rank-r"
     }
@@ -236,7 +232,7 @@ def compares_with_old_autoadaloc():
     X2 = VrT.T @ np.diag(Sr) @ np.linalg.solve(reg_term, Ur.T)
 
     corr = loc.corr_matrix(X_anom, X2 @ D_anom)
-    T = np.where(np.abs(corr) >= loc.nstd, 1, 0)
+    T = np.where(np.abs(corr) >= loc.cutoff, 1, 0)
     step_old_loc = (T * X_anom) @ (X2 @ D_anom)
 
     loc.projection = 'ensemble'
@@ -258,7 +254,7 @@ def compares_with_old_autoadaloc():
     # Kalman gain with localization
     loc = AutoAdaptiveLocalization(loc_info)
     corr = np.corrcoef(X_anom, Y_anom)[:NX, NX:]
-    T = np.where(np.abs(corr) >= loc.nstd, 1, 0)
+    T = np.where(np.abs(corr) >= loc.cutoff, 1, 0)
     Cxy = T * (X_anom @ Y_anom.T)
     CYY = Y_anom @ Y_anom.T
     step_loc_full = Cxy @ np.linalg.solve(CYY + np.diag(Cdd), D_anom)

@@ -8,6 +8,15 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
+
+
+def _parse_time(s: str):
+    """Parse a time token as float or, if that fails, as a pd.Timestamp."""
+    try:
+        return float(s)
+    except ValueError:
+        import pandas as _pd
+        return _pd.Timestamp(s)
 import pandas as pd
 from scipy import sparse
 
@@ -259,22 +268,20 @@ class DistanceLocalization(LocalizationBase):
 
                 Default: ``"region"``.
 
-            **<filename>.csv** : any, *optional*
-                A key whose name ends in ``.csv`` is opened as a path to
-                a CSV file containing one localization entry per line
-                (see *CSV row format* in Notes). The associated value is
-                ignored. Recommended for configurations with many entries.
+            **entries** : str, list, or dict, *optional*
+                Localization entries configuration. Three formats are supported:
 
-            **"<row1>,<row2>,..."** : any, *optional*
-                Any key containing a comma is split on ``,`` and each
-                segment is parsed as a localization entry row. Useful for
-                small configurations that do not need an external file.
-
-            **<filename>.pkl / .p** : any, *optional*
-                A key ending in ``.pkl`` or ``.p`` is loaded with
-                :func:`pickle.load` and must contain a pre-built
-                ``{(data_type, time, param): LocalizationEntry}`` dict.
-                Intended for offline pre-computation of expensive masks.
+                - **str**: Path to a CSV file containing one entry per line
+                  (see *CSV row format* in Notes).
+                - **list**: List of entry dicts or CSV row strings. Dicts must
+                  contain ``"taper"``, ``"x"``, ``"y"``, ``"radius"``,
+                  ``"data_type"``, ``"time"``, ``"param"`` (plus optional
+                  ``"z"``, ``"z_range"``, ``"aniso"``, ``"rotation"``).
+                  Wildcard ``"*"`` can be used to expand entries across all
+                  known values for that field.
+                - **dict**: Pre-built ``{(data_type, time, param): LocalizationEntry}``
+                  dict (rarely used; prefer the other formats).
+                
 
         data : pd.DataFrame, optional
             Observed data whose **index** contains the assimilation time
@@ -376,6 +383,59 @@ class DistanceLocalization(LocalizationBase):
         fb  8 12 0 6 0 2.0 45.0 wopr pro1 400.0 permx
         fb 15  5 0 8 0 1.0  0.0 wwct pro2 400.0 permx
         ```
+
+        Python config using the ``entries`` key with a list of dicts
+        (modern preferred approach):
+
+        ```python
+        info = {
+            "field": [1, 20, 20],
+            "taper_func": "gc",
+            "entries": [
+                {
+                    "taper": "gc",
+                    "x": 10, "y": 10, "z": 0,
+                    "radius": 6,
+                    "z_range": ":",
+                    "aniso": 1.0, "rotation": 0.0,
+                    "data_type": "pressure",
+                    "time": 400.0,
+                    "param": "permx",
+                },
+                {
+                    "taper": "gc",
+                    "x": 5, "y": 15, "z": 0,
+                    "radius": 4,
+                    "z_range": ":",
+                    "aniso": 1.0, "rotation": 0.0,
+                    "data_type": "wopr pro1",
+                    "time": 400.0,
+                    "param": "permx",
+                },
+            ]
+        }
+        ```
+
+        Wildcard expansion in ``entries`` (apply one config to all data types):
+
+        ```python
+        info = {
+            "field": [1, 20, 20],
+            "taper_func": "gc",
+            "entries": [
+                {
+                    "taper": "gc",
+                    "x": 10, "y": 10, "z": 0,
+                    "radius": 6,
+                    "z_range": ":",
+                    "aniso": 1.0, "rotation": 0.0,
+                    "data_type": "*",      # expands to all data types
+                    "time": "*",           # expands to all times
+                    "param": "permx",
+                },
+            ]
+        }
+        ```
         """
         if isinstance(info, list):
             info = list_to_dict(info)
@@ -384,18 +444,17 @@ class DistanceLocalization(LocalizationBase):
         self.field, self.actnum = self.config_common(info)
 
         # -- store all call-time defaults as instance attributes
-        self.parameters    = parameters
+        self.parameters    = [parameters] if isinstance(parameters, str) else parameters
         self.prior_info    = prior_info if prior_info is not None else {}
         self.ensemble_size = ensemble_size
 
-        # -- select and instantiate the kernel
-        taperfunc = info.get("taper_func", "region")
-        if taperfunc not in self._kernel_map:
+        # -- select and instantiate the kernel (optional; entry rows may supply it instead)
+        taperfunc = info.get("taper_func")
+        if taperfunc is not None and taperfunc not in self._kernel_map:
             raise ValueError(
                 f"Unknown taper_func '{taperfunc}'. "
                 f"Supported: {list(self._kernel_map)}"
             )
-        self._kernel = self._kernel_map[taperfunc]()
 
         # -- data and derived index/type lists
         self.data = data
@@ -456,7 +515,7 @@ class DistanceLocalization(LocalizationBase):
                 obs_blocks = [[] for _ in range(n_obs)]
 
                 for param in curr_param:
-                    key = (data_name, time, param)
+                    key = (data_name.lower(), time, param.lower())
                     if key in self._entries and self._entries[key].taper is not None:
                         mask = self._resolve_mask(key)
                         for i in range(n_obs):
@@ -492,7 +551,7 @@ class DistanceLocalization(LocalizationBase):
 
         # -- skeleton: one empty entry per (data_type, time, param) combo
         entries: Dict[Tuple, LocalizationEntry] = {
-            (datum, time, param): LocalizationEntry(
+            (datum.lower(), time, param.lower()): LocalizationEntry(
                 taper=None, positions=None, radius=None, z_range=None
             )
             for time  in self.data_indices
@@ -500,55 +559,114 @@ class DistanceLocalization(LocalizationBase):
             for param in self.parameters
         }
 
-        # -- read rows from CSV file or inline comma-separated string
+        # -- read rows: CSV file, inline entries list, or legacy comma-separated key
+        entries_val = info.get("entries")
         csv_key = next((k for k in info if str(k).endswith(".csv")), None)
-        if csv_key:
+        if isinstance(entries_val, str):
+            with open(entries_val) as f:
+                rows = [item for sublist in csv.reader(f) for item in sublist]
+            self._parse_rows(rows, entries)
+        elif entries_val is not None:
+            self._parse_entries(entries_val, entries)
+        elif csv_key:
             with open(csv_key) as f:
                 rows = [item for sublist in csv.reader(f) for item in sublist]
+            self._parse_rows(rows, entries)
         else:
+            # legacy: single comma-separated dict key
             rows = next(
                 (str(k).split(",") for k in info if len(str(k).split(",")) > 1),
                 [],
             )
+            self._parse_rows(rows, entries)
+
+    # ------------------------------------------------------------------
+    # Mask caching
+    # ------------------------------------------------------------------
+
+        return entries
+
+    @staticmethod
+    def _parse_entries(
+        entry_list: list,
+        entries: Dict[Tuple, "LocalizationEntry"],
+    ) -> None:
+        """Fill *entries* from a list of dicts (preferred API) or row strings."""
+        all_data   = {k[0] for k in entries}
+        all_times  = {k[1] for k in entries}
+        all_params = {k[2] for k in entries}
+
+        for item in entry_list:
+            if isinstance(item, str):
+                # accept plain row strings inside the list too
+                DistanceLocalization._parse_rows([item], entries)
+                continue
+
+            dt  = item.get("data_type", "*")
+            t   = item.get("time", "*")
+            par = item.get("param", "*")
+
+            # "*" expands to every known value for that field
+            data_types = all_data   if dt  == "*" else {dt.lower()}
+            times      = all_times  if t   == "*" else {_parse_time(str(t))}
+            params     = all_params if par == "*" else {par.lower()}
+
+            loc_entry = LocalizationEntry(
+                taper            = item["taper"],
+                positions        = [[int(item["x"]), int(item["y"]), int(item.get("z", 0))]],
+                radius           = int(item["radius"]),
+                z_range          = item.get("z_range", ":"),
+                anisotropy_ratio = float(item.get("aniso", 1.0)),
+                rotation_deg     = float(item.get("rotation", 0.0)),
+            )
+            for key in [(d, ti, p) for d in data_types for ti in times for p in params]:
+                if key in entries:
+                    entries[key] = loc_entry
+
+    @staticmethod
+    def _parse_rows(
+        rows: list,
+        entries: Dict[Tuple, "LocalizationEntry"],
+    ) -> None:
+        """Fill *entries* from a list of space-separated row strings."""
+        all_data   = {k[0] for k in entries}
+        all_times  = {k[1] for k in entries}
+        all_params = {k[2] for k in entries}
 
         for row in rows:
             parts = row.split()
             if not parts:
                 continue
 
-            # ── import rows: "import filename z_range data_type time param"
-            # (6 fields for single-word data type, 7 for two-word)
             if parts[0] == 'import':
                 if len(parts) == 6:
-                    key = (parts[3].lower(), float(parts[4]), parts[5].lower())
+                    key = (parts[3].lower(), _parse_time(parts[4]), parts[5].lower())
                 else:
                     key = (f"{parts[3].lower()} {parts[4].lower()}",
-                           float(parts[5]), parts[6].lower())
+                           _parse_time(parts[5]), parts[6].lower())
                 if key not in entries:
                     continue
                 entries[key] = LocalizationEntry(
-                    taper    = 'import',
+                    taper     = 'import',
                     positions = None,
-                    radius   = None,
-                    z_range  = parts[2],
-                    filepath = parts[1],
+                    radius    = None,
+                    z_range   = parts[2],
+                    filepath  = parts[1],
                 )
                 continue
 
-            # ── standard rows: 11 fields (single-word) or 12 (two-word data type)
             if len(parts) == 11:
-                key = (parts[8].lower(), float(parts[9]), parts[10].lower())
+                dt, t, par = parts[8].lower(), parts[9], parts[10].lower()
             else:
-                key = (
-                    f"{parts[8].lower()} {parts[9].lower()}",
-                    float(parts[10]),
-                    parts[11].lower(),
-                )
+                dt  = f"{parts[8].lower()} {parts[9].lower()}"
+                t   = parts[10]
+                par = parts[11].lower()
 
-            if key not in entries:
-                continue
+            data_types = all_data   if dt  == "*" else {dt}
+            times      = all_times  if t   == "*" else {_parse_time(t)}
+            params     = all_params if par == "*" else {par}
 
-            entries[key] = LocalizationEntry(
+            loc_entry = LocalizationEntry(
                 taper            = parts[0],
                 positions        = [[int(float(parts[1])),
                                      int(float(parts[2])),
@@ -558,8 +676,9 @@ class DistanceLocalization(LocalizationBase):
                 anisotropy_ratio = float(parts[6]),
                 rotation_deg     = float(parts[7]),
             )
-
-        return entries
+            for key in [(d, ti, p) for d in data_types for ti in times for p in params]:
+                if key in entries:
+                    entries[key] = loc_entry
 
     # ------------------------------------------------------------------
     # Mask caching
@@ -578,7 +697,8 @@ class DistanceLocalization(LocalizationBase):
                     arr  = data[data.files[0]] if hasattr(data, 'files') and data.files else data
                     cache[key] = arr.reshape(self.field)   # ensure (nz, nx, ny)
                 else:
-                    cache[key] = self._kernel.build(
+                    kernel = self._kernel_map[entry.taper]()
+                    cache[key] = kernel.build(
                         radius           = entry.radius,
                         anisotropy_ratio = entry.anisotropy_ratio,
                         rotation_deg     = entry.rotation_deg,
@@ -600,27 +720,31 @@ class DistanceLocalization(LocalizationBase):
     def _resolve_mask(self, key: Tuple[str, float, str]) -> np.ndarray:
         """Return the repositioned spatial mask for an entry key."""
         entry = self._entries[key]
-
-        if entry.taper == 'import':
-            # pre-computed full 3-D mask loaded from .npz
-            mask = self._mask_cache[self._cache_key(entry)]  # shape: (nz, nx, ny)
+        kernel = self._mask_cache[self._cache_key(entry)]
+        if entry.z_range == ":":
+            masks = [
+                self._place_kernel(kernel, [pos[0], pos[1], z])
+                for pos in entry.positions
+                for z in range(self.field[0])
+            ]
         else:
-            kernel = self._mask_cache[self._cache_key(entry)]
-            masks  = [self._place_kernel(kernel, pos) for pos in entry.positions]
-            mask   = np.maximum.reduce(masks)                 # shape: (nz, nx, ny)
+            masks = []
 
-        if entry.z_range != ":":
-            z    = int(entry.z_range)
-            flat = mask[z].flatten()                          # shape: (nx*ny,)
-            if self.actnum is not None:
-                nz, nx, ny    = self.field
-                layer_actnum  = self.actnum.reshape(nz, nx, ny)[z].flatten()
-                return flat[layer_actnum]
-            return flat
+            for pos in entry.positions:
+                z_center = pos[2]
+                z_range = int(entry.z_range)
 
-        flat = mask.flatten()                                  # shape: (nz*nx*ny,)
-        return flat[self.actnum] if self.actnum is not None else flat
+                z_min = max(0, z_center - z_range)
+                z_max = min(self.field[0] - 1, z_center + z_range)
 
+                for z in range(z_min, z_max + 1):
+                    masks.append(
+                        self._place_kernel(kernel, [pos[0], pos[1], z])
+                    )
+
+        mask = np.maximum.reduce(masks)
+        return mask
+    
     def _place_kernel(self, kernel: np.ndarray, position: List[int]) -> np.ndarray:
         """
         Place a compact 2-D kernel patch at ``position`` on the 3-D grid.

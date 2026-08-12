@@ -38,6 +38,8 @@ class LocalizationBase(ABC):
         else:
             assert isinstance(info['field'], list), "'field' must be a list of integers"
 
+        self.info = info
+
         # Extract and validate the field dimensions
         field = [int(elem) for elem in info['field']]
 
@@ -52,7 +54,7 @@ class LocalizationBase(ABC):
                 actnum = actnum_npz[key]
             else:
                 actnum = actnum_npz
-    
+
         return field, actnum
         
 

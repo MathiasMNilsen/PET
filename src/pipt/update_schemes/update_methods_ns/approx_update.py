@@ -74,21 +74,25 @@ class approx_update():
 
         # AUTO-ADAPTIVE LOCALIZATION
         if self.localization.name == 'autoadaloc':
+            y_proj = self.localization.info.get('projection', 'rank-r')
 
-            if self.localization.projection == 'rank-r':
+            if y_proj == 'rank-r':
                 Y_anom_proj = np.diag(Sr) @ VrT             # shape: (nr, ne) --> Y_proj = U.T @ Y_anom
-                Cxy_loc = self.localization(                # shape: (nx, nr) --> nr < ne << ny (typically)
-                    X=scx[:, None]*X_anom,                  # shape: (nx, ne)
-                    Y=Y_anom_proj
+                T_loc = self.localization(                  # shape: (nx, nr) --> nr < ne << ny (typically)
+                    X = scx[:, None]*X_anom,                # shape: (nx, ne)
+                    Y = Y_anom_proj
                 )
+                Cxy_loc = T_loc * (scx[:, None]*X_anom @ Y_anom_proj.T)
                 return Cxy_loc @ X2                         # shape: (nx, ne)
             
-            elif self.localization.projection == 'ensemble':
+            elif y_proj == 'ensemble':
                 Y_anom_proj = X2 @ D_anom                   # shape: (ne, ne)
-                return self.localization(
-                    X=scx[:, None]*X_anom,                  # shape: (nx, ne)
-                    Y=Y_anom_proj                           # shape: (ne, ne)
+                T_loc = self.localization(                  # shape: (nx, ne)
+                    X = scx[:, None]*X_anom,                # shape: (nx, ne)
+                    Y = Y_anom_proj
                 )
+                step = (T_loc * scx[:, None]*X_anom) @ Y_anom_proj
+                return step                                 # shape: (nx, ne)
            
         # DISTANCE-BASED LOCALIZATION
         elif self.localization.name == 'distance_loc':

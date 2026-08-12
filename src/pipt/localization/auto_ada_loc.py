@@ -36,26 +36,27 @@ class AutoAdaptiveLocalization(LocalizationBase):
                 toward ``default_num_active``. Default: ``None`` (all cells
                 are considered active).
 
-            **threshold** : {``"fixed"``, ``"universal"``, *other*}, *optional*
+            **threshold** : {``"adaptive"``, ``"fixed"``, ``"universal"``}, *optional*
                 Method used to compute the correlation threshold below which
                 a correlation is deemed indistinguishable from sampling noise:
 
-                - ``"fixed"`` — threshold equals ``nstd`` directly; no noise
+                - ``"adaptive"`` — threshold = ``cutoff * sigma``, where *sigma*
+                  is estimated column-wise from shuffled correlations via the
+                  MAD estimator. The ``cutoff`` parameter controls how many noise
+                  standard deviations to use as the cut-off.
+                - ``"fixed"`` — threshold equals ``cutoff`` directly; no noise
                   estimation is performed. Use when you want a deterministic,
                   reproducible cut-off independent of the ensemble.
-                - ``"universal"`` — threshold = ``sqrt(2 * log(N)) * sigma``,
-                  where *sigma* is estimated column-wise from shuffled
-                  correlations via the MAD estimator. Adapts automatically
-                  to ensemble size.
-                - *any other string* — threshold = ``nstd * sigma``; a
-                  user-controlled multiple of the estimated noise level.
+                - ``"universal"`` — threshold = ``sqrt(2 * log(N)) * sigma``;
+                  adapts automatically to ensemble size without requiring
+                  ``cutoff`` to be tuned.
 
-                Default: ``"fixed"``.
+                Default: ``"adaptive"``.
 
-            **nstd** : float, *optional*
+            **cutoff** : float, *optional*
                 Threshold value or noise multiplier (interpretation depends on
                 ``threshold``). Larger values suppress more correlations.
-                Default: ``1``.
+                Default: ``0.3``.
 
             **type** : {``"hard"``, ``"soft"``, ``"sigm"``}, *optional*
                 Tapering strategy applied once the threshold is known:
@@ -69,20 +70,7 @@ class AutoAdaptiveLocalization(LocalizationBase):
                   ``"soft"`` but with a different shape near the transition.
 
                 Default: ``"hard"``.
-
-            **projection** : {``"rank-r"``, ``"ensemble"``}, *optional*
-                Method used to assemble the localized cross-covariance:
-
-                - ``"rank-r"`` — ``taper * (X @ Y.T)``. The full
-                  (n_state × n_obs) cross-covariance is formed first and
-                  then masked element-wise. Standard choice.
-                - ``"ensemble"`` — ``(taper * X) @ Y``. The taper is applied
-                  directly to the state anomaly columns before projection,
-                  avoiding the formation of the full cross-covariance matrix.
-                  Preferred for very large state vectors.
-
-                Default: ``"rank-r"``.
-
+                
         Examples
         --------
         Minimal TOML block inside ``[dataassim]`` using fixed thresholding:
@@ -92,9 +80,8 @@ class AutoAdaptiveLocalization(LocalizationBase):
         name       = "autoadaloc"
         field      = [1, 20, 20]   # [nz, nx, ny]
         threshold  = "fixed"
-        nstd       = 0.4
+        cutoff     = 0.4
         type       = "hard"
-        projection = "rank-r"
         ```
 
         Noise-adaptive thresholding with a smooth taper:
@@ -106,7 +93,6 @@ class AutoAdaptiveLocalization(LocalizationBase):
         actnum     = "active_cells.npz"
         threshold  = "universal"   # adapts to ensemble size automatically
         type       = "soft"
-        projection = "rank-r"
         ```
 
         Large state vector — skip forming the full cross-covariance:
@@ -116,14 +102,13 @@ class AutoAdaptiveLocalization(LocalizationBase):
         name       = "autoadaloc"
         field      = [5, 100, 100]
         threshold  = "fixed"
-        nstd       = 0.3
+        cutoff     = 0.3
         type       = "hard"
-        projection = "ensemble"    # avoids 50000×n_obs dense matrix
         ```
         """
         self.field, self.actnum = self.config_common(info)
-        self.nstd = info.get("nstd", 1)
-        self.threshold  = info.get("threshold", "fixed")
+        self.cutoff = info.get("cutoff", 0.3)
+        self.threshold  = info.get("threshold", "adaptive")
         self.tapertype  = info.get("type", "hard")
         self.parameters = info.get("parameters", ['NA'])
         self.projection = info.get("projection", "rank-r")
@@ -133,6 +118,13 @@ class AutoAdaptiveLocalization(LocalizationBase):
             raise ValueError(
                 f"Invalid tapering type '{self.tapertype}'. "
                 "Supported types are 'hard', 'soft', and 'sigm'."
+            )
+
+        # Ensure that the threshold method is valid
+        if self.threshold not in ["adaptive", "fixed", "universal"]:
+            raise ValueError(
+                f"Invalid threshold method '{self.threshold}'. "
+                "Supported methods are 'adaptive', 'fixed', and 'universal'."
             )
 
         # Ensure that the projection method is valid
@@ -171,7 +163,7 @@ class AutoAdaptiveLocalization(LocalizationBase):
         Returns
         -------
         ndarray, shape (nx, ny)
-            Adaptively localized cross-covariance matrix.
+            Tapered matrix containing the tapering coefficients for the cross-covariance between X and Y.
         """
         parameters = self.parameters if parameters is None else parameters
         prior_info = {} if prior_info is None else prior_info
@@ -203,10 +195,7 @@ class AutoAdaptiveLocalization(LocalizationBase):
             )
             row_start += num_active
         
-        if self.projection == 'rank-r':
-            return taper * (X @ Y.T)
-        elif self.projection == 'ensemble':
-            return (taper * X) @ Y
+        return taper
 
 
     def tapering_function(self, corr_values: np.ndarray, corr_values_shuffled: np.ndarray) -> np.ndarray:
@@ -227,12 +216,12 @@ class AutoAdaptiveLocalization(LocalizationBase):
         Depending on the localization settings, the correlation threshold is
         computed using one of the following methods:
 
+        - ``"adaptive"`` (default):
+            threshold = cutoff * sigma
+        - ``"fixed"``:
+            threshold = cutoff
         - ``"universal"``:
             threshold = sqrt(2 log(N)) * sigma
-        - ``"fixed"``:
-            threshold = nstd
-        - otherwise:
-            threshold = nstd * sigma
 
         Tapering can then be applied using one of three strategies:
 
@@ -269,12 +258,12 @@ class AutoAdaptiveLocalization(LocalizationBase):
             noise_std  = np.median(np.abs(corr_values_shuffled[:, i])) * mad_to_std
 
             # Compute threshold
-            if self.threshold == "universal":
+            if self.threshold == "fixed":
+                threshold = self.cutoff
+            elif self.threshold == "universal":
                 threshold = np.sqrt(2 * np.log(corr.size)) * noise_std
-            elif self.threshold == "fixed":
-                threshold = self.nstd
-            else:
-                threshold = self.nstd * noise_std
+            else:  # "adaptive"
+                threshold = self.cutoff * noise_std
 
             # Compute taper coefficients
             if self.tapertype == "soft":
@@ -285,7 +274,7 @@ class AutoAdaptiveLocalization(LocalizationBase):
             elif self.tapertype == "sigm":
                 taper = self.rational_function_sigmoid(
                     np.abs(corr),
-                    self.nstd,
+                    threshold,
                 )
             else:
                 taper = np.zeros_like(corr)
@@ -327,7 +316,7 @@ class AutoAdaptiveLocalization(LocalizationBase):
     @staticmethod
     def rational_function_sigmoid(distance, length_scale):
         steepness = 50
-        return expit((distance - (1 - length_scale)) * steepness)
+        return expit((distance - length_scale) * steepness)
     
     @staticmethod
     def corr_matrix(X, Y, eps=1e-6):
