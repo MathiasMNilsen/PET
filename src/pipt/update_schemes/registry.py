@@ -53,7 +53,7 @@ __all__ = [
 
 
 #: Maps ``(scheme, analysis)`` to the class implementing that combination.
-#: The keys are exactly the two values a config supplies as ``daalg[1]`` and
+#: The keys are exactly the two values a config supplies as ``scheme`` and
 #: ``analysis``; the class names are unchanged and remain importable directly.
 SCHEMES: dict[tuple[str, str], type] = {
     ("enkf", "approx"): enkf_approx,
@@ -85,9 +85,9 @@ def register_scheme(scheme: str, analysis: str, cls: type, *, overwrite: bool = 
     Parameters
     ----------
     scheme : str
-        Scheme name, as it appears in ``daalg[1]``.
+        Scheme name, as it appears in the config's ``scheme`` key.
     analysis : str
-        Analysis flavour, as it appears in ``analysis``.
+        Analysis flavour, as it appears in the config's ``analysis`` key.
     cls : type
         Class implementing the combination.
     overwrite : bool, optional

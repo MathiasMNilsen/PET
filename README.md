@@ -68,8 +68,42 @@ Installing PET also installs a `pet` command for working with config files:
 ```sh
 pet validate my_config.toml   # check a config file for missing/invalid keys
 pet convert my_case.pipt      # convert a legacy .pipt/.popt file to .toml (or --to yaml)
+pet migrate my_config.toml    # update a config file to the current schema
 pet version                   # print the installed PET version
 ```
+
+### Config schema change: `daalg` becomes `scheme`
+
+The analysis flavour is a parameter of an algorithm, not a separate algorithm,
+so the two-element `daalg` key has been replaced by a single `scheme` key:
+
+```toml
+# before                              # after
+[dataassim]                           [dataassim]
+daalg = ["esmda", "esmda"]            scheme = "esmda"
+analysis = "approx"                   analysis = "approx"
+```
+
+`pet migrate` performs this rewrite in place, keeping the original as
+`<config>.bak`. Use `--dry-run` to preview. Loading a config that still uses
+`daalg` raises an error pointing at the command. For a legacy `.pipt`/`.popt`
+file, convert first and then migrate:
+
+```sh
+pet convert my_case.pipt && pet migrate my_case.toml
+```
+
+The same change is reflected in the Python API, where one constructor per
+algorithm now takes the flavour as an argument:
+
+```python
+from pipt import ESMDA, available_schemes
+
+scheme = ESMDA(cfg_da, cfg_en, sim, analysis="approx")
+available_schemes()   # every valid (scheme, analysis) pair
+```
+
+The concrete classes (`esmda_approx`, `lmenrml_full`, ...) remain importable.
 
 Running a data-assimilation or optimization job itself is still done from a
 Python driver script that wires up your forward simulator/cost function -- see

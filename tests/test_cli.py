@@ -49,7 +49,7 @@ def test_validate_missing_file(capsys):
 def test_validate_valid_toml(tmp_path, capsys):
     config_file = tmp_path / "config.toml"
     config_file.write_text(
-        '[dataassim]\ndaalg = ["esmda", "esmda"]\ndata = "d.csv"\ndatavar = "v.csv"\n'
+        '[dataassim]\nscheme = "esmda"\ndata = "d.csv"\ndatavar = "v.csv"\n'
         'obsname = "obs"\nenergy = 0.99\n\n[fwdsim]\nparallel = 1\ndatatype = ["pressure"]\n'
     )
     assert main(["validate", str(config_file)]) == 0

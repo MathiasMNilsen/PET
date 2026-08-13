@@ -8,6 +8,7 @@ PET workflow that are purely about configuration files:
 
     pet validate CONFIG          check a config file for missing/invalid keys
     pet convert CONFIG --to FMT  convert a legacy .pipt/.popt file to toml/yaml
+    pet migrate CONFIG           update a config file to the current schema
     pet version                  print the installed PET version
 """
 from __future__ import annotations
@@ -18,6 +19,7 @@ from importlib.metadata import PackageNotFoundError, version as pkg_version
 from pathlib import Path
 
 from input_output import read_config
+from pet_cli.migrate import migrate_config
 
 
 def _cmd_version(_args: argparse.Namespace) -> int:
@@ -65,7 +67,7 @@ def _check_mandatory_keywords(sections) -> list[str]:
 
     problems: list[str] = []
     checks = [(read_config.check_mand_keywords_fwd, cfg_sim)]
-    if "daalg" in cfg_prb:
+    if "scheme" in cfg_prb or "daalg" in cfg_prb:
         checks.append((read_config.check_mand_keywords_da, cfg_prb))
     elif cfg_prb:
         checks.append((read_config.check_mand_keywords_opt, cfg_prb))
@@ -100,6 +102,34 @@ def _cmd_convert(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_migrate(args: argparse.Namespace) -> int:
+    config_file = args.config_file
+    if not Path(config_file).is_file():
+        print(f"error: no such file: {config_file}", file=sys.stderr)
+        return 1
+
+    try:
+        report = migrate_config(
+            config_file, dry_run=args.dry_run, backup=not args.no_backup
+        )
+    except Exception as err:  # noqa: BLE001 - report any migration failure to the user
+        print(f"error: failed to migrate '{config_file}': {err}", file=sys.stderr)
+        return 1
+
+    if not report.changed:
+        print(f"'{config_file}' is already on the current schema; nothing to do.")
+        if report.warnings:
+            print(report)
+        return 0
+
+    verb = "Would apply" if args.dry_run else "Applied"
+    print(f"{verb} the following changes to '{config_file}':")
+    print(report)
+    if not args.dry_run and not args.no_backup:
+        print(f"Original kept as '{config_file}.bak'")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pet", description=__doc__.strip().splitlines()[0])
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -112,6 +142,12 @@ def build_parser() -> argparse.ArgumentParser:
     convert.add_argument("config_file", help="path to a .pipt or .popt config file")
     convert.add_argument("--to", choices=["toml", "yaml"], default="toml", help="output format (default: toml)")
     convert.set_defaults(func=_cmd_convert)
+
+    migrate = subparsers.add_parser("migrate", help="update a config file to the current schema")
+    migrate.add_argument("config_file", help="path to a .toml or .yaml config file")
+    migrate.add_argument("--dry-run", action="store_true", help="report changes without writing")
+    migrate.add_argument("--no-backup", action="store_true", help="do not keep a .bak copy")
+    migrate.set_defaults(func=_cmd_migrate)
 
     version = subparsers.add_parser("version", help="print the installed PET version")
     version.set_defaults(func=_cmd_version)

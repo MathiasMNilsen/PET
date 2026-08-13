@@ -457,7 +457,7 @@ class Assimilate:
         self.ensemble.data_rec = []
         compress_key = self.ensemble.sparse_info["compress_data"]
         use_ensemble = self.ensemble.sparse_info["use_ensemble"]
-        ensemble_size = self.ensemble.ne + 1 if self.ensemble.keys_da["daalg"][1] == "gies" else self.ensemble.ne
+        ensemble_size = self.ensemble.ne + 1 if self.ensemble.keys_da["scheme"] == "gies" else self.ensemble.ne
 
         vintage = 0
         for index in pred_data_tmp.index:

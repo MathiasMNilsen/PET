@@ -94,24 +94,23 @@ def test_register_scheme_roundtrip():
 # init_da validation
 # ----------------------------------------------------------------------
 
-def test_init_da_missing_daalg():
-    with pytest.raises(ValueError, match="DAALG is missing"):
+def test_init_da_missing_scheme():
+    with pytest.raises(ValueError, match="SCHEME is missing"):
         pipt_init.init_da({}, {}, None)
 
 
-def test_init_da_malformed_daalg():
-    with pytest.raises(ValueError, match="both the assimilation type"):
-        pipt_init.init_da({"daalg": ["esmda"]}, {}, None)
+def test_init_da_legacy_daalg_points_at_migrate():
+    """Clean break: the old key is rejected, but with a pointer to the tool."""
+    with pytest.raises(ValueError, match="pet migrate"):
+        pipt_init.init_da({"daalg": ["esmda", "esmda"], "analysis": "approx"}, {}, None)
 
 
 def test_init_da_missing_analysis():
     with pytest.raises(ValueError, match="ANALYSIS is missing"):
-        pipt_init.init_da({"daalg": ["esmda", "esmda"]}, {}, None)
+        pipt_init.init_da({"scheme": "esmda"}, {}, None)
 
 
 def test_init_da_unknown_scheme_reports_clearly():
     """The old importlib path raised a bare ModuleNotFoundError here."""
     with pytest.raises(KeyError, match="Unknown assimilation scheme"):
-        pipt_init.init_da(
-            {"daalg": ["nope", "nope"], "analysis": "approx"}, {}, None
-        )
+        pipt_init.init_da({"scheme": "nope", "analysis": "approx"}, {}, None)

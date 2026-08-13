@@ -32,7 +32,7 @@ CFG_ENS = {
 }
 
 CFG_DA = {
-    "daalg": ["enrml", "lmenrml"],
+    "scheme": "lmenrml",
     "analysis": "full",
     "energy": 0.95,
     "obsname": "position",

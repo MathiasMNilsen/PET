@@ -31,7 +31,7 @@ class Ensemble(BaseEnsemble):
         keys_da : dict
             Options for the data assimilation class
 
-            - daalg: spesification of the method, first the main type (e.g., "enrml"), then the solver (e.g., "gnenrml")
+            - scheme: name of the assimilation algorithm (e.g., "esmda", "lmenrml", "gnenrml")
             - analysis: update flavour ("approx", "full" or "subspace")
             - energy: percent of singular values kept after SVD
             - obsvarsave: save the observations as a file (default false)
@@ -67,7 +67,7 @@ class Ensemble(BaseEnsemble):
 
         # Setup logger
         self.logger = PetLogger(filename='assim.log')
-        self.logger(f'=========== Running Data Assimilation - {keys_da["daalg"][0].upper()} ===========')
+        self.logger(f'=========== Running Data Assimilation - {keys_da["scheme"].upper()} ===========')
 
         # Internalize PIPT dictionary
         if not hasattr(self, 'keys_da'):

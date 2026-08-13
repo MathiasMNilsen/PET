@@ -11,9 +11,8 @@ def init_da(da_input, en_input, sim):
     Parameters
     ----------
     da_input : dict
-        Parsed ``dataassim`` section. Must contain ``daalg`` as a two-element
-        sequence ``[family, scheme]`` and, unless the scheme has a single
-        flavour, ``analysis``.
+        Parsed ``dataassim`` section. Must contain ``scheme`` (the algorithm
+        name) and ``analysis`` (the flavour).
     en_input : dict
         Parsed ``ensemble`` section.
     sim : object
@@ -32,21 +31,34 @@ def init_da(da_input, en_input, sim):
         If the requested scheme/analysis combination is not registered. The
         message lists the valid options.
     """
-    daalg = da_input.get("daalg")
-    if daalg is None:
-        raise ValueError("DAALG is missing from the data-assimilation config.")
-    if not isinstance(daalg, (list, tuple)) or len(daalg) != 2:
+    scheme = da_input.get("scheme")
+
+    if scheme is None:
+        if "daalg" in da_input:
+            raise ValueError(
+                "This config uses the legacy 'daalg' key. It has been replaced "
+                "by a single 'scheme' key naming the algorithm:\n\n"
+                "    daalg = ['esmda', 'esmda']   ->   scheme = 'esmda'\n\n"
+                "Run `pet migrate <config>` to convert the file in place "
+                "(the original is kept as <config>.bak)."
+            )
         raise ValueError(
-            "DAALG must give both the assimilation type and the update method, "
-            f"e.g. ['esmda', 'esmda']; got {daalg!r}."
+            "SCHEME is missing from the data-assimilation config. "
+            "It names the assimilation algorithm, e.g. scheme = 'esmda'."
+        )
+
+    if not isinstance(scheme, str):
+        raise ValueError(
+            f"SCHEME must be the algorithm name as a string, e.g. 'esmda'; "
+            f"got {scheme!r}."
         )
 
     analysis = da_input.get("analysis")
     if analysis is None:
         raise ValueError(
             f"ANALYSIS is missing from the data-assimilation config. "
-            f"It selects the analysis flavour for scheme '{daalg[1]}'."
+            f"It selects the analysis flavour for scheme '{scheme}'."
         )
 
-    scheme_cls = get_scheme(daalg[1], analysis)
+    scheme_cls = get_scheme(scheme, analysis)
     return scheme_cls(da_input, en_input, sim)

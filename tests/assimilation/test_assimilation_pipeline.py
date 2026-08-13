@@ -207,7 +207,7 @@ def test_esmda_approx(tmp_path, num_cores):
     prepare_test_environment(tmp_path, "esmda_test")
 
     da_cfg = {
-        "daalg": ["esmda", "esmda"],
+        "scheme": "esmda",
         "analysis": "approx",
         "mda": {
             "tot_assim_steps": 8,
@@ -231,7 +231,7 @@ def test_lm_enrml_approx(tmp_path, num_cores):
     prepare_test_environment(tmp_path, "lm_enrml_test")
 
     da_cfg = {
-        "daalg": ["enrml", "lmenrml"],
+        "scheme": "lmenrml",
         "analysis": "approx",
         "iteration": {
             "max_iter": 8,
@@ -257,7 +257,7 @@ def test_gn_enrml_approx(tmp_path, num_cores):
     prepare_test_environment(tmp_path, "gn_enrml_test")
 
     da_cfg = {
-        "daalg": ["enrml", "gnenrml"],
+        "scheme": "gnenrml",
         "analysis": "approx",
         "iteration": {
             "max_iter": 8,
