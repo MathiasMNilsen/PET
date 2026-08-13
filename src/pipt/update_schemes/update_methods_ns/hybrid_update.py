@@ -33,19 +33,19 @@ class hybrid_update:
             return (scaling ** (-1))[:, None] * data
         else:
             return solve(scaling, data)
-        
+
     def update(self, enX, enY, enE, **kwargs):
         '''
         Perform the hybrid update.
 
         Parameters:
         ----------
-            enX : list of np.ndarray 
+            enX : list of np.ndarray
                 List of state ensemble matrices for each level (nx, ne)
-            
+
             enY : list of np.ndarray
                 List of predicted data ensemble matrices for each level (nd, ne)
-            
+
             enE : list of np.ndarray
                 List of ensemble of perturbed observations for each level (nd, ne)
         '''
@@ -53,20 +53,20 @@ class hybrid_update:
         X3 = []
         enXcentered = []
         for l in range(self.tot_level):
-            
+
             # Get Perturbed state ensemble at level l
             if extract.is_enabled(self.keys_da.get('emp_cov', False)):
                 enXcentered.append(self.scale(enX[l] - np.mean(enX[l], 1)[:,None], self.state_scaling))
             else:
                 enXcentered.append(self.scale(np.dot(enX[l], self.proj[l]), self.state_scaling))
 
-            # Calculate truncated SVD of predicted data ensemble at level l 
+            # Calculate truncated SVD of predicted data ensemble at level l
             enYcentered = self.scale(np.dot(enY[l], self.proj[l]), self.scale_data[l])
             Ud, Sd, VTd = at.truncSVD(enYcentered, energy=self.trunc_energy)
 
             X2 = solve(((self.lam + 1)*np.eye(len(Sd)) + np.diag(Sd**2)), Ud.T)
             X3.append(np.dot(np.dot(VTd.T, np.diag(Sd)), X2))
-                
+
         # Calculate each row of self.step individually to avoid memory issues.
         self.step = [np.empty(enXcentered[l].shape) for l in range(self.tot_level)]
         step_size = min(1000, int(self.state_scaling.shape[0]/2)) # do maximum 1000 rows at a time.

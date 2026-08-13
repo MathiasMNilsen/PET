@@ -26,7 +26,7 @@ def matrix_to_dict(matrix: np.ndarray, indecies: dict[tuple]) -> dict:
     indecies : dict
         Dictionary with keys as variable names and values as tuples indicating the start and end row indices
         for each variable in the ensemble matrix.
-    
+
     Returns
     -------
     ensemble_dict : dict
@@ -35,7 +35,7 @@ def matrix_to_dict(matrix: np.ndarray, indecies: dict[tuple]) -> dict:
     ensemble_dict = {}
     for key, (start, end) in indecies.items():
         ensemble_dict[key] = matrix[start:end]
-    
+
     return ensemble_dict
 
 
@@ -50,7 +50,7 @@ def matrix_to_list(matrix: np.ndarray, indecies: dict[tuple]) -> list[dict]:
     indecies : dict
         Dictionary with keys as variable names and values as tuples indicating the start and end row indices
         for each variable in the ensemble matrix.
-    
+
     Returns
     -------
     ensemble_list : list of dict
@@ -61,7 +61,7 @@ def matrix_to_list(matrix: np.ndarray, indecies: dict[tuple]) -> list[dict]:
     for n in range(ne):
         member = matrix_to_dict(matrix[:,n], indecies)
         ensemble_list.append(member)
-    
+
     return ensemble_list
 
 
@@ -76,7 +76,7 @@ def list_to_matrix(ensemble_list: list[dict], indecies: dict[tuple]) -> np.ndarr
     indecies : dict
         Dictionary with keys as variable names and values as tuples indicating the start and end row indices
         for each variable in the ensemble matrix.
-    
+
     Returns
     -------
     matrix : np.ndarray
@@ -92,11 +92,11 @@ def list_to_matrix(ensemble_list: list[dict], indecies: dict[tuple]) -> np.ndarr
                 matrix[start:end, n] = member[key][:,n]
             else:
                 matrix[start:end, n] = member[key]
-    
+
     return matrix
 
 
-def generate_prior_ensemble(prior_info: dict, size: int, save: bool = True) -> tuple[np.ndarray, dict, dict]: 
+def generate_prior_ensemble(prior_info: dict, size: int, save: bool = True) -> tuple[np.ndarray, dict, dict]:
     '''
     Generate a prior ensemble based on provided prior information.
 
@@ -109,8 +109,8 @@ def generate_prior_ensemble(prior_info: dict, size: int, save: bool = True) -> t
         Size of ensemble.
 
     save : bool, optional
-        Whether to save the generated ensemble to a file. Default is True.  
-    
+        Whether to save the generated ensemble to a file. Default is True.
+
     Returns
     -------
     enX : np.ndarray
@@ -123,7 +123,7 @@ def generate_prior_ensemble(prior_info: dict, size: int, save: bool = True) -> t
     cov_prior : dict
         Dictionary containing the covariance matrices for each state variable.
     '''
-    
+
     # Initialize sampler
     generator = Cholesky()
 
@@ -142,9 +142,9 @@ def generate_prior_ensemble(prior_info: dict, size: int, save: bool = True) -> t
         mean = info.get('mean', None)
 
         # if no dimensions are given, nothing is generated for this variable
-        if nx == ny == 0: 
+        if nx == ny == 0:
                 break
-        
+
         # Extract more options
         variance = info.get('variance', None)
         corr_length = info.get('corr_length', None)
@@ -160,12 +160,12 @@ def generate_prior_ensemble(prior_info: dict, size: int, save: bool = True) -> t
             if isinstance(mean, (list, np.ndarray)) and len(mean) > 1:
                 # Generate covariance matrix
                 cov = generator.gen_cov2d(
-                    x_size = nx, 
-                    y_size = ny, 
-                    variance = variance[idz], 
-                    var_range = corr_length[idz], 
-                    aspect = aniso[idz], 
-                    angle = angle[idz], 
+                    x_size = nx,
+                    y_size = ny,
+                    variance = variance[idz],
+                    var_range = corr_length[idz],
+                    aspect = aniso[idz],
+                    angle = angle[idz],
                     var_type = vario[idz]
                 )
             else:
@@ -187,7 +187,7 @@ def generate_prior_ensemble(prior_info: dict, size: int, save: bool = True) -> t
                 real_out = real
             else:
                 real_out = np.vstack((real_out, real))
-        
+
         # Fill in the ensemble matrix and indecies
         if enX is None:
             idX[name] = (0, real_out.shape[0])
@@ -195,14 +195,14 @@ def generate_prior_ensemble(prior_info: dict, size: int, save: bool = True) -> t
         else:
             idX[name] = (enX.shape[0], enX.shape[0] + real_out.shape[0])
             enX = np.vstack((enX, real_out))
-        
+
         # Store the covariance matrix
         cov_prior[name] = cov
 
     # Save prior ensemble
     if save:
         np.savez(
-            'prior_ensemble.npz', 
+            'prior_ensemble.npz',
             **{name: enX[idX[name][0]:idX[name][1]] for name in idX.keys()}
         )
 
@@ -217,16 +217,16 @@ def clip_matrix(matrix: np.ndarray, limits: dict|tuple|list, indecies: dict|None
     ----------
     matrix : np.ndarray
         Ensemble matrix where each column represents an ensemble member.
-    
+
     limits : dict, tuple, or list
         If tuple, it should be (lower_bound, upper_bound) applied to all variables.
         If dict, it should have variable names as keys and (lower_bound, upper_bound) as values.
         If list, it should contain (lower_bound, upper_bound) tuples for each variable in the order of indecies.
-    
+
     indecies : dict, optional
         Dictionary with keys as variable names and values as tuples indicating the start and end row indices
         for each variable in the ensemble matrix. Required if limits is a dict or list. Default is None.
-    
+
     Returns
     -------
     matrix : np.ndarray
@@ -239,20 +239,20 @@ def clip_matrix(matrix: np.ndarray, limits: dict|tuple|list, indecies: dict|None
     elif isinstance(limits, dict) and isinstance(indecies, dict):
         if indecies is None:
             raise ValueError("When limits is a dictionary, indecies must also be provided.")
-        
+
         for key, (start, end) in indecies.items():
             if key in limits:
                 lb, ub = limits[key]
                 if not (lb is None and ub is None):
                     matrix[start:end] = np.clip(matrix[start:end], lb, ub)
-    
+
     elif isinstance(limits, list):
         if indecies is None:
             raise ValueError("When limits is a list, indecies must also be provided.")
-        
+
         if len(limits) != len(indecies):
             raise ValueError("Length of limits list must match number of variables in indecies.")
-        
+
         for (key, (start, end)), (lb, ub) in zip(indecies.items(), limits):
             if not (lb is None and ub is None):
                 matrix[start:end] = np.clip(matrix[start:end], lb, ub)

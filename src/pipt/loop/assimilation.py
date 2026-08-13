@@ -242,7 +242,7 @@ class Assimilate:
         else:
             reason = "Maximum iterations reached without convergence."
             self.ensemble.logger.info(reason)
-            
+
         why = self.why_stop.copy() if isinstance(self.why_stop, dict) else self.why_stop
         if why is not None:
             why["conv_string"] = reason
@@ -286,7 +286,8 @@ class Assimilate:
         setattr(self.ensemble, state_attribute, enX_filtered)
 
         # Filter outliers from dataframes
-        filter_outliers = lambda cell: cell[..., idx] if cell.ndim > 1 else cell[idx]
+        def filter_outliers(cell):
+            return cell[..., idx] if cell.ndim > 1 else cell[idx]
         self.ensemble.pred_data = self.ensemble.pred_data.map(filter_outliers)
         self.ensemble.sim_data = self.ensemble.sim_data.map(filter_outliers)
         if hasattr(self.ensemble, "adjoints") and self.ensemble.adjoints is not None:
@@ -396,7 +397,7 @@ class Assimilate:
         ----------
         pred : Any
             The raw output from the simulator, which may be a list of DataFrames or a single DataFrame.
-        
+
         Returns
         -------
         Any

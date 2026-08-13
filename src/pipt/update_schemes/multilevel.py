@@ -7,7 +7,6 @@ inherit the ensemble class, hence the main loop is inherited. These classes will
 from pipt.loop.ensemble import Ensemble
 from pipt.update_schemes.esmda import esmdaMixIn
 from pipt.misc_tools import analysis_tools as at
-import pipt.misc_tools.ensemble_tools as entools
 from geostat.decomp import Cholesky
 from pipt.update_schemes.update_methods_ns.hybrid_update import hybrid_update
 
@@ -24,14 +23,14 @@ class multilevel(Ensemble):
     """
     def __init__(self, keys_da,keys_fwd,sim):
         super().__init__(keys_da, keys_fwd, sim)
-        
+
         self.list_states = list(self.idX.keys())
 
         # Reorganize prior ensemble to multilevel structure if nested is true
         self.enX = self.reorganize_ml_prior(self.enX)
         self.prior_enX = deepcopy(self.enX)
 
-        # Set ML specific options for simulator 
+        # Set ML specific options for simulator
         self._init_sim()
 
         self.iteration = 0
@@ -87,12 +86,12 @@ class esmda_hybrid(multilevel,hybrid_update,esmdaMixIn):
 
 
     def calc_analysis(self):
-        
+
         # Get ensemble predictions at all levels
         self.enPred = []
         for l in range(self.tot_level):
             enPred_level = self.pred_data[l].to_matrix()
-            self.enPred.append(enPred_level) 
+            self.enPred.append(enPred_level)
 
         # Initialize GeoStat class for generating realizations
         cholesky = Cholesky()
@@ -101,7 +100,7 @@ class esmda_hybrid(multilevel,hybrid_update,esmdaMixIn):
 
             # Note, evaluate for high fidelity model
             data_misfit = at.calc_objectivefun(
-                self.enObs_conv, 
+                self.enObs_conv,
                 np.concatenate(self.enPred,axis=1), # Is this correct, given the comment above??????
                 self.cov_data
             )
@@ -126,7 +125,7 @@ class esmda_hybrid(multilevel,hybrid_update,esmdaMixIn):
                 # Generate real data and scale data
                 enObs_level, scale_data_level = cholesky.gen_real(
                     self.vecObs,
-                    self.alpha[self.iteration - 1] * self.cov_data, 
+                    self.alpha[self.iteration - 1] * self.cov_data,
                     self.ml_ne[l],
                     return_chol=True
                 )
@@ -173,11 +172,11 @@ class esmda_hybrid(multilevel,hybrid_update,esmdaMixIn):
         enPred = []
         for l in range(self.tot_level):
             enPred_level = self.pred_data[l].to_matrix()
-            enPred.append(enPred_level) 
+            enPred.append(enPred_level)
 
         data_misfit = at.calc_objectivefun(
-            self.enObs_conv, 
-            np.concatenate(enPred,axis=1), 
+            self.enObs_conv,
+            np.concatenate(enPred,axis=1),
             self.cov_data
         )
         self.data_misfit = np.mean(data_misfit)

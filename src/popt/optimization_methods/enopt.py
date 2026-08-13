@@ -272,7 +272,7 @@ class EnOpt(OptimizerBase):
         self.state_step = new_step
         if hasattr(self.optimizer, "get_step_size"):
             self.alpha = self.optimizer.get_step_size()
-        
+
         if hessian is not None:
             grad_cov = self.bound_handler.hess_from_unit_cube(hessian)
             self.cov_step = self.alpha_cov * grad_cov + self.beta * self.cov
@@ -355,5 +355,5 @@ class EnOpt(OptimizerBase):
 
 
 
-    
-        
+
+

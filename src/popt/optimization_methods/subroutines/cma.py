@@ -14,27 +14,27 @@ class CMA:
         ----------------------------------------------------------------------------------------------------------
         ne : int
             Ensemble size
-        
+
         dim : int
             Dimensions of control vector
-        
+
         alpha_mu : float
             Learning rate for rank-mu update. If None, value proposed in [1] is used.
-        
+
         n_mu : int, `n_mu < ne`
             Number of best samples of ne, to be used for rank-mu update.
             Default is int(ne/2).
-        
+
         alpha_1 : float
             Learning rate fro rank-one update. If None, value proposed in [1] is used.
-        
+
         alpha_c : float
-            Parameter (inverse if backwards time horizen)for evolution path update 
+            Parameter (inverse if backwards time horizen)for evolution path update
             in the rank-one update. See [1] for more info. If None, value proposed in [1] is used.
 
         corr_update : bool
             If True, CMA is used to update a correlation matrix. Default is False.
-        
+
         equal_weights : bool
             If True, all n_mu members are assign equal weighting, `w_i = 1/n_mu`.
             If False, the weighting scheme proposed in [1], where `w_i = log(n_mu + 1)-log(i)`,
@@ -52,7 +52,7 @@ class CMA:
         #If None is given, default values are used
         if self.n_mu is None:
             self.n_mu = int(self.ne/2)
-        
+
         if equal_weights:
             self.weights = np.ones(self.n_mu)/self.n_mu
         else:
@@ -69,7 +69,7 @@ class CMA:
             self.alpha_mu = self.c_cov*(1-1/self.mu_eff)
         if self.alpha_c is None:
             self.alpha_c  = 4/(dim+4)
-        
+
     def _rank_mu(self, X, J):
         '''
         Calculates the rank-mu matrix of CMA-ES.
@@ -79,9 +79,9 @@ class CMA:
         weights = self.weights
         Cmu     = (Xsorted*weights)@Xsorted.T
 
-        if self.corr_update: 
+        if self.corr_update:
             Cmu = ot.cov2corr(Cmu)
-        
+
         return Cmu
 
     def _rank_one(self, step):
@@ -92,11 +92,11 @@ class CMA:
         self.evo_path = (1-s)*self.evo_path + np.sqrt(s*(2-s)*self.mu_eff)*step
         C1 = np.outer(self.evo_path, self.evo_path)
 
-        if self.corr_update: 
+        if self.corr_update:
             C1 = ot.cov2corr(C1)
 
         return C1
-    
+
     def __call__(self, cov, step, X, J):
         '''
         Performs the CMA update.
@@ -105,26 +105,26 @@ class CMA:
         --------------------------------------------------
         cov : array_like, of shape (d, d)
             Current covariance or correlation matrix.
-        
+
         step : array_like, of shape (d,)
             New step of control vector.
             Used to update the evolution path.
 
         X : array_like, of shape (n, d)
             Control ensemble of size n.
-        
+
         J : array_like, of shape (n,)
             Objective ensemble of size n.
-        
+
         Returns
         --------------------------------------------------
         out : array_like, of shape (d, d)
             CMA updated covariance (correlation) matrix.
         '''
         a_mu  = self.alpha_mu
-        a_one = self.alpha_1 
+        a_one = self.alpha_1
         C_mu  = self._rank_mu(X, J)
         C_one = self._rank_one(step)
-        
-        cov   =  (1 - a_one - a_mu)*cov + a_one*C_one + a_mu*C_mu       
+
+        cov   =  (1 - a_one - a_mu)*cov + a_one*C_one + a_mu*C_mu
         return cov

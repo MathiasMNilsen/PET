@@ -12,7 +12,7 @@ from ensemble.logger import PetLogger
 
 __author__ = "Mathias Methlie Nilsen, Rolf J. Lorentzen"
 __all__ = [
-    'OptimizerBase', 
+    'OptimizerBase',
     'BoundTransformHandler',
     'OptimizerRestartMixin'
 ]
@@ -147,7 +147,7 @@ class BoundTransformHandler:
         ----------
         bounds : sequence of (lower, upper) pairs, optional
             Lower and upper bounds for each state variable.
-        transform : bool, optional 
+        transform : bool, optional
             If True, transform the optimization problem to the unit cube [0, 1]^n.
         '''
         self.transform = transform
@@ -272,7 +272,7 @@ class BoundTransformHandler:
         """Transform a gradient to unit-cube coordinates."""
         if (not self.transform) or (self.bounds is None):
             return jac
-        return jac * self.db    
+        return jac * self.db
 
     def jac_from_unit_cube(self, jac):
         """Transform a gradient from unit-cube coordinates."""
@@ -433,15 +433,15 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
             optimization_converged = False
             while self.iteration < self.maxiter:
                 self.iteration += 1
-                
+
                 # =======================================================
                 # Call the optimization step (Implemented in subclasses)
                 # Should update:
-                #   - self.xk 
-                #   - self.fk 
+                #   - self.xk
+                #   - self.fk
                 #   - self.jk (only if jacobian is used)
-                #   - self.hk (only if hessian is used) 
-                #   - self.fk_old 
+                #   - self.hk (only if hessian is used)
+                #   - self.fk_old
                 #   - self.xk_old
                 success = self.update_step()
 
@@ -450,7 +450,7 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
                     update_step_failed = True
                     break
                 # =======================================================
-                    
+
                 # =======================================================
                 # Check function tolerance convergence
                 if self.check_function_convergence():
@@ -477,10 +477,10 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
                 # If the update step failed or EPF is not enabled, we exit the loop.
                 break
 
-            # Check if EPF convergence is met 
+            # Check if EPF convergence is met
             if self.check_epf_convergence():
                 break
-            
+
             # Update iteration counters
             self.iteration = 0
             self.epf_iteration += 1
@@ -512,7 +512,7 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
                 self.conv_msg = f'Function change satisfies |Δf| < {self.ftol}·|f_prev|'
                 return True
         return False
-    
+
     def check_state_convergence(self) -> bool:
         """Check convergence based on the norm of the state update."""
         if self.xk_old is not None:
@@ -521,7 +521,7 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
                 self.conv_msg = f'State change norm ‖Δx‖₂ < {self.xtol}'
                 return True
         return False
-    
+
     def check_epf_convergence(self):
         """Evaluate convergence of the outer EPF iteration.
 
@@ -534,13 +534,13 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
             if self.logger:
                 self.logger('─────> Maximum number of outer EPF iterations reached')
             return True
-        
+
         # Relative change in state-components
         relative_change = np.abs(self.xk - self.xk_old) / (np.abs(self.xk_old) + 1e-9)
         relative_change_tol = self.epf.get('conv_crit', 1e-5)
         if np.any(relative_change > relative_change_tol):
 
-            # Update penalty factor 
+            # Update penalty factor
             rold = self.epf['r']
             rnew = rold * self.epf.get('r_factor', 2)
             self.epf['r'] = rnew
@@ -559,13 +559,13 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
             if self.logger:
                 self.logger(f'Outer EPF loop converged ─────> No variables changed more than {relative_change_tol*100} %')
             return True
-    
 
-    
+
+
     # ==========================================
     # Internal utility functions
     # ==========================================
-    def _update_optimize_result(self):  
+    def _update_optimize_result(self):
         xk = self.bound_handler.project_to_bounds(self.xk)
         xk = self.bound_handler.unit_cube_to_state(xk)
         result = OptimizeResult({
@@ -579,7 +579,7 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
             'nhev': self.hess.nfev if self.hess else 0,
         })
         return result
-    
+
     def _refresh_epf_function_value(self):
         if self.epf_iteration <= 1 or self.iteration != 0:
             return
@@ -602,7 +602,7 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
 
             x = self.bound_handler.project_to_bounds(x)
             x = self.bound_handler.unit_cube_to_state(x)
-    
+
             try:
                 # check if args empty, if so, don't pass them to func
                 if not args:
@@ -623,7 +623,7 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
 
         wrapper.nfev = 0
         return wrapper
-    
+
     def _log_convergence(self):
         if self.logger:
             self.logger('==========================================================================')
@@ -690,8 +690,7 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
     def _set_restart_state(self, state):
         del state
 
-    
-    
-    
-        
-    
+
+
+
+

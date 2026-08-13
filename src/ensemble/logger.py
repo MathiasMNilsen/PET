@@ -39,7 +39,7 @@ class PetLogger:
             >>> logger = PetLogger()
             >>> logger('This is a log message.')
             2024-06-01│12:00:00 :  This is a log message.
-            >>> 
+            >>>
             >>> logger(iteration=1, fun=0.5, step_size=0.1)
             2024-06-01│12:00:00 :
             2024-06-01│12:00:00 : ┌────────────┬────────────┬────────────┐
@@ -55,7 +55,7 @@ class PetLogger:
             msg = ' ' + ' '.join(str(arg) for arg in args)
             self._logger.info(msg)
 
-        if kwargs:    
+        if kwargs:
             # Make strings for table logging
             self._set_ns(**kwargs)
             header = []
@@ -69,9 +69,9 @@ class PetLogger:
                         values.append(f'{value:^{self.ns}.2f}')
                     else:
                         values.append(f'{value:^{self.ns}.3e}')
-                except: 
+                except Exception:
                     values.append(f'{"":^{self.ns}}')
-      
+
             # Log table
             seperator = ['─' * self.ns for _ in kwargs.keys()]
             self._logger.info('')
@@ -102,7 +102,7 @@ class PetLogger:
                     value_len = len(f'{value:.2f}')
                 else:
                     value_len = len(f'{value:.3e}')
-            except:
+            except Exception:
                 value_len = 0
 
             self.ns = max(self.ns, len(key) + 2, value_len + 2)

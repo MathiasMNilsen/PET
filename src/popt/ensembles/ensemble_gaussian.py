@@ -18,7 +18,7 @@ class GaussianEnsemble(EnsembleOptimizationBase):
     -------
     gradient(x, *args, **kwargs)
         Ensemble gradient
- 
+
     hessian(x, *args, **kwargs)
         Ensemble hessian
 
@@ -57,7 +57,7 @@ class GaussianEnsemble(EnsembleOptimizationBase):
         self.particles = []  # list in case of multilevel
         self.particle_values = []  # list in case of multilevel
         self.resample_index = None
-    
+
     def gradient(self, x, *args, **kwargs):
         """
         Estimate the ensemble gradient (EnOpt) at a given state.
@@ -152,12 +152,12 @@ class GaussianEnsemble(EnsembleOptimizationBase):
 
         args : tuple
             Additional arguments passed to function
-        
+
         Returns
         -------
         hessian : ndarray
             Ensemble hessian, shape (number of controls, number of controls)
-        
+
         References
         ----------
         Zhang, Y., Stordal, A.S. & Lorentzen, R.J. A natural Hessian approximation for ensemble based optimization.
@@ -169,7 +169,7 @@ class GaussianEnsemble(EnsembleOptimizationBase):
 
         nr = self._aux_input()
 
-        # Make function ensemble to a list (for Multilevel) 
+        # Make function ensemble to a list (for Multilevel)
         if not isinstance(self.enF, list):
             self.enF = [self.enF]
 
@@ -192,18 +192,18 @@ class GaussianEnsemble(EnsembleOptimizationBase):
             weight = ot.get_list_element(self.keys_en['multilevel'], 'cov_wgt')
             weight = np.array(weight)
             if not np.sum(weight) == 1.0:
-                weight = weight / np.sum(weight)  
+                weight = weight / np.sum(weight)
             hessian = np.sum([h*w for h, w in zip(hess_ml, weight)], axis=0)
         else:
             hessian = hess_ml[0]
-        
+
         # Check if natural or averaged Hessian (default is natural)
         if not self.keys_en.get('natural_gradient', True):
             hessian = np.linalg.solve(
                 self.covX,
                 np.linalg.solve(self.covX, hessian).T
             ).T
-        
+
         return hessian
 
     def calc_ensemble_weights(self, x, *args, **kwargs):
@@ -237,12 +237,12 @@ class GaussianEnsemble(EnsembleOptimizationBase):
             self.ne = self.num_samples
         else:
             self.ne = int(np.round(self.num_samples*self.survival_factor))
-        
-        nr = self._aux_input()
-        
+
+        self._aux_input()
+
         # Generate state ensemble
         self.enX = np.random.multivariate_normal(self.stateX, self.covX, self.ne).T
-        
+
         # Truncate to bounds
         if (self.lb is not None) and (self.ub is not None):
             self.enX = np.clip(self.enX, self.lb[:, None], self.ub[:, None])
@@ -264,14 +264,14 @@ class GaussianEnsemble(EnsembleOptimizationBase):
         best_ens = 0
         best_func = 0
         ml_ne_new_total = 0
-        
+
         if 'multilevel' in self.keys_en.keys():
             en_size = ot.get_list_element(self.keys_en['multilevel'], 'en_size')
         else:
             en_size = [self.num_samples]
-            
+
         for l in range(L):
-            ml_ne = en_size[l] 
+            ml_ne = en_size[l]
             if L > 1 and l == L-1:
                 ml_ne_new = int(np.round(self.num_samples*self.survival_factor)) - ml_ne_new_total
             else:
@@ -319,4 +319,4 @@ class GaussianEnsemble(EnsembleOptimizationBase):
 
 
 
-        
+

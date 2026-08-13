@@ -92,7 +92,7 @@ class LineSearch(OptimizerBase):
             raise ValueError(f"Method '{method}' requires a Jacobian (gradient) function.")
         if method == "Newton-CG" and hess is None:
             raise ValueError(f"Method '{method}' requires a Hessian function.")
-        
+
         # Check for Callback function
         if callable(callback):
             self.callback = callback
@@ -115,7 +115,7 @@ class LineSearch(OptimizerBase):
             'amax': self.step_size_max,                 # Max step size for line search
             'lsmaxiter': options.get('lsmaxiter', 10),  # Max line search iterations
             'logger': self.logger,                      # Logger instance
-            
+
         }
         try:
             lsmethod = options.get('lsmethod', 1)
@@ -165,11 +165,11 @@ class LineSearch(OptimizerBase):
 
         # Log initial values
         self._log_iteration()
-        
+
         self.optimize_results = self._update_optimize_result()
         if self.saveit:
             ot.save_optimize_results(self.optimize_results, folder=self.savefolder)
-        
+
     @classmethod
     def minimize(cls, x0, fun, method='GD', jac=None, hess=None, args=(), bounds=None, callback=None, **options):
         """
@@ -194,7 +194,7 @@ class LineSearch(OptimizerBase):
         callback : callable, optional
             Callback invoked after successful updates.
         **options
-            Line-search and optimizer configuration.    
+            Line-search and optimizer configuration.
             - step_size: Initial step size (default: None, auto-scaled).
             - step_size_max: Maximum step size (default: 1e5).
             - step_size_adapt: Step size adaptation strategy (0: none, 1: function-based (default), 2: gradient-based).
@@ -207,7 +207,7 @@ class LineSearch(OptimizerBase):
             - recompute_jac: Number of gradient recomputation attempts on line search failure (default: 0).
             - saveit: Whether to save optimization results at each iteration (default: True).
             - gtol: Tolerance for convergence based on projected gradient infinity norm (default: 1e-5).
-        
+
         Returns
         -------
         OptimizeResult
@@ -218,22 +218,22 @@ class LineSearch(OptimizerBase):
             - `nfev`: The number of function evaluations.
             - `njev`: The number of Jacobian evaluations.
             - `message`: Description of the cause of termination.
-        
+
         """
         optimizer = cls(
-            x0, 
-            fun, 
-            method=method, 
-            jac=jac, 
-            hess=hess, 
-            args=args, 
-            bounds=bounds, 
-            callback=callback, 
+            x0,
+            fun,
+            method=method,
+            jac=jac,
+            hess=hess,
+            args=args,
+            bounds=bounds,
+            callback=callback,
             **options
         )
         optimizer.optimization_loop()
         return optimizer.optimize_results
-    
+
 
     def update_step(self) -> bool:
         """
@@ -276,7 +276,7 @@ class LineSearch(OptimizerBase):
             else:
                 return False
 
-    
+
     def check_convergence(self) -> bool:
         """Check convergence using the projected infinity norm of the gradient."""
         # Check for convergence based on gradient norm
@@ -285,7 +285,7 @@ class LineSearch(OptimizerBase):
             self.conv_msg = f'Projected gradient norm ‖g‖∞ < {self.gtol}.'
             return True
         return False
-    
+
     def _run_line_search(self, pk) -> tuple[float, float, np.ndarray]:
         """Run the line search algorithm to find an acceptable step size."""
         step_size = self._set_step_size(pk, self.step_size_max)
@@ -301,7 +301,7 @@ class LineSearch(OptimizerBase):
         )
 
         return step_size, fk_new, jk_new
-    
+
     def _accept_step(self, pk, step_size, fk_new, jk_new) -> None:
         """Accept the proposed step and update the optimizer state."""
         self.xk_old = self.xk
@@ -361,7 +361,7 @@ class LineSearch(OptimizerBase):
             return newton_cg(self.jk, self.hk)
         else:
             raise ValueError(f"Unsupported method: {self.method}")
-        
+
 
     def _set_step_size(self, pk, amax) -> float:
         if self.step_size is None:
@@ -399,21 +399,21 @@ class LineSearch(OptimizerBase):
                 info['EPF iter.'] = self.epf_iteration
             self.logger(**info)
 
-        
-
-
-
-
-                
-
-            
 
 
 
 
 
 
-    
+
+
+
+
+
+
+
+
+
 
 
 

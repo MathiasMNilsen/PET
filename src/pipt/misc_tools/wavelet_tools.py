@@ -7,7 +7,6 @@ import pywt
 import numpy as np
 import sys
 from copy import deepcopy
-import warnings
 
 
 class SparseRepresentation:
@@ -227,7 +226,7 @@ class SparseRepresentation:
 
         # reconstruct from wavelet coefficients
         data_rec = pywt.waverecn(wdec_rec, self.options['wname'], 'symmetric')
-        data_rec = data_rec[tuple(slice(0, s) for s in self.options['dim'])] 
+        data_rec = data_rec[tuple(slice(0, s) for s in self.options['dim'])]
 
         data_rec = data_rec.flatten(order=self.options['order'])
         data_rec = data_rec[self.options['mask']]

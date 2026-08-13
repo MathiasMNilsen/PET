@@ -18,11 +18,9 @@ import numpy as np          # Numerical tools
 from scipy import linalg    # Linear algebra tools
 from misc.system_tools.environ_var import OpenBlasSingleThread  # only single thread
 import multiprocessing as mp  # parallel updates
-import time
 import pickle
 import logging
 from importlib import import_module  # To import packages
-from misc.structures import PETDataFrame 
 
 from scipy.spatial import cKDTree
 
@@ -96,11 +94,11 @@ def parallel_upd(list_state, prior_info, states_dict, X, local_mask_info, obs_da
 
     dat = [el for el in local_mask_info.keys()]
     # data coordinates to initialize search
-    tot_completions = [tuple(el) for dat_mask in dat if type(
-        dat_mask) == tuple for el in local_mask_info[dat_mask]['position']]
+    tot_completions = [tuple(el) for dat_mask in dat if isinstance(
+        dat_mask, tuple) for el in local_mask_info[dat_mask]['position']]
     uniq_completions = [el for el in set(tot_completions)]
-    tot_w_name = [dat_mask for dat_mask in dat if type(
-        dat_mask) == tuple for _ in local_mask_info[dat_mask]['position']]
+    tot_w_name = [dat_mask for dat_mask in dat if isinstance(
+        dat_mask, tuple) for _ in local_mask_info[dat_mask]['position']]
     uniq_w_name = [tot_w_name[tot_completions.index(el)] for el in uniq_completions]
     # todo: limit to active datanan
     coord_search = cKDTree(data=uniq_completions)
@@ -110,9 +108,9 @@ def parallel_upd(list_state, prior_info, states_dict, X, local_mask_info, obs_da
 
         tot_well_dict = {}
         for well in set(act_w_name):
-            tot_well_dict[well] = [el for el in local_mask_info.keys() if type(el) == tuple and
+            tot_well_dict[well] = [el for el in local_mask_info.keys() if isinstance(el, tuple) and
                                    el[0].split()[1] == well]
-    except:
+    except Exception:
         tot_well_dict = local_mask_info
 
     if len(scale_data.shape) == 1:
@@ -256,7 +254,7 @@ def _calc_row_upd(inp):
 
     Parameters
     ----------
-    inp : list    
+    inp : list
         List of [state, param_coordinates, metadata file name]
     """
 
@@ -274,7 +272,8 @@ def _calc_row_upd(inp):
     max_r = {}
     for state in states:
         tmp_r = [meta_data['local_mask_info'][el]['range'][0] for el in meta_data['local_mask_info'].keys() if
-                 type(el) == tuple and state in el and type(meta_data['local_mask_info'][el]['range'][0]) == int]
+                 isinstance(el, tuple) and state in el and
+                 isinstance(meta_data['local_mask_info'][el]['range'][0], int)]
         if len(tmp_r):
             max_r[state] = max(tmp_r)
         else:
@@ -307,7 +306,7 @@ def _calc_row_upd(inp):
                 try:
                     tot_act_well = [elem for elem in meta_data['tot_well_dict']
                                     [well[0].split()[1]] if elem[2] == el]
-                except:
+                except Exception:
                     tot_act_well = [elem for elem in meta_data['tot_well_dict'][well]]
                 # curr_completions = frozenset((inp[1][tot_act_well[0]]['position']))
                 tot_act_data_types = set([el[0].split()[0] for el in tot_act_well])
@@ -351,7 +350,7 @@ def _calc_region(loc_info, states, field_dim, actnum):
     ----------
     loc_info : dict
         Information for localization
-    states : dict 
+    states : dict
         State variables
     field_dim : list
         Dimension of grid
@@ -365,7 +364,7 @@ def _calc_region(loc_info, states, field_dim, actnum):
     """
     regions = {}
     for state in states:
-        tmp_reg = [loc_info[el]['range'] for el in loc_info.keys() if type(el) == tuple and 'region' in loc_info[el]['taper_func']
+        tmp_reg = [loc_info[el]['range'] for el in loc_info.keys() if isinstance(el, tuple) and 'region' in loc_info[el]['taper_func']
                    and state in el]
         unique_reg = [el for el in set(map(tuple, tmp_reg))]
         regions[state] = []
@@ -392,7 +391,7 @@ def _get_region(reg, field_dim=None, actnum=None):
 
     Parameters
     ----------
-    reg : 
+    reg :
     field_dim : list
         Dimension of grid
     actnum : ndarray
@@ -404,7 +403,7 @@ def _get_region(reg, field_dim=None, actnum=None):
     """
 
     # Get the files
-    if type(reg[0]) == str:
+    if isinstance(reg[0], str):
         flag_region = [int(el) for el in reg[1:]]
         with open(reg[0], 'r') as file:
             lines = file.readlines()
@@ -688,14 +687,14 @@ def save_analysisdebug(ind_save, **kwargs):
     folder = kwargs.pop('savefolder')
     try:
         np.savez(f'{folder}/debug_analysis_step_{ind_save}', **kwargs)
-    except: # if npz save fails dump to a pickle file
+    except Exception: # if npz save fails dump to a pickle file
         with open(f'{folder}/debug_analysis_step_{ind_save}.p', 'wb') as file:
             pickle.dump(kwargs, file)
 
 
 def get_list_data_types(obs_data, assim_index):
     """
-    Extract the list of all and active data types 
+    Extract the list of all and active data types
 
     Parameters
     ----------
@@ -843,7 +842,7 @@ def construct_data_cov(data_var_df):
     for idx in data_var_df.index:
         for col in data_var_df.columns:
             var = data_var_df.loc[idx, col]
-        
+
             if var is None:
                 continue
 
@@ -873,7 +872,7 @@ def screen_data(cov_data, pred_data, obs_data_vector, keys_da, iteration):
         Data covariance matrix
     pred_data : ndarray
         Predicted data
-    obs_data_vector : 
+    obs_data_vector :
         Observed data (1D array)
     keys_da : dict
         Dictionary with every input in `DATAASSIM`
@@ -991,7 +990,7 @@ def aug_obs_pred_data(obs_data, pred_data, assim_index, list_data):
 
     Returns
     -------
-    obs : ndarray 
+    obs : ndarray
         Augmented vector of observed data
     pred : ndarray
         Ensemble matrix of predicted data
@@ -1009,7 +1008,7 @@ def aug_obs_pred_data(obs_data, pred_data, assim_index, list_data):
 
     tot_pred = tuple(pred_data[el][dat] for el in l_prim if pred_data[el]
                      is not None for dat in list_data if obs_data[el][dat] is not None)
-    
+
     if len(tot_pred):  # if this is done during the initiallization tot_pred contains nothing
         pred = np.concatenate(tot_pred)
     else:
@@ -1572,15 +1571,15 @@ def truncSVD(matrix, r=None, energy=None, full_matrices=False):
 
     full_matrices : bool, optional
         Whether to compute full or reduced SVD. Default is False.
-    
+
     Returns
     -------
     U : ndarray, shape (m, r)
         Left singular vectors.
-    
+
     S : ndarray, shape (r,)
         Singular values.
-    
+
     VT : ndarray, shape (r, n)
         Right singular vectors transposed.
     '''
@@ -1598,7 +1597,7 @@ def truncSVD(matrix, r=None, energy=None, full_matrices=False):
                 r = np.searchsorted(np.cumsum(S)/np.sum(S), energy/100)
         else:
             raise ValueError("Either rank 'r' or 'energy' must be specified for truncSVD.")
-    
+
     if r == 0:
         r = 1  # Ensure at least one singular value is retained
     if r > len(S):
@@ -1643,7 +1642,6 @@ def get_outlier_index(
     """
     Y = pred.to_matrix()  # (nd, ne)
     d = data.to_matrix(squeeze=False)  # (nd, 1)
-    ne = Y.shape[1]
 
     # Ensure d is a column vector
     if d.ndim == 1:

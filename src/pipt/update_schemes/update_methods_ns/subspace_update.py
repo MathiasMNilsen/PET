@@ -20,7 +20,7 @@ class subspace_update():
         if self.iteration == 1:  # method requires some initiallization
             self.current_W = np.zeros((self.ne, self.ne))
             self.E = np.dot(enE, self.proj)
-        
+
         # Center ensemble matrices
         Y = np.dot(enY, self.proj)
 
@@ -44,7 +44,7 @@ class subspace_update():
         deltaM = X3 @ solve(lam_term, X3.T @ self.current_W)
         deltaD = X3 @ solve(lam_term, X2.T @ enRes)
         self.w_step = -self.current_W/(1 + self.lam) - (deltaD - deltaM)/(1 + self.lam)
-        
+
 
     def scale(self, data, scaling):
         """

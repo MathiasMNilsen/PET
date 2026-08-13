@@ -265,7 +265,7 @@ class OPMRunEnvironment:
         """
         self.filename = filename
         self.suffix = suffix
-        if type(matchstring) != list:
+        if not isinstance(matchstring, list):
             self.mstring = list(matchstring)
         else:
             self.mstring = matchstring
@@ -318,7 +318,7 @@ class OPMRunEnvironment:
                     # TODO: not do time.sleep()
                     # time.sleep(0.1)
                     member = True
-        if member == False:
+        if not member:
             return False
         return True
 
@@ -388,7 +388,7 @@ class FlowRockRunEnvironment:
             if self.filename.split(os.sep)[1] in os.listdir(self.filename.split(os.sep)[0]):
                 member = True
 
-        if member == False:
+        if not member:
             sys.exit(1)
 
         return False

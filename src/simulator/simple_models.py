@@ -3,9 +3,8 @@
 import numpy as np  # Misc. numerical tools
 import os  # Misc. system tools
 import sys
-import scipy.stats as sc  # Extended numerical tools
 from copy import copy, deepcopy
-from multiprocessing import Process, Pipe  # To be able to run Python methods in background
+from multiprocessing import Process  # To be able to run Python methods in background
 import time  # To wait a bit before loading files
 
 import h5py  # To load matlab .mat files

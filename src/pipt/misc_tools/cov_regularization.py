@@ -28,13 +28,9 @@ __author__ = 'kfo005'
 
 
 import numpy as np
-import scipy.linalg as linalg
 from scipy.special import expit
-import os
 import pickle
 import csv
-import datetime as dt
-from shutil import rmtree
 from scipy import sparse
 from scipy.spatial import distance
 from typing import Union
@@ -75,7 +71,7 @@ class localization():
         # Check for threshold
         if 'threshold' in parsed_info:
             init_local['threshold'] = parsed_info['threshold']
-   
+
         # Check localization method/type
         try:
             if 'autoadaloc' in parsed_info:
@@ -98,7 +94,7 @@ class localization():
                         break
                 init_local = pickle.load(open(parsed_info[picklefile], 'rb'))
 
-        except:
+        except Exception:
             # no file could be loaded, initiallize the outer dictionary
             init_local = {}
             for time in assimIndex:
@@ -178,7 +174,7 @@ class localization():
                         init_local['range'] = float(parsed_info[i][1])
             else:
                 init_local = pickle.load(open(parsed_info[1][0], 'rb'))
-        except:
+        except Exception:
             # no file could be loaded
             # initiallize the outer dictionary
             init_local = {}
@@ -838,7 +834,7 @@ def _calc_distance(data_pos, index_unique, current_data_list, assim_index, obs_d
         - dist: list of euclidean distance between the data/parameter pair.
     """
     # distance to data if distance based localization
-    if index_unique == False:
+    if index_unique is False:
         dist = []
         for dat in current_data_list:
             for indx in assim_index[1]:

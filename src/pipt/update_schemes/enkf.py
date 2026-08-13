@@ -3,7 +3,6 @@ EnKF type schemes
 """
 # External imports
 import numpy as np
-from scipy.linalg import solve
 from copy import deepcopy
 from geostat.decomp import Cholesky                     # Making realizations
 
@@ -15,7 +14,6 @@ import pipt.misc_tools.ensemble_tools as entools
 import pipt.misc_tools.extract_tools as extract
 
 from pipt.update_schemes.update_methods_ns.approx_update import approx_update
-from pipt.update_schemes.update_methods_ns.full_update import full_update
 from pipt.update_schemes.update_methods_ns.subspace_update import subspace_update
 
 
@@ -93,10 +91,10 @@ class enkfMixIn(Ensemble):
             self.enPred = self.pred_data.to_matrix()
         else:
             self.enPred = self.pred_data.to_matrix()
-            
+
             #self.cov_data = at.gen_covdata(
-            #    self.datavar, 
-            #    self.assim_index, 
+            #    self.datavar,
+            #    self.assim_index,
             #    self.list_datatypes
            # )
             self.cov_data = at.construct_data_cov(self.data_var_df)
@@ -104,8 +102,8 @@ class enkfMixIn(Ensemble):
             generator = Cholesky()  # Initialize GeoStat class for generating realizations
             self.data_random_state = deepcopy(np.random.get_state())
             self.enObs, self.scale_data = generator.gen_real(
-                self.vecObs, 
-                self.cov_data, 
+                self.vecObs,
+                self.cov_data,
                 self.ne,
                 return_chol=True
             )
@@ -122,9 +120,9 @@ class enkfMixIn(Ensemble):
                 enAdj = None
 
             self.update(
-                enX = self.enX, 
-                enY = self.enPred, 
-                enE = self.enObs, 
+                enX = self.enX,
+                enY = self.enPred,
+                enE = self.enObs,
                 prior = self.prior_enX,
                 enAdj = enAdj
             )
@@ -144,7 +142,7 @@ class enkfMixIn(Ensemble):
         Calculate the "convergence" of the method. Important to
         """
         self.prev_data_misfit = self.prior_data_misfit
-        
+
         # only calulate for the final (posterior) estimate
         if self.iteration == len(self.keys_da['assimindex']):
             enPred = self.pred_data.to_matrix()

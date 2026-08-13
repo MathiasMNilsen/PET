@@ -7,7 +7,6 @@ import numpy as np
 from scipy.linalg import block_diag
 import os
 from datetime import datetime
-from copy import deepcopy
 
 from scipy.optimize import OptimizeResult
 
@@ -173,7 +172,7 @@ def time_correlation(a, state, n_timesteps, dt=1.0):
     $$ Corr(t_1, t_2) = a^{|t_1 - t_2|} $$
 
     Assumes that each varaible in state is time-order such that
-    `x = [x1, x2,..., xi,..., xn]`, where `i` is the time index, 
+    `x = [x1, x2,..., xi,..., xn]`, where `i` is the time index,
     and `xi` is d-dimensional.
 
     Parameters
@@ -183,23 +182,23 @@ def time_correlation(a, state, n_timesteps, dt=1.0):
 
     state : dict
         Control state (represented in a dict).
-    
+
     n_timesteps : int
         Number of time-steps to correlate for each component.
-    
+
     dt : float or int
         Duration between each time-step. Default is 1.
 
     Returns
     -------------------------------------------------------------
     out : numpy.ndarray
-        Correlation matrix with time correlation    
+        Correlation matrix with time correlation
     """
     dim_states = [int(state[name].size/n_timesteps) for name in list(state.keys())]
     blocks     = []
 
     # Construct correlation matrix
-    # m: variable type index  
+    # m: variable type index
     # i: first time index
     # j: second time index
     # k: first dim index
@@ -348,7 +347,7 @@ def get_optimize_result(obj):
         if 'args' in savedata:
             for a, arg in enumerate(obj.args):
                 save_dict[f'args[{a}]'] = arg
-      
+
         # Loop over variables to store in save list
         for save_typ in savedata:
             if 'xk' in save_typ:
@@ -396,7 +395,7 @@ def save_optimize_results(intermediate_result, folder=None):
 
     # Save the variables
     if 'epf_iteration' in intermediate_result:
-        np.savez(save_folder + '/optimize_result_{0}_{1}'.format(str(intermediate_result['epf_iteration']), suffix), 
+        np.savez(save_folder + '/optimize_result_{0}_{1}'.format(str(intermediate_result['epf_iteration']), suffix),
                  **intermediate_result)
     else:
         np.savez(save_folder + '/optimize_result_{0}'.format(suffix), **intermediate_result)

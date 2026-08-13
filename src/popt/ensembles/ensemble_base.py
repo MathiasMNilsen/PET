@@ -2,13 +2,10 @@
 import numpy as np
 import pandas as pd
 import sys
-import warnings
 
-from copy import deepcopy
 
 # Internal imports
 from popt.misc_tools import optim_tools as ot
-from pipt.misc_tools import analysis_tools as at
 from ensemble import BaseEnsemble
 from simulator.simple_models import noSimulation
 from pipt.misc_tools.ensemble_tools import matrix_to_dict
@@ -25,10 +22,10 @@ class EnsembleOptimizationBase(BaseEnsemble):
         ----------
         options : dict
             Options for the ensemble class
-        
+
         simulator : callable
             The forward simulator (e.g. flow). If None, no simulation is performed.
-        
+
         objective : callable
             The objective function (e.g. npv)
         '''
@@ -74,7 +71,7 @@ class EnsembleOptimizationBase(BaseEnsemble):
             self.lb = np.append(self.lb, lb * np.ones(mean.size))
             self.ub = np.append(self.ub, ub * np.ones(mean.size))
             self.bounds += mean.size * [(lb, ub)]
-            
+
         self.covX = np.diag(self.varX)  # Covariance matrix, (nx, nx)
         self.dimX = self.stateX.size    # Dimension of state vector
 
@@ -132,10 +129,10 @@ class EnsembleOptimizationBase(BaseEnsemble):
             self.enF = func_values
         else:
             self.stateF = func_values
- 
+
         return func_values
-            
-        
+
+
     def get_state(self):
         """
         Returns
@@ -144,7 +141,7 @@ class EnsembleOptimizationBase(BaseEnsemble):
             Control vector as ndarray, shape (number of controls, number of perturbations)
         """
         return self.stateX
-    
+
     def get_cov(self):
         """
         Returns
@@ -171,7 +168,7 @@ class EnsembleOptimizationBase(BaseEnsemble):
         ----------
         path : str
             Path to save the state vector. Default is current directory.
-        
+
         filetype : str
             File type to save the state vector. Options are 'csv', 'npz' or 'npy'. Default is 'npz'.
         '''
@@ -189,7 +186,7 @@ class EnsembleOptimizationBase(BaseEnsemble):
             np.savez_compressed(path + 'stateX.npz', **state_dict)
         elif filetype == 'npy':
             np.save(path + 'stateX.npy', stateX)
-    
+
     def _reorganize_multilevel_ensemble(self, x):
         # Only toggle multilevel state when x is truly an ensemble (2D with >1 columns).
         # Treat shape (nx, 1) the same as a 1D vector.

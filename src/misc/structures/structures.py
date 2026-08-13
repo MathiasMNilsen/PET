@@ -28,9 +28,9 @@ class PETDataFrame(pd.DataFrame):
 
     # Custom attributes to preserve across pandas operations
     _metadata = [
-        'name', 'is_ensemble', 'is_scaled', 
+        'name', 'is_ensemble', 'is_scaled',
         'scale_min', 'scale_max', 'scale_mean', 'scale_std'
-    ] 
+    ]
 
     @property
     def _constructor(self):
@@ -48,7 +48,7 @@ class PETDataFrame(pd.DataFrame):
         name: str | None = None,
         is_ensemble: bool = False,  # Optional flag to indicate if this DataFrame is an ensemble
     ) -> None:
-        
+
         super().__init__(data=data, index=index, columns=columns, dtype=dtype, copy=copy)
         self.name = name
         self.is_ensemble = is_ensemble
@@ -61,7 +61,7 @@ class PETDataFrame(pd.DataFrame):
         out.index.name = df.index.name
         out.attrs = df.attrs.copy()
         return out
-    
+
     @classmethod
     def from_pickle(cls, filepath: str) -> "PETDataFrame":
         """Load a PETDataFrame from a pickle file."""
@@ -70,7 +70,7 @@ class PETDataFrame(pd.DataFrame):
         if not isinstance(df, pd.DataFrame):
             raise ValueError(f"Pickle file {filepath} does not contain a DataFrame.")
         return cls.from_pandas(df)
-    
+
     @classmethod
     def from_csv(cls, filepath: str, **kwargs) -> "PETDataFrame":
         """Load a PETDataFrame from a CSV file."""
@@ -107,7 +107,7 @@ class PETDataFrame(pd.DataFrame):
         out = cls.from_pandas(merged, name=getattr(first, 'name', None), is_ensemble=True)
         out.attrs = first.attrs.copy()
         return out
-    
+
     def filter_dataframe(self, index=None, columns=None) -> "PETDataFrame":
         """Return a new PETDataFrame filtered to the specified columns and index."""
         filtered = self.copy()
@@ -122,7 +122,7 @@ class PETDataFrame(pd.DataFrame):
 
         return filtered
 
-    
+
     def scale(self, type='max-min', **kwargs) -> None:
         '''
         Scale each column of DataFrame using the specified method.
@@ -130,7 +130,7 @@ class PETDataFrame(pd.DataFrame):
         if type == 'max-min':
             if self.is_scaled:
                 raise ValueError("DataFrame is already scaled, cannot apply max-min scaling again without inverting first.")
-            
+
             self.is_scaled = True
             self.scale_min = self.min() if kwargs.get('minimum', None) is None else kwargs.get('minimum')
             self.scale_max = self.max() if kwargs.get('maximum', None) is None else kwargs.get('maximum')
@@ -140,7 +140,7 @@ class PETDataFrame(pd.DataFrame):
                 self.loc[:, :] = self.sub(self.scale_min, axis='columns', level=0).div(scale_range, axis='columns', level=0)
             else:
                 self.loc[:, :] = (self - self.scale_min) / scale_range
-            
+
         elif type == 'z-score':
             if self.is_scaled:
                 raise ValueError("DataFrame is already scaled, cannot apply z-score scaling again without inverting first.")
@@ -148,10 +148,10 @@ class PETDataFrame(pd.DataFrame):
             self.scale_mean = self.mean() if kwargs.get('mean', None) is None else kwargs.get('mean')
             self.scale_std = self.std() if kwargs.get('std', None) is None else kwargs.get('std')
             self.loc[:, :] = (self - self.scale_mean) / self.scale_std
-            
+
         else:
             raise ValueError(f"Unsupported scaling type: {type}")
-    
+
     def invert_scale(self, type='max-min', **kwargs) -> None:
         '''
         Invert the scaling transformation applied to the DataFrame.
@@ -177,7 +177,7 @@ class PETDataFrame(pd.DataFrame):
                 raise ValueError("DataFrame is not scaled, cannot invert z-score scaling.")
             scale_mean = self.scale_mean if kwargs.get('mean', None) is None else kwargs.get('mean')
             scale_std = self.scale_std if kwargs.get('std', None) is None else kwargs.get('std')
-            self.loc[:, :] = self * scale_std + scale_mean    
+            self.loc[:, :] = self * scale_std + scale_mean
             self.is_scaled = False
         else:
             raise ValueError(f"Unsupported scaling type: {type}")
@@ -189,17 +189,17 @@ class PETDataFrame(pd.DataFrame):
             for col in self.columns:
                 mult_index.append((idx, col))
         mult_index = pd.MultiIndex.from_tuples(mult_index, names=[self.index.name, 'datatype'])
-        
+
         values = []
         for idx in self.index:
             for col in self.columns:
                 values.append(self.loc[idx, col])
-        
+
         return pd.Series(values, index=mult_index)
-    
+
 
     def to_matrix(self, filter=True, is_jacobian=False, squeeze=True) -> np.ndarray:
-        
+
         # If multi-index columns, convert to single-level first
         if isinstance(self.columns, pd.MultiIndex):
             df = self._to_singlelevel_columns()
@@ -215,7 +215,7 @@ class PETDataFrame(pd.DataFrame):
                 arr.extend(val)
             else:
                 arr.append(val)
-        
+
         if is_jacobian:
             arr = np.stack(arr, axis=0)
         else:
@@ -240,19 +240,19 @@ class PETDataFrame(pd.DataFrame):
                 for i in range(len(self))
             ]
             result[key] = concatenated
-        
+
         df_new = PETDataFrame(result, index=self.index)
         df_new.index.name = self.index.name
         return df_new
 
 
 
-class PETStateArray(np.ndarray):       
+class PETStateArray(np.ndarray):
 
     def __new__(cls, a: ArrayLike, indices: dict[str, tuple[int, int]] | None = None) -> "PETStateArray":
         '''
         State array for Python Ensemble Toolbox.
-        Works like a regular numpy array, but with extra functionality. 
+        Works like a regular numpy array, but with extra functionality.
         '''
         obj = np.asarray(a).view(cls)
         obj.indices = indices
@@ -263,7 +263,7 @@ class PETStateArray(np.ndarray):
         # Called on every new StateArray: construction, slicing, view, etc.
         if obj is None:
             return
-        
+
         self.indices = getattr(obj, 'indices', None)
         self.state_axis = getattr(obj, 'state_axis', 0)
 
@@ -278,7 +278,7 @@ class PETStateArray(np.ndarray):
         out.indices = self.indices
         out.state_axis = self.state_axis
         return out
-    
+
     @classmethod
     def from_dict(cls, member: dict[str, np.ndarray], ne: int = None) -> "PETStateArray":
         '''
@@ -362,18 +362,18 @@ class PETStateArray(np.ndarray):
     def generate_from_prior_info(cls, prior_info: dict[str, np.ndarray], ne: int, save: bool = True) -> "PETStateArray":
         '''
         Generate a prior ensemble based on the provided prior_info dictionary.
-        
+
         Parameters
         ----------
         prior_info : dict
             Dictionary containing prior information for each state variable.
-        
+
         ne : int
             Number of ensemble members to generate.
-        
+
         save : bool, optional
             Whether to save the generated ensemble to a file. Default is True.
-        
+
         Returns
         -------
         PETStateArray
@@ -386,11 +386,11 @@ class PETStateArray(np.ndarray):
         # Loop over each variable in prior_info
         for name, info in prior_info.items():
             mean = info['mean']
-            var  = info['variance'] 
+            var  = info['variance']
             nx = info.get('nx', 0)
             ny = info.get('ny', 0)
             nz = info.get('nz', 0)
-            
+
             # If no dimensions are given, nothing is generated for this variable
             if nx == ny == 0:
                 break
@@ -401,12 +401,12 @@ class PETStateArray(np.ndarray):
                 if isinstance(mean, (list, np.ndarray)) and len(mean) > 1:
                     # Generate covariance matrix
                     cov = Cholesky().gen_cov2d(
-                        x_size = nx, 
-                        y_size = ny, 
-                        variance = var[z], 
-                        var_range = info['corr_length'][z], 
-                        aspect = info['aniso'][z], 
-                        angle = info['angle'][z], 
+                        x_size = nx,
+                        y_size = ny,
+                        variance = var[z],
+                        var_range = info['corr_length'][z],
+                        aspect = info['aniso'][z],
+                        angle = info['angle'][z],
                         var_type = info['vario'][z],
                     )
                 else:
@@ -426,7 +426,7 @@ class PETStateArray(np.ndarray):
                     field = fieldz
                 else:
                     field = np.vstack((field, fieldz))
-        
+
             # Fill in the StateArray data and indices
             if enX is None:
                 enX = field
@@ -467,7 +467,7 @@ class PETStateArray(np.ndarray):
 
     def flatten(self, order='C') -> np.ndarray:            # type: ignore[override]
         return np.asarray(self).flatten(order)
-    
+
     # -------------------------------------------------------------------------
     def __add__(self, other)       -> "PETStateArray": return self._wrap(np.add(self, other))
     def __radd__(self, other)      -> "PETStateArray": return self._wrap(np.add(other, self))
@@ -523,7 +523,7 @@ class PETStateArray(np.ndarray):
     def clip_matrix(self, limits) -> None:
         '''
         Clip the values in the StateArray in place using the provided limits.
-        
+
         Parameters
         ----------
         limits : dict, tuple, or list

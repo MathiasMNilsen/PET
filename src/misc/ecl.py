@@ -600,7 +600,7 @@ class EclipseData (object):
         selector : tuple
             Selector tuple, e.g., (Prop.mole, 'CO2', Phase.gas).
         names : dict
-            Dictionary of defined names in the case. There must be an entry "components" 
+            Dictionary of defined names in the case. There must be an entry "components"
             containing the names of the components in the case files.
 
         Returns
@@ -645,7 +645,7 @@ class EclipseData (object):
         Parameters
         ----------
         selector : tuple
-            Specification of the property to be loaded. This is a tuple starting with a Prop, 
+            Specification of the property to be loaded. This is a tuple starting with a Prop,
             and then some context-dependent items.
 
         Returns
@@ -711,9 +711,9 @@ class EclipseData (object):
         Parameters
         ----------
         propname : str
-            Name of the property to be loaded. This is in the form 'mnemonic well', 
-            e.g., 'WWIR I05'. Alternatively, propname can be either only well or 
-            only mnemonic. Then the value for all mnemonics or all wells are given, 
+            Name of the property to be loaded. This is in the form 'mnemonic well',
+            e.g., 'WWIR I05'. Alternatively, propname can be either only well or
+            only mnemonic. Then the value for all mnemonics or all wells are given,
             e.g., propname='WWIR' returns WWIR for all wells.
 
         Returns
@@ -853,7 +853,7 @@ class EclipseRestart (EclipseData):
 
         # convert Eclipse date field to a Python date object
         return _intehead_date(intehead)
-    
+
     def arrays(self):
         ecl_file = EclipseFile(self.root, self.ext)
         return [list(ecl_file.cat.keys())[i][0] for i, _ in enumerate(ecl_file.cat)]

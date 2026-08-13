@@ -1536,7 +1536,7 @@ def _read_multi(wrapper_name, mem):
     Parameters
     ----------
     wrapper_name : str
-        Name of the file containing the inclusion wrapper. This file is only 
+        Name of the file containing the inclusion wrapper. This file is only
         interesting because the name of the dimensions file is constructed based on it.
     mem : mmap.mmap
         Handle to memory-mapping of the wrapper file.

@@ -6,10 +6,10 @@ from scipy.optimize._trustregion_ncg import CGSteihaugSubproblem
 from scipy.optimize._trustregion_exact import IterativeSubproblem
 
 __all__ = [
-    'line_search', 
-    'zoom', 
-    'line_search_backtracking', 
-    'bfgs_update', 
+    'line_search',
+    'zoom',
+    'line_search_backtracking',
+    'bfgs_update',
     'newton_cg',
     'solve_trust_region_subproblem'
 ]
@@ -33,40 +33,40 @@ def line_search(step_size, xk, pk, fun, jac, fk=None, jk=None, **kwargs):
 
     pk : ndarray
         Search direction.
-    
+
     fun : callable
         Objective function
 
     jac : callable
         Gradient of the objective function
-    
+
     fk : float, optional
         Function value at xk. If None, it will be computed.
-    
+
     jk : ndarray, optional
         Gradient at xk. If None, it will be computed.
-    
+
     **kwargs : dict
         Additional parameters for the line search, such as:
         - amax : float, maximum step size (default: 1000)
         - maxiter : int, maximum number of iterations (default: 10)
         - c1 : float, sufficient decrease condition (default: 1e-4)
         - c2 : float, curvature condition (default: 0.9)
-    
+
     Returns
     -------
     alpha : float
         Step size that satisfies the Wolfe conditions.
-    
+
     fval : float
         Function value at the new point xk + step_size*pk.
-    
+
     jval : ndarray
         Gradient at the new point xk + step_size*pk.
-    
+
     nfev : int
         Number of function evaluations.
-    
+
     njev : int
         Number of gradient evaluations.
     '''
@@ -109,7 +109,7 @@ def line_search(step_size, xk, pk, fun, jac, fk=None, jk=None, **kwargs):
             phi.fun_val = fun(xk + alpha*pk)
             ls_nfev += 1
         return phi.fun_val
-    
+
     @lru_cache(maxsize=None)
     def dphi(alpha):
         global ls_njev
@@ -124,7 +124,7 @@ def line_search(step_size, xk, pk, fun, jac, fk=None, jk=None, **kwargs):
             dphi.jac_val = jac(xk + alpha*pk)
             ls_njev += 1
         return np.dot(dphi.jac_val, pk)
-    
+
     # Define initial values of phi and dphi
     phi_0  = phi(0)
     dphi_0 = dphi(0)
@@ -141,10 +141,10 @@ def line_search(step_size, xk, pk, fun, jac, fk=None, jk=None, **kwargs):
         if (phi_i > phi_0 + c1*a[i]*dphi_0) or (phi_i >= phi(a[i-1]) and i>0):
             logger(f'    Armijo condition: {cross}')
             # Call zoom function
-            step_size = zoom(a[i-1], a[i], phi, dphi, phi_0, dphi_0, maxiter+1-i, c1, c2, iter_id=i) 
+            step_size = zoom(a[i-1], a[i], phi, dphi, phi_0, dphi_0, maxiter+1-i, c1, c2, iter_id=i)
             logger('──────────────────────────────────────────────────')
             return step_size, phi.fun_val, dphi.jac_val, ls_nfev, ls_njev
-        
+
         logger(f'    Armijo condition: {check}')
 
         # Evaluate dphi(ai)
@@ -158,23 +158,23 @@ def line_search(step_size, xk, pk, fun, jac, fk=None, jk=None, **kwargs):
             return step_size, phi.fun_val, dphi.jac_val, ls_nfev, ls_njev
 
         logger(f'    Curvature condition: {cross}')
-        
+
         # Check for posetive derivative
         if dphi_i >= 0:
             # Call zoom function
             step_size = zoom(a[i], a[i-1], phi, dphi, phi_0, dphi_0, maxiter+1-i, c1, c2, iter_id=i)
             logger('──────────────────────────────────────────────────')
             return step_size, phi.fun_val, dphi.jac_val, ls_nfev, ls_njev
-        
+
         # Increase ai
         a.append(min(2*a[i], amax))
         logger(f'    Step-size: {a[i]:.3e} ──> {a[i+1]:.3e}')
-        
+
     # If we reached this point, the line search failed
     logger('Line search failed to find a suitable step size')
     logger('──────────────────────────────────────────────────')
     return None, None, None, ls_nfev, ls_njev
-            
+
 
 def zoom(alo, ahi, f, df, f0, df0, maxiter, c1, c2, iter_id=0):
     '''Zoom function for line search algorithm. (This is the same as for scipy)'''
@@ -182,6 +182,8 @@ def zoom(alo, ahi, f, df, f0, df0, maxiter, c1, c2, iter_id=0):
     phi_lo = f(alo)
     phi_hi = f(ahi)
     dphi_lo = df(alo)
+    aold = None
+    phi_old = None
 
     for j in range(maxiter):
         logger(f'iteration: {iter_id+j}')
@@ -200,7 +202,7 @@ def zoom(alo, ahi, f, df, f0, df0, maxiter, c1, c2, iter_id=0):
         if (aj is None) or (aj <  alo + tol_quad) or (aj > ahi - tol_quad):
                 aj = alo + 0.5*(ahi - alo)
 
-        
+
         logger(f'    New step-size ──> {aj:.3e}')
 
         # Evaluate phi(aj)
@@ -222,7 +224,7 @@ def zoom(alo, ahi, f, df, f0, df0, maxiter, c1, c2, iter_id=0):
             if abs(dphi_j) <= -c2*df0:
                 logger(f'    Curvature condition: {check}')
                 return aj
-            
+
             logger(f'    Curvature condition: {cross}')
             if dphi_j*(ahi-alo) >= 0:
                 # store old values
@@ -259,40 +261,40 @@ def line_search_backtracking(step_size, xk, pk, fun, jac, fk=None, jk=None, **kw
 
     pk : ndarray
         Search direction.
-    
+
     fun : callable
         Objective function
 
     jac : callable
         Gradient of the objective function
-    
+
     fk : float, optional
         Function value at xk. If None, it will be computed.
-    
+
     jk : ndarray, optional
         Gradient at xk. If None, it will be computed.
-    
+
     **kwargs : dict
         Additional parameters for the line search, such as:
         - rho : float, backtracking factor (default: 0.5)
         - maxiter : int, maximum number of iterations (default: 10)
         - c1 : float, sufficient decrease condition (default: 1e-4)
         - c2 : float, curvature condition (default: 0.9)
-    
+
     Returns
     -------
     alpha : float
         Step size that satisfies the Wolfe conditions.
-    
+
     fval : float
         Function value at the new point xk + step_size*pk.
-    
+
     jval : ndarray
         Gradient at the new point xk + step_size*pk.
-    
+
     nfev : int
         Number of function evaluations.
-    
+
     njev : int
         Number of gradient evaluations.
     '''
@@ -330,7 +332,7 @@ def line_search_backtracking(step_size, xk, pk, fun, jac, fk=None, jk=None, **kw
             fun_val = fun(xk + alpha*pk)
             ls_nfev += 1
         return fun_val
-    
+
 
     # run the backtracking line search loop
     for i in range(maxiter):
@@ -346,15 +348,15 @@ def line_search_backtracking(step_size, xk, pk, fun, jac, fk=None, jk=None, **kw
                 logger('──────────────────────────────────────────────────')
 
                 return step_size, phi_i, jac_new, ls_nfev, ls_njev
-        
+
         logger(f'    Sufficient decrease: {cross}')
         # Reduce step size
-        step_size *= rho  
+        step_size *= rho
 
     # If we reached this point, the line search failed
     logger('Backtracking failed to find a suitable step size')
     logger('──────────────────────────────────────────────────')
-    return None, None, None, ls_nfev, ls_njev  
+    return None, None, None, ls_nfev, ls_njev
 
 
 def bfgs_update(Hk, sk, yk):
@@ -389,7 +391,7 @@ def newton_cg(gk, Hk=None, maxiter=None, **kwargs):
     logger = kwargs.get('logger', None)
     if logger is None:
         logger = print
-    
+
     logger('')
     logger('Running Newton-CG subroutine..........')
 
@@ -426,7 +428,7 @@ def newton_cg(gk, Hk=None, maxiter=None, **kwargs):
                 return -gk
             else:
                 return z
-            
+
         rold = r
         a = np.dot(r,r)/dTHd
         z = z + a*d
@@ -464,7 +466,7 @@ def solve_trust_region_subproblem(xk, fk, gk, Hk, radius, method='iterative', **
 
     **kwargs : dict
         Additional parameters for the solver.
-    
+
     Returns
     -------
     pk : ndarray
@@ -473,14 +475,15 @@ def solve_trust_region_subproblem(xk, fk, gk, Hk, radius, method='iterative', **
         Indicates whether the solution lies on the boundary of the trust region.
     '''
     # Make quadratic model
-    model = lambda p: fk + np.dot(gk, p) + 0.5*np.dot(p, np.matmul(Hk, p))
+    def model(p):
+        return fk + np.dot(gk, p) + 0.5*np.dot(p, np.matmul(Hk, p))
 
     # Solve the trust-region subproblem
     if method == 'iterative':
         subproblem = IterativeSubproblem(
                 xk,
-                model, 
-                lambda _: gk, 
+                model,
+                lambda _: gk,
                 lambda _: Hk,
             )
         pk, hits_boundary = subproblem.solve(radius)
@@ -488,12 +491,12 @@ def solve_trust_region_subproblem(xk, fk, gk, Hk, radius, method='iterative', **
     elif method == 'CG-Steihaug':
         subproblem = CGSteihaugSubproblem(
                 xk,
-                model, 
-                lambda _: gk, 
+                model,
+                lambda _: gk,
                 lambda _: Hk,
             )
         pk, hits_boundary = subproblem.solve(radius)
-    
+
     else:
         raise ValueError("Invalid method for solving trust-region subproblem. Choose 'iterative' or 'CG-Steihaug'.")
 

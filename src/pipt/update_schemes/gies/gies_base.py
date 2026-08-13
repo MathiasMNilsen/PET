@@ -3,17 +3,10 @@ EnRML type schemes
 """
 # External imports
 import pipt.misc_tools.analysis_tools as at
-from geostat.decomp import Cholesky
 from pipt.loop.ensemble import Ensemble
-from pipt.update_schemes.update_methods_ns.subspace_update import subspace_update
-from pipt.update_schemes.update_methods_ns.full_update import full_update
-from pipt.update_schemes.update_methods_ns.approx_update import approx_update
-import sys
-import pkgutil
-import inspect
 import numpy as np
 import copy as cp
-from scipy.linalg import cholesky, solve
+from scipy.linalg import solve
 
 # Internal imports
 
@@ -52,7 +45,7 @@ class GIESMixIn(Ensemble):
             if 'actnum' in self.keys_da.keys():
                 try:
                     self.actnum = np.load(self.keys_da['actnum'])['actnum']
-                except:
+                except Exception:
                     print('ACTNUM file cannot be loaded!')
             else:
                 self.actnum = None
@@ -127,7 +120,7 @@ class GIESMixIn(Ensemble):
     def check_convergence(self):
         """
         Check if LM-EnRML have converged based on evaluation of change sizes of objective function, state and damping
-        parameter. 
+        parameter.
 
         Returns
         -------

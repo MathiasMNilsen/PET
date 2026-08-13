@@ -1,10 +1,7 @@
 """EnRML (IES) without the prior increment term."""
 
 import numpy as np
-from copy import deepcopy
-import copy as cp
-from scipy.linalg import solve, solve_banded, cholesky, lu_solve, lu_factor, inv
-import pickle
+from scipy.linalg import solve
 
 import pipt.misc_tools.ensemble_tools as entools
 import pipt.misc_tools.analysis_tools as at
@@ -21,17 +18,17 @@ class approx_update():
     """
 
     def update(self, enX, enY, enE, **kwargs):
-        ''' 
+        '''
         Perform the approximate LM update.
 
         Parameters:
         ----------
-            enX : np.ndarray 
+            enX : np.ndarray
                 State ensemble matrix (nx, ne)
-            
+
             enY : np.ndarray
                 Predicted data ensemble matrix (nd, ne)
-            
+
             enE : np.ndarray
                 Ensemble of perturbed observations (nd, ne)
         '''
@@ -61,12 +58,12 @@ class approx_update():
                 eigval, eigvec = np.linalg.eig(X0 @ X0.T)
                 reg_term = (self.lam + 1) * np.diag(eigval) + np.eye(len(eigval))
                 X = (VT.T @ eigvec) @ solve(reg_term, (U.T @ (np.diag(1/S) @ eigvec)).T)
-                
+
             else:
                 reg_term = (self.lam + 1)*np.eye(S.size) + np.diag(S**2)
                 X = VT.T @ np.diag(S) @ solve(reg_term, U.T)
 
-            
+
             # Check for adaptive localization
             if 'autoadaloc' in loc_info:
 
@@ -81,23 +78,23 @@ class approx_update():
 
                 # Compute the update step with auto-adaptive localization
                 self.step = self.localization.auto_ada_loc(
-                    pert_state     = self.state_scaling[:, None]*enXcentered, 
+                    pert_state     = self.state_scaling[:, None]*enXcentered,
                     proj_pred_data = np.dot(X, enRes),
                     curr_param     = self.list_states,
                     prior_info     = self.prior_info
                 )
 
 
-            # Check for local analysis 
+            # Check for local analysis
             elif ('localanalysis' in loc_info) and (loc_info['localanalysis']):
-                
+
                 # Calculate weights
                 if 'distance' in loc_info:
                     weight = _calc_loc(
-                        max_dist   = loc_info['range'], 
+                        max_dist   = loc_info['range'],
                         distance   = loc_info['distance'],
-                        prior_info = self.prior_info[self.list_states[0]], 
-                        loc_type   = loc_info['type'], 
+                        prior_info = self.prior_info[self.list_states[0]],
+                        loc_type   = loc_info['type'],
                         ne = self.ne
                     )
                 else: # if no distance, do full update
@@ -115,7 +112,7 @@ class approx_update():
                 # Compute the update step with local analysis
                 try:
                     self.step = weight.multiply(np.dot(enXcentered, X)).dot(enRes)
-                except:
+                except Exception:
                     self.step = (weight*(np.dot(enXcentered, X))).dot(enRes)
 
 
@@ -124,11 +121,11 @@ class approx_update():
 
                 # Setup localization mask
                 mask = self.localization.localize(
-                    self.list_datatypes, 
+                    self.list_datatypes,
                     [self.keys_da['truedataindex'][int(elem)] for elem in self.assim_index[1]],
-                    self.list_states, 
-                    self.ne, 
-                    self.prior_info, 
+                    self.list_states,
+                    self.ne,
+                    self.prior_info,
                     at.get_obs_size(self.obs_data, self.assim_index[1], self.list_datatypes)
                 )
 
@@ -156,8 +153,8 @@ class approx_update():
                             act_data_list[(el, float(self.keys_da['truedataindex'][int(i)]))] = count
                             count += 1
 
-                well  = [w for w in set([el[0] for el in loc_info.keys() if type(el) == tuple])]
-                times = [t for t in set([el[1] for el in loc_info.keys() if type(el) == tuple])]
+                well  = [w for w in set([el[0] for el in loc_info.keys() if isinstance(el, tuple)])]
+                times = [t for t in set([el[1] for el in loc_info.keys() if isinstance(el, tuple)])]
 
                 tot_dat_index = {}
                 for uniq_well in well:
@@ -173,12 +170,12 @@ class approx_update():
                     emp_cov = False
 
                 self.step = at.parallel_upd(
-                    list(self.idX.keys()), 
-                    self.prior_info, 
+                    list(self.idX.keys()),
+                    self.prior_info,
                     entools.matrix_to_dict(enX, self.idX),
                     X,
-                    loc_info, 
-                    enE, 
+                    loc_info,
+                    enE,
                     enY,
                     int(self.keys_fwd['parallel']),
                     actnum=loc_info['actnum'],

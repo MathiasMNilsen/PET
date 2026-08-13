@@ -1,6 +1,4 @@
 """Parse config files."""
-from misc import read_input_csv as ricsv
-from copy import deepcopy
 from input_output.organize import ConfigNormalizer
 from pathlib import Path
 import tomli
@@ -15,7 +13,7 @@ def read(filename: str):
     ''' Read configuration file. Supported formats are toml, .yaml, .pipt and .popt.'''
     if Path(filename).suffix.lower() == ".toml":
         return read_toml(filename)
-    elif Path(filename).suffix.lower() in [".yaml", ".yml"]:    
+    elif Path(filename).suffix.lower() in [".yaml", ".yml"]:
         return read_yaml(filename)
     elif Path(filename).suffix.lower() in [".pipt", ".popt"]:
         return read_txt(filename)
@@ -147,7 +145,7 @@ def convert_txt_to_yaml(init_file):
 
     # Write dictionaries to yaml file with same base file name
     new_file = change_file_extension(init_file, 'yaml')
-    with open(new_file, 'wb') as f:
+    with open(new_file, 'w') as f:
         if 'daalg' in pr:
             yaml.dump({'dataassim': pr, 'fwdsim': fwd}, f)
         else:
@@ -217,7 +215,7 @@ def read_txt(init_file):
 
     # Normalize configuration fields for consistency
     cfg_prb, cfg_sim, cfg_ens = ConfigNormalizer.normalize_config(keys_pr, keys_fwd)
-  
+
     if not cfg_ens:
         return cfg_prb, cfg_sim
     else:
@@ -278,6 +276,86 @@ def remove_empty_lines(lines):
     return lines_clean
 
 
+def _coerce_keyword_rows(rows):
+    """
+    Convert the raw text rows following a keyword into a typed value.
+
+    ``rows`` is a list of the raw (whitespace/tab-separated) strings that
+    followed a keyword in the init. file. Depending on how many rows there
+    are, and whether their tokens parse as numbers, the result is a float or
+    string scalar, a 1D list, or a 2D list. Numeric parsing is attempted
+    first (scalar, then 1D, then 2D); if that fails at every level the value
+    is treated as string data instead.
+    """
+    if len(rows) == 1:
+        row = rows[0]
+        if len(row.split()) == 1:
+            try:
+                return float(row)
+            except Exception:
+                pass
+        try:
+            return [float(x) for x in row.split()]
+        except Exception:
+            pass
+        tokens = row.split('\t')
+        if len(tokens) == 1:
+            return row.strip().lower()
+        return [x.rstrip('\n').lower() for x in tokens if x != '']
+
+    # Multiple rows: try a flat 1D float list (one float per row) first...
+    try:
+        return [float(x) for x in rows]
+    except Exception:
+        pass
+
+    # ...then a 2D float list (each row is one or more whitespace-separated floats)...
+    try:
+        return [[float(x) for x in col.split()] for col in rows]
+    except Exception:
+        pass
+
+    # ...and finally fall back to string data: one column per row becomes a 1D
+    # list of strings, multiple (tab-separated) columns become a 2D list.
+    one_col = all(len(row.split('\t')) == 1 for row in rows)
+    if one_col:
+        return [x.rstrip('\n').lower() for x in rows]
+    return [[x.rstrip('\n').lower() for x in col.split('\t') if x != ''] for col in rows]
+
+
+def _promote_token(token):
+    """Convert a string token to a float or list of floats where possible, else leave it unchanged."""
+    try:
+        return float(token)
+    except Exception:
+        pass
+    try:
+        return [float(x) for x in token.split()]
+    except Exception:
+        return token
+
+
+def _promote_numeric_strings(keys):
+    """
+    Retroactively convert list values that were parsed as pure strings back to
+    numbers, where every entry (or sub-entry) actually parses as a float.
+
+    ``_coerce_keyword_rows`` only recognizes a row block as numeric if *all*
+    of its rows parse as floats, so a keyword with a mix of numeric and
+    string rows ends up stored as strings. This fixes up such keywords
+    entry-by-entry after the fact.
+    """
+    for value in keys.values():
+        if not isinstance(value, list):
+            continue
+        if isinstance(value[0], list):
+            for row in value:
+                if all(isinstance(x, str) for x in row):
+                    row[:] = [_promote_token(x) for x in row]
+        elif all(isinstance(x, str) for x in value):
+            value[:] = [_promote_token(x) for x in value]
+
+
 def parse_keywords(lines):
     """
     Here we parse the lines in the init. file to a Python dictionary. The keys of the dictionary is the keywords
@@ -295,83 +373,14 @@ def parse_keywords(lines):
     keys : dict
         Dictionary with all info. from the init. file.
     """
-    # Init. the dictionary
     keys = {}
+    for line in lines:
+        if not line:  # Empty list corresponds to an empty line in the file
+            continue
+        keyword = line[0].strip().lower()
+        keys[keyword] = _coerce_keyword_rows(line[1:])
 
-    # Loop over all input keywords and store in the dictionary.
-    for i in range(len(lines)):
-        if lines[i] != []:  # Check for empty list (corresponds to empty line in file)
-            try:  # Try first to store the info. in keyword as float in a 1D list
-                # A scalar, which we store as scalar...
-                if len(lines[i][1:]) == 1 and len(lines[i][1:][0].split()) == 1:
-                    keys[lines[i][0].strip().lower()] = float(lines[i][1:][0])
-                else:
-                    keys[lines[i][0].strip().lower()] = [float(x) for x in lines[i][1:]]
-            except:
-                try:  # Store as float in 2D list
-                    if len(lines[i][1:]) == 1:  # Check if it is actually a 1D array disguised as 2D
-                        keys[lines[i][0].strip().lower()] = \
-                            [float(x) for x in lines[i][1:][0].split()]
-                    else:  # if not store as 2D list
-                        keys[lines[i][0].strip().lower()] = \
-                            [[float(x) for x in col.split()] for col in lines[i][1:]]
-                except:  # Keyword contains string(s), not floats
-                    if len(lines[i][1:]) == 1:  # If 1D list
-                        # If it is a scalar store as single input
-                        if len(lines[i][1:][0].split('\t')) == 1:
-                            keys[lines[i][0].strip().lower()] = lines[i][1:][0].strip().lower()
-                        else:  # Store as 1D list
-                            keys[lines[i][0].strip().lower()] = \
-                                [x.rstrip('\n').lower()
-                                 for x in lines[i][1:][0].split('\t') if x != '']
-                    else:  # It is a 2D list
-                        # Check each row in 2D list. If it is single column (i.e., one string per row),
-                        # we make it a 1D list of strings; if not, we make it a 2D list of strings.
-                        one_col = True
-                        for j in range(len(lines[i][1:])):
-                            if len(lines[i][1:][j].split('\t')) > 1:
-                                one_col = False
-                                break
-                        if one_col is True:  # Only one column
-                            keys[lines[i][0].strip().lower()] = \
-                                [x.rstrip('\n').lower() for x in lines[i][1:]]
-                        else:  # Store as 2D list
-                            keys[lines[i][0].strip().lower()] = \
-                                [[x.rstrip('\n').lower() for x in col.split('\t') if x != '']
-                                    for col in lines[i][1:]]
-
-    # Need to check if there are any only-string-keywords that actually contains floats, and convert those to
-    # floats (the above loop only handles pure float or pure string input, hence we do a quick fix for mixed
-    # lists here)
-    # Loop over all keys in dict. and check every "pure" string keys for floats
-    for i in keys:
-        if isinstance(keys[i], list):  # Check if key is a list
-            if isinstance(keys[i][0], list):  # Check if it is a 2D list
-                for j in range(len(keys[i])):  # Loop over all sublists
-                    # Check sublist for strings
-                    if all(isinstance(x, str) for x in keys[i][j]):
-                        for k in range(len(keys[i][j])):  # Loop over enteries in sublist
-                            try:  # Try to make float
-                                keys[i][j][k] = float(keys[i][j][k])  # Scalar
-                            except:
-                                try:  # 1D array
-                                    keys[i][j][k] = [float(x)
-                                                     for x in keys[i][j][k].split()]
-                                except:  # If it is actually a string, pass over
-                                    pass
-            else:  # It is a 1D list
-                # Check if list only contains strings
-                if all(isinstance(x, str) for x in keys[i]):
-                    for j in range(len(keys[i])):  # Loop over all entries in list
-                        try:  # Try to make float
-                            keys[i][j] = float(keys[i][j])
-                        except:
-                            try:
-                                keys[i][j] = [float(x) for x in keys[i][j].split()]
-                            except:  # If it is actually a string, pass over
-                                pass
-
-    # Return dict.
+    _promote_numeric_strings(keys)
     return keys
 
 

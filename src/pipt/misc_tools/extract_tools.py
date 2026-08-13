@@ -11,7 +11,7 @@ __all__ = [
     'list_to_dict'
 ]
 
-# Imports 
+# Imports
 import numpy  as np
 import pandas as pd
 import pickle
@@ -21,7 +21,6 @@ from scipy.spatial import cKDTree
 from typing import Union
 
 # Internal imports
-import pipt.misc_tools.analysis_tools as at
 
 
 def is_enabled(value, default=False):
@@ -52,20 +51,21 @@ def extract_prior_info(keys: dict) -> dict:
     '''
     # Get state names as list
     state_names = keys['state']
-    if not isinstance(state_names, list): state_names = [state_names]
+    if not isinstance(state_names, list):
+        state_names = [state_names]
 
     # Check if PRIOR_<state names> exists for each entry in state
     for name in state_names:
-        assert_msg = f'PRIOR_{name.upper()} is missing! This keyword is needed to make initial ensemble for {name.upper()} entered in STATE' 
+        assert_msg = f'PRIOR_{name.upper()} is missing! This keyword is needed to make initial ensemble for {name.upper()} entered in STATE'
         assert f'prior_{name}' in keys, assert_msg
-    
-    # Sefine dict to store prior information in 
+
+    # Sefine dict to store prior information in
     prior_info = {name: None for name in state_names}
 
     # loop over state priors
     for name in state_names:
         prior = keys[f'prior_{name}']
-        
+
         # Check if is a list (old way)
         if isinstance(prior, list):
             prior = list_to_dict(prior)
@@ -78,14 +78,14 @@ def extract_prior_info(keys: dict) -> dict:
                 assert prior['mean'].endswith('.npz'), 'File name does not end with \'.npz\'!'
                 mean_file = np.load(prior['mean'])
                 assert len(mean_file.files) == 1, \
-                    f"More than one variable located in {prior['mean']}. Only the mean vector can be stored in the .npz file!" 
+                    f"More than one variable located in {prior['mean']}. Only the mean vector can be stored in the .npz file!"
                 prior['mean'] = mean_file[mean_file.files[0]]
             else:  # Single number inputted, make it a list if not already
                 if not isinstance(prior['mean'], list):
                     prior['mean'] = [prior['mean']]
         else:
             prior['mean'] = [None]
-       
+
         # loop over keys in prior
         for key in prior.keys():
             # ensure that entry is a list
@@ -108,7 +108,7 @@ def extract_prior_info(keys: dict) -> dict:
                 prior['nz'] = nz
                 prior['nx'] = int(grid_dim[0])
                 prior['ny'] = int(grid_dim[1])
-                
+
 
                 # Check mean when values have been inputted directly (not when mean has been loaded)
                 mean = prior['mean']
@@ -147,7 +147,7 @@ def extract_prior_info(keys: dict) -> dict:
 
         # add prior to prior_info
         prior_info[name] = prior
-        
+
     return prior_info
 
 
@@ -165,7 +165,7 @@ def extract_initial_controls(keys: dict) -> dict:
         Configuration dictionary containing a 'controls' key. Each control variable
         should be a nested dictionary with the name of the control variable as the key.
         The dictionary for each control variable should contain the following possible keys:
-        
+
         - 'initial' or 'mean' : Initial value or mean of control variable
             Can be scalar, list, numpy array, or filename (.npy, .npz, .csv).
             If .npz or .csv, the variable name should match the control variable name.
@@ -176,7 +176,7 @@ def extract_initial_controls(keys: dict) -> dict:
 
         - 'var' or 'variance' : float, list, or array, optional
             Variance of the control variable
-            
+
         - 'std' : float, list, array, or str, optional
             Standard deviation. If string ending with '%', interpreted as percentage
             of the bound range (requires 'limits' to be specified). Only if 'var'/'variance'
@@ -186,7 +186,7 @@ def extract_initial_controls(keys: dict) -> dict:
     -------
     control_info : dict
         Dictionary with control variable names as keys. Each value is a dict containing:
-        
+
         - 'mean' : numpy.ndarray
             Initial/mean values for the control variable
         - 'limits' : list
@@ -232,7 +232,7 @@ def extract_initial_controls(keys: dict) -> dict:
         assert ('initial' in info) or ('mean' in info), f'INITIAL or MEAN missing in CONTROLS for {name}!'
 
         # Rename to mean if initial is there
-        if 'initial' in info: 
+        if 'initial' in info:
             info['mean'] = info.pop('initial', None)
 
         # Mean
@@ -241,7 +241,7 @@ def extract_initial_controls(keys: dict) -> dict:
             # Check if NPZ file
             if info['mean'].endswith('.npz'):
                 file = np.load(info['mean'], allow_pickle=True)
-                if not (name in file.files):
+                if name not in file.files:
                     # Assume only one variable in file
                     msg = f'Variable {name} not in {info["mean"]} and more than one variable located in the file!'
                     assert len(file.files) == 1, msg
@@ -257,7 +257,7 @@ def extract_initial_controls(keys: dict) -> dict:
             elif info['mean'].endswith('.csv'):
                 df = pd.read_csv(info['mean'])
                 assert name in df.columns, f'Column {name} not in {info["mean"]}!'
-                info['mean'] = df[name].to_numpy() 
+                info['mean'] = df[name].to_numpy()
 
         elif isinstance(info['mean'], (int, float)):
             info['mean'] = np.array([info['mean']])
@@ -273,7 +273,7 @@ def extract_initial_controls(keys: dict) -> dict:
             info['mean'] = np.maximum(info['mean'], info['limits'][0])
         if info['limits'][1] is not None:
             info['mean'] = np.minimum(info['mean'], info['limits'][1])
-        
+
 
         # Check for var VAR or STD
         ############################################################################################################
@@ -283,7 +283,7 @@ def extract_initial_controls(keys: dict) -> dict:
 
         elif 'std' in info:
             std = info.pop('std', None)
-            
+
             # Standard deviation can be given as percentage of bound range
             if isinstance(std, str) and (info['limits'][0] is not None) and (info['limits'][1] is not None):
                 if std.endswith('%'):
@@ -299,12 +299,12 @@ def extract_initial_controls(keys: dict) -> dict:
         control_info[name] = info
 
     return control_info
-            
-        
 
 
 
-    
+
+
+
 
 def extract_multilevel_info(keys: Union[dict, list]) -> dict:
     '''
@@ -315,7 +315,7 @@ def extract_multilevel_info(keys: Union[dict, list]) -> dict:
     if isinstance(keys, list):
         keys_ml = list_to_dict(keys)
     assert isinstance(keys_ml, dict)
-    
+
     # Set levels
     assert 'levels' in keys_ml, 'LEVELS keyword missing in MULTILEVEL!'
     levels = int(keys_ml['levels'])
@@ -334,7 +334,7 @@ def extract_multilevel_info(keys: Union[dict, list]) -> dict:
         keys_ml['ml_weights'] = keys_ml.pop('cov_wgt')
     if not np.sum(keys_ml['ml_weights']) == 1.0:
         keys_ml['ml_weights'] = keys_ml['ml_weights']/np.sum(keys_ml['ml_weights'])
-    
+
     return keys_ml
 
 
@@ -357,7 +357,7 @@ def extract_local_analysis_info(keys: Union[dict, list], state: list) -> dict:
         if key.lower() in ['region_parameter', 'vector_region_parameter', 'cell_parameter']:
             local[key] = [elem for elem in key_item.split(' ') if elem in state]
         elif key.lower() == 'search_range':
-            local[key] = int(key_item) 
+            local[key] = int(key_item)
         elif key.lower() == 'column_update':
             local[key] = [elem for elem in key_item.split(',')]
         elif key.lower().endswith('_file'): # 'parameter_position_file', 'data_position_file' or 'update_mask_file'
@@ -372,7 +372,7 @@ def extract_local_analysis_info(keys: Union[dict, list], state: list) -> dict:
         assert 'data_position' in local, 'A pickle file containing the position of the data is MANDATORY'
 
         data_name = [elem for elem in local['data_position'].keys()]
-        if type(local['data_position'][data_name[0]][0]) == list:  # assim index has spesific position
+        if isinstance(local['data_position'][data_name[0]][0], list):  # assim index has spesific position
             local['unique'] = False
             data_pos = [elem for data in data_name for assim_elem in local['data_position'][data]
                         for elem in assim_elem]
@@ -406,7 +406,7 @@ def extract_local_analysis_info(keys: Union[dict, list], state: list) -> dict:
                 [data_ind[count] for count, val in enumerate(in_region) if val])
 
         return local
-    
+
 
 def organize_sparse_representation(info: Union[dict,list]) -> dict:
     """
@@ -441,8 +441,10 @@ def organize_sparse_representation(info: Union[dict,list]) -> dict:
 
     # Redefine all 'yes' and 'no' values to bool
     for key, val in info.items():
-        if val == 'yes': info[key] = True
-        if val == 'no':  info[key] = False
+        if val == 'yes':
+            info[key] = True
+        if val == 'no':
+            info[key] = False
 
     # Intial dict
     sparse = {}
@@ -479,7 +481,8 @@ def organize_sparse_representation(info: Union[dict,list]) -> dict:
     sparse['keep_ca'] = info.get('keep_ca', False)
     sparse['inactive_value'] = info['inactive_value']
     sparse['use_ensemble'] = info.get('use_ensemble', None)
-    if sparse['use_ensemble'] == False: sparse['use_ensemble'] = None
+    if sparse['use_ensemble'] is False:
+        sparse['use_ensemble'] = None
 
     return sparse
 
@@ -487,15 +490,15 @@ def organize_sparse_representation(info: Union[dict,list]) -> dict:
 def extract_maxiter(keys: dict) -> dict:
 
     if 'iteration' in keys:
-        if isinstance(keys['iteration'], list): 
+        if isinstance(keys['iteration'], list):
             keys['iteration'] = list_to_dict(keys['iteration'])
         try:
             max_iter = keys['iteration']['max_iter']
         except KeyError:
                 raise AssertionError('MAX_ITER has not been given in ITERATION')
-        
+
     elif 'mda' in keys:
-        if isinstance(keys['mda'], list): 
+        if isinstance(keys['mda'], list):
             keys['mda'] = list_to_dict(keys['mda'])
         try:
             max_iter = keys['mda']['max_iter']
@@ -506,8 +509,8 @@ def extract_maxiter(keys: dict) -> dict:
         max_iter = 1
 
     return max_iter
-    
-   
+
+
 def list_to_dict(info_list: list) -> dict:
     assert isinstance(info_list, list)
     # Initialize and loop over entries

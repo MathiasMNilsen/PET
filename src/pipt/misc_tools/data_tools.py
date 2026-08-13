@@ -4,20 +4,20 @@ import numpy as np
 import pandas as pd
 
 __all__ = [
-    'combine_ensemble_predictions', 
-    'en_pred_to_pred_data', 
+    'combine_ensemble_predictions',
+    'en_pred_to_pred_data',
     'merge_dataframes',
     'multilevel_to_singlelevel_columns',
-    'dataframe_to_series', 
-    'series_to_dataframe', 
-    'series_to_matrix', 
+    'dataframe_to_series',
+    'series_to_dataframe',
+    'series_to_matrix',
     'dataframe_to_matrix'
 ]
 
 
 def combine_ensemble_predictions(en_pred, dataypes, true_order) -> pd.DataFrame:
     index_name, index = true_order
-    
+
     # Initialize empty DataFrame
     df = pd.DataFrame(columns=dataypes, index=index)
     df.index.name = index_name
@@ -25,9 +25,9 @@ def combine_ensemble_predictions(en_pred, dataypes, true_order) -> pd.DataFrame:
     # Check en_pred is iterable
     if not isinstance(en_pred, (list, tuple, np.ndarray)):
         raise ValueError('en_pred must be a list, tuple, or ndarray of ensemble predictions.')
-    
+
     #----------------------------------------------------------------------------------------------
-    if all(isinstance(el, (list, tuple, np.ndarray)) for el in en_pred): 
+    if all(isinstance(el, (list, tuple, np.ndarray)) for el in en_pred):
         if all(isinstance(el, dict) for el in en_pred[0]):
             pred_data = en_pred_to_pred_data(en_pred)
 
@@ -40,9 +40,9 @@ def combine_ensemble_predictions(en_pred, dataypes, true_order) -> pd.DataFrame:
             # Fill in DataFrame
             for i, ind in enumerate(index):
                 for key in dataypes:
-                    if not key in pred_data[i]:
+                    if key not in pred_data[i]:
                         raise ValueError(f'Key {key} not found in pred_data at index {i}.')
-                    
+
                     if pred_data[i][key] is not None:
                         df.at[ind, key] = np.squeeze(pred_data[i][key])
                     else:
@@ -51,7 +51,7 @@ def combine_ensemble_predictions(en_pred, dataypes, true_order) -> pd.DataFrame:
         else:
             raise ValueError('Unsupported nested structure in en_pred.')
     #----------------------------------------------------------------------------------------------
-        
+
 
     #----------------------------------------------------------------------------------------------
     elif all(isinstance(el, dict) for el in en_pred):
@@ -63,11 +63,11 @@ def combine_ensemble_predictions(en_pred, dataypes, true_order) -> pd.DataFrame:
                 member_data = el[key][:, np.newaxis]
                 member_list.append(member_data)
             pred_data_dict[key] = np.concatenate(tuple(member_list), axis=1)
-        
+
         # Fill in DataFrame
         for i, ind in enumerate(index):
             for key in dataypes:
-                if not key in pred_data_dict:
+                if key not in pred_data_dict:
                     raise ValueError(f'Key {key} not found in pred_data_dict.')
 
                 if pred_data_dict[key] is not None:
@@ -75,7 +75,7 @@ def combine_ensemble_predictions(en_pred, dataypes, true_order) -> pd.DataFrame:
                 else:
                     df.at[ind, key] = np.nan
     #----------------------------------------------------------------------------------------------
-        
+
 
     #----------------------------------------------------------------------------------------------
     elif all(isinstance(el, pd.DataFrame) for el in en_pred):
@@ -83,14 +83,14 @@ def combine_ensemble_predictions(en_pred, dataypes, true_order) -> pd.DataFrame:
         # Fill in DataFrame
         for i, ind in enumerate(index):
             for key in dataypes:
-                if not key in en_pred[0].columns:
+                if key not in en_pred[0].columns:
                     raise ValueError(f'Key {key} not found in DataFrame columns.')
-                
+
                 member_data = []
                 for el in en_pred:
                     member_data.append(el.at[ind, key])
 
-                df.at[ind, key] = np.squeeze(np.array(member_data))  
+                df.at[ind, key] = np.squeeze(np.array(member_data))
     #----------------------------------------------------------------------------------------------
 
     return df
@@ -107,17 +107,17 @@ def en_pred_to_pred_data(en_pred):
     # Loop over each time step
     for ind in range(len(en_pred[0])):
         data_type_dict = {}
-        
+
         # Loop over each data type
         for typ in en_pred[0][0].keys():
-            
+
             # Check if any ensemble member has non-None data for this type and time step
             has_data = False
             for el in en_pred:
                 if el[ind][typ] is not None:
                     has_data = True
                     break
-            
+
             # If at least one member has data, concatenate all members
             if has_data:
                 member_list = []
@@ -127,14 +127,14 @@ def en_pred_to_pred_data(en_pred):
                     else:
                         member_data = el[ind][typ][:, np.newaxis]
                     member_list.append(member_data)
-                
+
                 data_type_dict[typ] = np.concatenate(tuple(member_list), axis=1)
             else:
                 # Otherwise, store None
                 data_type_dict[typ] = None
-        
+
         pred_data.append(data_type_dict)
-    
+
     return pred_data
 
 
@@ -181,11 +181,11 @@ def multilevel_to_singlelevel_columns(df: pd.DataFrame) -> pd.DataFrame:
         ]
 
         result[key] = concatenated
-    
+
     df_new = pd.DataFrame(result, index=df.index)
     df_new.index.name = df.index.name
-    return df_new    
-  
+    return df_new
+
 
 def dataframe_to_series(df):
     mult_index = []
@@ -193,12 +193,12 @@ def dataframe_to_series(df):
         for col in df.columns:
             mult_index.append((idx, col))
     mult_index = pd.MultiIndex.from_tuples(mult_index, names=[df.index.name, 'datatype'])
-    
+
     values = []
     for idx in df.index:
         for col in df.columns:
             values.append(df.loc[idx, col])
-    
+
     return pd.Series(values, index=mult_index)
 
 def series_to_dataframe(series):
@@ -220,14 +220,13 @@ def dataframe_to_matrix(df):
 
 
 
-    
-            
 
 
 
 
-            
-        
-            
-        
-        
+
+
+
+
+
+

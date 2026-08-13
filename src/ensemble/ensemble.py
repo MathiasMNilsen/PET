@@ -3,16 +3,14 @@ Package contains the basis for the PET ensemble based structure.
 """
 
 # External imports
-import csv  # For reading Comma Separated Values files
 import os  # OS level tools
 import sys  # System-specific parameters and functions
-from copy import deepcopy, copy  # Copy functions. (deepcopy let us copy mutable items)
+from copy import deepcopy  # Copy functions. (deepcopy let us copy mutable items)
 from shutil import rmtree  # rmtree for removing folders
 import numpy as np  # Misc. numerical tools
 import pandas as pd
 import pickle  # To save and load information
 from glob import glob
-import datetime as dt
 from tqdm.auto import tqdm
 from p_tqdm import p_map
 import logging
@@ -20,9 +18,6 @@ import logging
 # Internal imports
 import pipt.misc_tools.analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
-import pipt.misc_tools.ensemble_tools as entools
-import pipt.misc_tools.data_tools as dtools
-from misc.system_tools.environ_var import OpenBlasSingleThread  # Single threaded OpenBLAS runs
 from misc.structures.structures import PETDataFrame, PETStateArray
 
 __all__ = ["BaseEnsemble"]
@@ -80,7 +75,7 @@ class BaseEnsemble:
                 if len(folder.split('_')) == 2:
                     int(folder.split('_')[1])
                     rmtree(folder)
-            except:
+            except Exception:
                 pass
 
         # Save name for (potential) pickle dump/load
@@ -136,7 +131,7 @@ class BaseEnsemble:
             elif 'controls' in self.keys_en:
                 self.prior_info = extract.extract_initial_controls(self.keys_en)
 
-            
+
             # Ensemble size
             self.ne = self.keys_en.get('ne', None)
 
@@ -150,8 +145,8 @@ class BaseEnsemble:
 
                 # Generate prior ensemble
                 self.enX = PETStateArray.generate_from_prior_info(
-                    self.prior_info, 
-                    self.ne, 
+                    self.prior_info,
+                    self.ne,
                     save=self.keys_en.get('save_prior', True)
                 )
                 self.idX = self.enX.indices
@@ -169,7 +164,7 @@ class BaseEnsemble:
             self.ml_ne = self.multilevel['ml_ne']
             self.tot_level = len(self.multilevel['levels'])
 
-        
+
     def calc_prediction(self, enX, save_prediction=None):
         """
         Function for running the simulator over several levels. We assume that it is sufficient to provide the level
@@ -199,7 +194,7 @@ class BaseEnsemble:
             if not isinstance(enX, PETStateArray):
                 enX = PETStateArray(enX, indices=self.idX)
 
-        # Loop over levels, if not multilevel, this loop will only run once. 
+        # Loop over levels, if not multilevel, this loop will only run once.
         for level in levels:
 
             # Setup forward simulator and redundant simulator at the correct fidelity
@@ -213,7 +208,7 @@ class BaseEnsemble:
 
             if ne[level] > 0:
 
-                # Convert state to required input for simulator (list of dictionaries). 
+                # Convert state to required input for simulator (list of dictionaries).
                 if is_multilevel:
                     sim_input = enX[level].to_list_of_dicts()
                 else:
@@ -225,7 +220,7 @@ class BaseEnsemble:
                             sim_input[n]['aux_input'] = self.aux_input[n]
                         else:
                             sim_input[n]['aux_input'] = self.aux_input[n]
-                        
+
 
                 ########################################################################################################
                 # No parralelization
@@ -239,7 +234,7 @@ class BaseEnsemble:
                 elif self.sim.input_dict.get('hpc', False):  # Run prediction in parallel on hpc
                     sim_output = self.run_on_HPC(sim_input, batch_size=nparallel)
 
-                # Parallelization on local machine using p_map      
+                # Parallelization on local machine using p_map
                 else:
                     sim_output = p_map(
                         self.sim.run_fwd_sim,
@@ -251,26 +246,26 @@ class BaseEnsemble:
                     )
                 ########################################################################################################
 
-                # Replace crashed sims with successful ones, 
+                # Replace crashed sims with successful ones,
                 # and replace the corresponding state in the ensemble if needed
                 sim_output, sim_input, success = self._replace_failed_simulations(sim_output, sim_input, level, is_multilevel)
 
                 if (not is_multilevel) and getattr(self.sim, 'compute_adjoints', False):
                     sim_output, en_adj = zip(*sim_output)
-                    
+
                     # Merge adjoint to ensemble adjoint dataframe (PETDataFrame)
                     self.adjoints = PETDataFrame.merge_dataframes(list(en_adj))
 
                     # Filter adjoints for the correct data types
                     try:
                         self.adjoints = self.adjoints[self.data_df.columns]
-                    except:
+                    except Exception:
                         self.adjoints = self.adjoints[self.sim.datatype]
-                        
+
                     if self.keys_en.get('scale_data', False) and hasattr(self, 'data_df'):
                         self.adjoints.scale(
-                            type='max-min', 
-                            minimum=0, 
+                            type='max-min',
+                            minimum=0,
                             maximum=self.data_df.scale_max - self.data_df.scale_min
                         )
 
@@ -278,17 +273,17 @@ class BaseEnsemble:
                 # Combine ensemble predictions
                 # ----------------------------------------------------------------------------------------------
                 # Check if all predictions are lists of dictionaries
-                if all(isinstance(el, (list, tuple, np.ndarray)) and 
-                    all(isinstance(sub_el, dict) for sub_el in el) 
+                if all(isinstance(el, (list, tuple, np.ndarray)) and
+                    all(isinstance(sub_el, dict) for sub_el in el)
                     for el in sim_output):
-                    
+
                     if hasattr(self.sim, 'true_order'):
                         dfs = []
                         for pred in sim_output:
                             df = pd.DataFrame.from_records(pred, index=self.sim.true_order[1])
                             df.index.name = self.sim.true_order[0]
                             dfs.append(df)
-                            
+
                     else:
                         dfs = [pd.DataFrame.from_records(pred) for pred in sim_output]
 
@@ -300,7 +295,7 @@ class BaseEnsemble:
                     sim_data = PETDataFrame.merge_dataframes(list(sim_output))
                     try:
                         sim_data = sim_data[self.data_df.columns]
-                    except:
+                    except Exception:
                         sim_data = sim_data[self.sim.datatype]
 
                 else:
@@ -310,14 +305,14 @@ class BaseEnsemble:
 
                 if self.keys_en.get('scale_data', False) and hasattr(self, 'data_df'):
                     sim_data.scale(
-                        type='max-min', 
-                        minimum=self.data_df.scale_min, 
+                        type='max-min',
+                        minimum=self.data_df.scale_min,
                         maximum=self.data_df.scale_max
                     )
                 # ---------------------------------------------------------------------------------------------
                 self.sim_data.append(sim_data)
 
-        
+
         if len(self.sim_data) == 1:
             self.sim_data = self.sim_data[0]
 
@@ -333,8 +328,8 @@ class BaseEnsemble:
                 self.sim_data.to_pickle(f'{folder}/{save_prediction}.pkl')
 
         return success
-        
-    
+
+
     def run_on_HPC(self, enX, batch_size=None, **kwargs):
         list_member_index = list(range(self.ne))
 
@@ -362,12 +357,12 @@ class BaseEnsemble:
                                                 )
             else:
                 job_id=self.sim.SLURM_HPC_run(
-                                            n_e, 
+                                            n_e,
                                             venv=os.path.join(os.path.dirname(sys.executable),'activate'),
                                             filename=self.sim.file,
                                             **self.sim.options
                                             )
-            
+
             # Wait for the simulations to finish
             if job_id:
                 sim_status = self.sim.wait_for_jobs(job_id)
@@ -384,7 +379,7 @@ class BaseEnsemble:
                 else:
                     en_pred.append(False)
                 self.sim.remove_folder(member_i)
-        
+
         return en_pred
 
     def save(self):
@@ -413,7 +408,7 @@ class BaseEnsemble:
 
         # Save in 'self'
         self.__dict__.update(tmp_load)
-    
+
 
     def _replace_failed_simulations(self, sim_output, enX, level=None, is_multilevel=False):
 
@@ -459,7 +454,7 @@ class BaseEnsemble:
                 else:
                     if enX.shape[1] > 1:
                         enX[:, list_crash[index]] = deepcopy(enX[:, element])
-                   
+
                 sim_output[list_crash[index]] = deepcopy(sim_output[element])
 
         return sim_output, enX, success

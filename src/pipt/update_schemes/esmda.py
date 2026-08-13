@@ -11,7 +11,6 @@ from geostat.decomp import Cholesky
 # Internal imports
 from pipt.loop.ensemble import Ensemble
 import pipt.misc_tools.analysis_tools as at
-from misc.structures.structures import PETDataFrame, PETStateArray
 
 # import update schemes
 from pipt.update_schemes.update_methods_ns.approx_update import approx_update
@@ -19,9 +18,9 @@ from pipt.update_schemes.update_methods_ns.full_update import full_update
 from pipt.update_schemes.update_methods_ns.subspace_update import subspace_update
 
 __all__ = [
-    'esmda_approx', 
-    'esmda_full', 
-    'esmda_subspace', 
+    'esmda_approx',
+    'esmda_full',
+    'esmda_subspace',
     'esmda_geo'
 ]
 
@@ -115,7 +114,7 @@ class esmdaMixIn(Ensemble):
         where $N_a$ being the total number of assimilation steps.
         """
         # Get Ensemble matrix of predicted data
-        self.enPred = self.pred_data.to_matrix()        
+        self.enPred = self.pred_data.to_matrix()
 
         if self.iteration == 1:  # first iteration
 
@@ -137,7 +136,7 @@ class esmdaMixIn(Ensemble):
             # Log initial data misfit
             self.log_update(prior_run=True)
             self.data_random_state = deepcopy(np.random.get_state())
-            
+
             self.enObs, self.scale_data = Cholesky().gen_real(
                 self.vecObs,
                 self.alpha[self.iteration - 1] * self.cov_data,
@@ -168,9 +167,9 @@ class esmdaMixIn(Ensemble):
 
             # Perform the update
             self.update(
-                enX = self.enX, 
-                enY = self.enPred, 
-                enE = self.enObs, 
+                enX = self.enX,
+                enY = self.enPred,
+                enE = self.enObs,
                 # kwargs
                 prior = self.prior_enX,
                 enAdj = enAdj
@@ -221,7 +220,7 @@ class esmdaMixIn(Ensemble):
         # Log update results
         success = self.data_misfit < self.prev_data_misfit
         self.log_update(success=success)
-        
+
         # Return conv = False, why_stop var.
         # Update state ensemble
         self.enX = deepcopy(self.enX_temp)
@@ -245,9 +244,9 @@ class esmdaMixIn(Ensemble):
         if not prior_run:
             delta = 100*(self.data_misfit / self.prev_data_misfit - 1)
             info["Change (%)"] = delta
-        
+
         self.logger(**info)
-            
+
     def _ext_inflation_param(self):
         r"""
         Extract the data covariance inflation parameter from the MDA keyword in DATAASSIM part. Also, we check that
@@ -266,7 +265,7 @@ class esmdaMixIn(Ensemble):
         """
         try:
             mda_opts = dict(self.keys_da['mda'])
-        except:
+        except Exception:
             mda_opts = dict([self.keys_da['mda']])
 
         # Check if INFLATION_PARAM has been provided, and if so, extract the value(s). If not, we set alpha to the
@@ -274,7 +273,7 @@ class esmdaMixIn(Ensemble):
         if 'inflation_param' in mda_opts:
             alpha_tmp = mda_opts['inflation_param']
             alpha = alpha_tmp if isinstance(alpha_tmp, list) else [alpha_tmp] * len(self._ext_assim_steps())
-            
+
             assert len(alpha) == len(self._ext_assim_steps()), \
             'Number of INFLATION_PARAM values does not match TOT_ASSIM_STEPS!'
         else:
@@ -311,10 +310,10 @@ class esmdaMixIn(Ensemble):
         """
         try:
             mda_opts = dict(self.keys_da['mda'])
-        except:
+        except Exception:
             mda_opts = dict([self.keys_da['mda']])
 
-    
+
         # Check if 'max_iter' has been given; if not, give error (mandatory in ITERATION)
         try:
             assim_steps = list(range(int(mda_opts['tot_assim_steps'])))

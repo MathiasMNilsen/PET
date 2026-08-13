@@ -1,10 +1,7 @@
 """EnRML (IES) without the prior increment term."""
 
 import numpy as np
-from copy import deepcopy
-import copy as cp
-from scipy.linalg import solve, solve_banded, cholesky, lu_solve, lu_factor, inv
-import pickle
+from scipy.linalg import solve
 import pipt.misc_tools.analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
 from pipt.misc_tools.cov_regularization import _calc_loc
@@ -109,7 +106,7 @@ class rlmmac_update():
                 try:
                     self.step = weight.multiply(
                         np.dot(pert_state, X)).dot(scaled_delta_data)
-                except:
+                except Exception:
                     self.step = (weight*(np.dot(pert_state, X))).dot(scaled_delta_data)
 
             elif sum(['dist_loc' in el for el in f]) >= 1:
@@ -146,9 +143,9 @@ class rlmmac_update():
                             count += 1
 
                 well = [w for w in
-                        set([el[0] for el in self.localization.loc_info.keys() if type(el) == tuple])]
+                        set([el[0] for el in self.localization.loc_info.keys() if isinstance(el, tuple)])]
                 times = [t for t in set(
-                    [el[1] for el in self.localization.loc_info.keys() if type(el) == tuple])]
+                    [el[1] for el in self.localization.loc_info.keys() if isinstance(el, tuple)])]
                 tot_dat_index = {}
                 for uniq_well in well:
                     tmp_index = []

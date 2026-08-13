@@ -4,6 +4,7 @@ EnRML type schemes
 # External imports
 import pipt.misc_tools.analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
+from pipt.misc_tools.analysis_tools import aug_state
 
 from geostat.decomp import Cholesky
 from pipt.loop.ensemble import Ensemble
@@ -38,18 +39,15 @@ else:
     class margIS_update:
         pass
 
-# Internal imports
-from pipt.misc_tools.analysis_tools import aug_state
-
 
 __all__ = [
-    'lmenrml_approx', 
-    'lmenrml_full', 
-    'lmenrml_subspace', 
-    'gnenrml_approx', 
-    'gnenrml_full', 
-    'gnenrml_subspace', 
-    'gnenrml_margis', 
+    'lmenrml_approx',
+    'lmenrml_full',
+    'lmenrml_subspace',
+    'gnenrml_approx',
+    'gnenrml_full',
+    'gnenrml_subspace',
+    'gnenrml_margis',
 ]
 
 
@@ -87,7 +85,8 @@ class lmenrmlMixIn(Ensemble):
             # ------------------------------------------------------------
 
             # Ensure that it is given as percentage
-            if self.trunc_energy > 1: self.trunc_energy /= 100.
+            if self.trunc_energy > 1:
+                self.trunc_energy /= 100.
 
             # Initalize some variables
             self.iteration = 0
@@ -100,7 +99,7 @@ class lmenrmlMixIn(Ensemble):
             if 'actnum' in self.keys_da.keys():
                 try:
                     self.actnum = np.load(self.keys_da['actnum'])['actnum']
-                except:
+                except Exception:
                     print('ACTNUM file cannot be loaded!')
 
             # At the moment, the iterative loop is threated as an iterative smoother and thus we check if assim. indices
@@ -114,7 +113,7 @@ class lmenrmlMixIn(Ensemble):
             self.enObs = self.perturb_observations(self.vecObs)
             self._ext_scaling()
 
-    
+
 
     def calc_analysis(self):
         """
@@ -122,10 +121,10 @@ class lmenrmlMixIn(Ensemble):
         the sensitivity matrix approximated by the ensemble.
         """
         # Get Ensemble of predicted data
-        self.enPred = self.pred_data.to_matrix()        
+        self.enPred = self.pred_data.to_matrix()
 
         if self.iteration == 1:  # first iteration
-            
+
             # Calculate the prior data misfit
             data_misfit = at.calc_objectivefun(self.enObs, self.enPred, self.cov_data)
 
@@ -153,9 +152,9 @@ class lmenrmlMixIn(Ensemble):
 
             # Perform the update
             self.update(
-                enX = self.enX, 
-                enY = self.enPred, 
-                enE = self.enObs, 
+                enX = self.enX,
+                enY = self.enPred,
+                enE = self.enObs,
                 # kwargs
                 prior = self.prior_enX,
                 enAdj = enAdj
@@ -176,7 +175,7 @@ class lmenrmlMixIn(Ensemble):
     def check_convergence(self):
         """
         Check if LM-EnRML have converged based on evaluation of change sizes of objective function, state and damping
-        parameter. 
+        parameter.
 
         Returns
         -------
@@ -232,7 +231,7 @@ class lmenrmlMixIn(Ensemble):
                     f'Iterations have converged after {self.iteration} iterations. Objective function reduced '
                     f'from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}'
                 )
-                
+
             # Return conv = True, why_stop var.
             return True, success, why_stop
 
@@ -243,7 +242,7 @@ class lmenrmlMixIn(Ensemble):
                         'prev_data_misfit': self.prev_data_misfit,
                         'lambda': self.lam,
                         'lambda_stop': self.lam >= self.lam_max}
-            
+
 
             ###############################################
             ##### update Lambda step-size values ##########
@@ -273,7 +272,7 @@ class lmenrmlMixIn(Ensemble):
                 # accept itaration, but keep lam the same
                 success = True
                 self.log_update(success=success)
-                
+
                 # Update state ensemble
                 self.enX = cp.deepcopy(self.enX_temp)
                 self.enX_temp = None
@@ -311,9 +310,9 @@ class lmenrmlMixIn(Ensemble):
         if not prior_run:
             delta = 100*(self.data_misfit / self.prev_data_misfit - 1)
             info["Change (%)"] = delta
-        
+
         self.logger(**info)
-        
+
 
 
 
@@ -367,7 +366,7 @@ class gnenrmlMixIn(Ensemble):
             if 'actnum' in self.keys_da.keys():
                 try:
                     self.actnum = np.load(self.keys_da['actnum'])['actnum']
-                except:
+                except Exception:
                     print('ACTNUM file cannot be loaded!')
 
             # At the moment, the iterative loop is threated as an iterative smoother and thus we check if assim. indices
@@ -621,10 +620,7 @@ class co_lm_enrml(lmenrmlMixIn, approx_update):
             # Python dictionary just when needed (in different places) may not yield the same list!
             self.list_datatypes, self.list_act_datatypes = at.get_list_data_types(
                 self.obs_data, self.assim_index)
-            list_datatypes = self.list_datatypes
             self.list_states = list(self.state.keys())
-            list_states = self.list_states
-            list_act_datatypes = self.list_act_datatypes
 
             # self.cov_data = np.load('CD.npz')['arr_0']
             # Generate the realizations of the observed data once
@@ -753,10 +749,7 @@ class gn_enrml(lmenrmlMixIn):
             # Python dictionary just when needed (in different places) may not yield the same list!
             self.list_datatypes, self.list_act_datatypes = at.get_list_data_types(
                 self.obs_data, assim_index)
-            list_datatypes = self.list_datatypes
             self.list_states = list(self.state.keys())
-            list_states = self.list_states
-            list_act_datatypes = self.list_act_datatypes
 
             # Generate the realizations of the observed data once
             # Augment observed and predicted data
@@ -828,10 +821,6 @@ class gn_enrml(lmenrmlMixIn):
 
         else:
             # for analysis debug...
-            list_datatypes = self.list_datatypes
-            list_act_datatypes = self.list_act_datatypes
-            list_states = self.list_states
-            cov_data = self.cov_data
             obs_data_vector = self.obs_data_vector
             _, pred_data = at.aug_obs_pred_data(
                 self.obs_data, self.pred_data, assim_index, self.list_datatypes)
@@ -928,7 +917,6 @@ class gn_enrml(lmenrmlMixIn):
             cov_data = self.cov_data
             obs_data_vector, pred_data = at.aug_obs_pred_data(self.obs_data, self.pred_data, assim_index,
                                                               list_datatypes)
-            mean_preddata = np.mean(pred_data, 1)
         else:
             assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
             list_datatypes, _ = at.get_list_data_types(self.obs_data, assim_index)

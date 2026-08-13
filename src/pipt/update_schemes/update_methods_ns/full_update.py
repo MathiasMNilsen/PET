@@ -1,10 +1,7 @@
 """EnRML (IES) as in 2013."""
 
 import numpy as np
-from copy import deepcopy
-import copy as cp
-from scipy.linalg import solve, solve_banded, cholesky, lu_solve, lu_factor, inv
-import pickle
+from scipy.linalg import solve
 import pipt.misc_tools.analysis_tools as at
 
 
@@ -24,10 +21,10 @@ class full_update():
         priorX = kwargs.get('prior', self.prior_enX)
 
         if self.Am is None:
-            self.ext_Am() # do this only once 
+            self.ext_Am() # do this only once
 
         # Scale and center the ensemble matrecies
-        enYcentered = self.scale(np.dot(enY, self.proj), self.scale_data) 
+        enYcentered = self.scale(np.dot(enY, self.proj), self.scale_data)
         enXcentered = self.scale(np.dot(enX, self.proj), self.state_scaling)
 
         # Perform tuncated SVD
@@ -46,7 +43,7 @@ class full_update():
         delta_m2 = -np.dot((self.state_scaling[:, None]*enXcentered), x_7)
 
         self.step = delta_m1 + delta_m2
-    
+
 
     def scale(self, data, scaling):
         """
@@ -64,7 +61,7 @@ class full_update():
             return (scaling ** (-1))[:, None] * data
         else:
             return solve(scaling, data)
-    
+
     def ext_Am(self, *args, **kwargs):
         """
         The class is initialized by calculating the required Am matrix.

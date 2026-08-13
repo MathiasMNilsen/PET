@@ -57,7 +57,7 @@ class QAQC:
                 if opt == 'cov_wgt':
                     try:
                         cov_mat_wgt = [float(elem) for elem in [item for item in self.multilevel[i][1]]]
-                    except:
+                    except Exception:
                         cov_mat_wgt = [float(item) for item in self.multilevel[i][1]]
                     Sum = 0
                     for i in range(len(cov_mat_wgt)):
@@ -227,7 +227,7 @@ class QAQC:
 
             try:
                 uxl = loadmat('seglines.mat')['uxl'].flatten()
-            except:
+            except Exception:
                 uxl = [0, field_dim[0]]
 
             uxl = np.arange(uxl[0], uxl[-1], (uxl[-1] - uxl[0]) / data_real_reg.shape[0])
@@ -285,7 +285,7 @@ class QAQC:
             plt.savefig(filename)
             os.system('convert ' + filename + '.png' + ' -trim ' + filename + '.png')
 
-        for typ in [dat for dat in self.data_types if not dat in ['bulkimp', 'sim2seis', 'avo', 'grav']]:  # Only well data
+        for typ in [dat for dat in self.data_types if dat not in ['bulkimp', 'sim2seis', 'avo', 'grav']]:  # Only well data
             if hasattr(self, 'multilevel'):  # calc for each level
                 plt.figure()
                 cover_low = [True for _ in self.en_obs[typ]]
@@ -341,7 +341,7 @@ class QAQC:
             return
         else:
             my_data = my_data[0]
-	    #my_data = my_data[1]
+        #my_data = my_data[1]
 
         # get the data
         seis_scaling = 1.0
@@ -362,7 +362,7 @@ class QAQC:
                 mask = loadmat('mask_20.mat')[f'mask_{vint + 1}']
                 mask = mask.astype(bool).transpose()
                 data_real_reg = np.zeros(mask.shape)
-            except:
+            except Exception:
                 mask = np.ones(field_dim, dtype=bool)
                 data_real_reg = np.zeros(mask.shape)
             data_real_reg[mask] = data_sim[vint]
@@ -401,7 +401,7 @@ class QAQC:
                 try:
                     uxl = loadmat('seglines.mat')['uxl'].flatten()
                     uil = loadmat('seglines.mat')['uil'].flatten()
-                except:
+                except Exception:
                     uxl = [0, field_dim[0]]
                     uil = [0, field_dim[1]]
 

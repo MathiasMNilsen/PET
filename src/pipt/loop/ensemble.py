@@ -3,19 +3,14 @@
 # External import
 import os.path
 import numpy as np
-import sys
-from copy import deepcopy, copy
+from copy import deepcopy
 from scipy.linalg import solve, cholesky
-from scipy.spatial import distance
-import itertools
 from geostat.decomp import Cholesky
 
 # Internal import
 from ensemble import BaseEnsemble, PetLogger
 import misc.read_input_csv as rcsv
-from pipt.misc_tools import wavelet_tools as wt
 from pipt.misc_tools.cov_regularization import localization, _calc_distance
-from misc.structures import PETDataFrame
 
 # Import internal tools
 import pipt.misc_tools.analysis_tools as at
@@ -59,7 +54,7 @@ class Ensemble(BaseEnsemble):
             - prior_<name>: the prior information the state variables, including mean, variance and variable limits
 
             NB: If keys_en is empty dict, it is assumed that the prior info is contained in keys_da.
-            The merged dict keys_da|keys_en is what is sent to the parent class. 
+            The merged dict keys_da|keys_en is what is sent to the parent class.
 
         sim : callable
             The forward simulator (e.g. flow)
@@ -100,18 +95,18 @@ class Ensemble(BaseEnsemble):
             self.data_df = reader.get_data()
             self.sparse_data = reader.sparse_data
             self.data_var_df = reader.get_variance(self.data_df, reader.sparse_data)
-            
+
             if self.keys_da.get('scale_data', False):
                 self.data_df.scale('max-min')
 
                 if self.keys_da.get('emp_cov', False):
-                    self.data_var_df.scale('max-min', 
-                            minimum=self.data_df.scale_min, 
+                    self.data_var_df.scale('max-min',
+                            minimum=self.data_df.scale_min,
                             maximum=self.data_df.scale_max,
                     )
                 else:
-                    self.data_var_df.scale('max-min', 
-                            minimum=0, 
+                    self.data_var_df.scale('max-min',
+                            minimum=0,
                             maximum=(self.data_df.scale_max - self.data_df.scale_min)**2
                     )
 
@@ -169,7 +164,7 @@ class Ensemble(BaseEnsemble):
         elif isinstance(self.keys_da['assimindex'][0], list):
             self.keys_da['assimindex'] = [
                 [item for sublist in self.keys_da['assimindex'] for item in sublist]]
-    
+
     def perturb_observations(self, vecObs):
         '''
         Generate the perturbed observed data ensemble
@@ -185,17 +180,17 @@ class Ensemble(BaseEnsemble):
             # Screen data if required
             if extract.is_enabled(self.keys_da.get('screendata', False)):
                 enObs = at.screen_data(
-                    enObs, 
-                    self.enPred, 
-                    vecObs, 
+                    enObs,
+                    self.enPred,
+                    vecObs,
                     self.iteration
                 )
-            
+
             # Center the ensemble of perturbed observed data
             # enObs = vecObs[:, np.newaxis] - enObs
             self.cov_data = np.var(enObs, ddof=1, axis=1)
             self.scale_data = np.sqrt(self.cov_data)
-        
+
         else:
             if not hasattr(self, 'cov_data'):  # if cd is not loaded
                 cov = at.construct_data_cov(self.data_var_df)
@@ -204,27 +199,27 @@ class Ensemble(BaseEnsemble):
             # data screening
             if extract.is_enabled(self.keys_da.get('screendata', False)):
                 self.cov_data = at.screen_data(
-                    data = self.cov_data, 
-                    aug_pred_data = self.enPred, 
-                    obs_data_vector = vecObs, 
+                    data = self.cov_data,
+                    aug_pred_data = self.enPred,
+                    obs_data_vector = vecObs,
                     iteration = self.iteration
                 )
 
             generator = Cholesky()  # Initialize GeoStat class for generating realizations
             enObs, self.scale_data = generator.gen_real(
-                mean = vecObs, 
-                var = self.cov_data, 
+                mean = vecObs,
+                var = self.cov_data,
                 number = self.ne,
                 return_chol = True
             )
-        
+
         return enObs
 
     def _ext_scaling(self):
         # get vector of scaling
         self.state_scaling = at.calc_scaling(
             self.prior_enX, self.prior_enX.indices, self.prior_info)
-        
+
         self.Am = None
 
 
@@ -234,7 +229,7 @@ class Ensemble(BaseEnsemble):
 
         Parameters
         ----------
-        data : 
+        data :
             data to be compressed
             If data is `None`, all data (true and simulated) is re-compressed (used if leading indices are updated)
         vintage : int
@@ -317,7 +312,7 @@ class Ensemble(BaseEnsemble):
         #    np.savez(s, data_rec)  # save reconstructed data
         #    if self.sparse_info['use_ensemble']:
         #        data_array = data  # just return the same as input
-        
+
         elif aug_coeff:
 
             _, _ = self.sparse_data[vintage].compress(data, self.sparse_info['th_mult'])
@@ -359,8 +354,8 @@ class Ensemble(BaseEnsemble):
             np.random.set_state(self.data_random_state)
             self.vecObs, self.enObs = self.set_observations()
             _, self.enPred = at.aug_obs_pred_data(
-                self.obs_data, 
-                self.pred_data, 
+                self.obs_data,
+                self.pred_data,
                 self.assim_index,
                 self.list_datatypes
             )
@@ -436,7 +431,7 @@ class Ensemble(BaseEnsemble):
                         current_data_list.sort()  # ensure consistent ordering of data
                         if len(current_data_list):
                             # if non-unique data for assimilation index, get the relevant data.
-                            if self.local_analysis['unique'] == False:
+                            if self.local_analysis['unique'] is False:
                                 orig_assim_index = deepcopy(self.assim_index)
                                 assim_index_data_list = set(
                                     [el.split('_')[0] for el in current_data_list])
@@ -486,7 +481,7 @@ class Ensemble(BaseEnsemble):
                             self.state = at.update_state(
                                 aug_state_upd, self.state, self.list_states, self.cell_index)
 
-                            if self.local_analysis['unique'] == False:
+                            if self.local_analysis['unique'] is False:
                                 # reset assim index
                                 self.assim_index = deepcopy(orig_assim_index)
                             if hasattr(self, 'localization') and 'distance' in self.localization.loc_info:  # reset
