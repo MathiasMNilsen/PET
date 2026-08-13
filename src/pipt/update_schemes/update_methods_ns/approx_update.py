@@ -2,12 +2,12 @@
 
 import numpy as np
 import warnings
-from scipy.linalg import solve, sqrtm
 
+from pipt.update_schemes.analysis.base import AnalysisStrategy
 import pipt.misc_tools.analysis_tools as at
 
 
-class approx_update():
+class approx_update(AnalysisStrategy):
     """
     Approximate LM Update scheme as defined in "Chen, Y., & Oliver, D. S. (2013). Levenberg–Marquardt forms of the iterative ensemble
     smoother for efficient history matching and uncertainty quantification. Computational Geosciences, 17(4), 689–703.
@@ -134,15 +134,4 @@ class approx_update():
             return scx[:, None] * X_anom @ X3               # shape: (nx, ne)
 
 
-    def solve(self, A, B):
-        if A.ndim == 2:
-            return solve(A, B)
-        else:
-            return (A ** (-1))[:, None] * B
-
-    def sqrtm(self, A):
-        if A.ndim == 2:
-            return sqrtm(A)
-        else:
-            return np.sqrt(A)
 

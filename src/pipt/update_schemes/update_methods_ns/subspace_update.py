@@ -1,12 +1,12 @@
 """Stochastic iterative ensemble smoother (IES) with subspace implementation."""
 
 import numpy as np
-from scipy.linalg import solve, sqrtm
 
+from pipt.update_schemes.analysis.base import AnalysisStrategy
 import pipt.misc_tools.analysis_tools as at
 
 
-class subspace_update():
+class subspace_update(AnalysisStrategy):
     """
     Ensemble subspace update (weight-space IES).
 
@@ -92,16 +92,3 @@ class subspace_update():
     # Helpers
     # ------------------------------------------------------------------
 
-    def solve(self, A, B):
-        """Apply A⁻¹ B, supporting both matrix (2-D) and diagonal (1-D) A."""
-        if np.ndim(A) == 2:
-            return solve(A, B)
-        else:
-            return (A ** (-1))[:, None] * B
-
-    def sqrtm(self, A):
-        """Matrix square root, supporting both matrix and diagonal inputs."""
-        if np.ndim(A) == 2:
-            return sqrtm(A)
-        else:
-            return np.sqrt(A)

@@ -1,12 +1,12 @@
 """Full (model-space) LM ensemble update."""
 
 import numpy as np
-from scipy.linalg import solve, sqrtm
 
+from pipt.update_schemes.analysis.base import AnalysisStrategy
 import pipt.misc_tools.analysis_tools as at
 
 
-class full_update():
+class full_update(AnalysisStrategy):
     """
     Full LM update as in Chen & Oliver (2013).
 
@@ -97,16 +97,3 @@ class full_update():
         r = int(np.searchsorted(np.cumsum(S) / S.sum(), self.trunc_energy)) + 1
         self.Am = U[:, :r] * (S[:r] ** (-1))[None, :]   # shape: (nx, r), notation from paper
 
-    def solve(self, A, B):
-        """Apply A⁻¹ B, supporting both matrix (2-D) and diagonal (1-D) A."""
-        if np.ndim(A) == 2:
-            return solve(A, B)
-        else:
-            return (A ** (-1))[:, None] * B
-
-    def sqrtm(self, A):
-        """Matrix square root, supporting both matrix and diagonal inputs."""
-        if np.ndim(A) == 2:
-            return sqrtm(A)
-        else:
-            return np.sqrt(A)
