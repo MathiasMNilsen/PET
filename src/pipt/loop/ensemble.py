@@ -10,7 +10,8 @@ from geostat.decomp import Cholesky
 # Internal import
 from ensemble import BaseEnsemble, PetLogger
 import misc.read_input_csv as rcsv
-from pipt.misc_tools.cov_regularization import localization, _calc_distance
+from pipt.localization import build_localization_instance
+from pipt.localization import _calc_distance
 
 # Import internal tools
 import pipt.misc_tools.analysis_tools as at
@@ -132,13 +133,18 @@ class Ensemble(BaseEnsemble):
 
             # Initialize localization
             if 'localization' in self.keys_da:
-                self.localization = localization(
+                self.localization = build_localization_instance(
                     self.keys_da['localization'],
                     self.keys_da['truedataindex'],
                     self.keys_da['datatype'],
                     self.keys_en['state'],
-                    self.ne
+                    self.ne,
+                    data=self.data_df,
+                    prior_info=self.prior_info,
                 )
+            else:
+                # Create a dummy localization object with name None
+                self.localization = type('localization', (object,), {'name': None})()
 
             # Initialize local analysis
             if 'localanalysis' in self.keys_da:

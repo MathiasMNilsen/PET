@@ -1,13 +1,10 @@
 """EnRML (IES) without the prior increment term."""
 
 import numpy as np
-from scipy.linalg import solve
+import warnings
+from scipy.linalg import solve, sqrtm
 
-import pipt.misc_tools.ensemble_tools as entools
 import pipt.misc_tools.analysis_tools as at
-import pipt.misc_tools.extract_tools as extract
-
-from pipt.misc_tools.cov_regularization import _calc_loc
 
 
 class approx_update():
@@ -32,184 +29,120 @@ class approx_update():
             enE : np.ndarray
                 Ensemble of perturbed observations (nd, ne)
         '''
+        # Shapes
+        nx, ne = enX.shape
+        ny, _  = enY.shape
 
-        # Scale and center the ensemble matrecies
-        if kwargs.get('enAdj', None) is None:
-            Y = np.dot(enY, self.proj) # Such that Cyy ≈ Y @ Y.T
-            Y = self.scale(Y, self.scale_data)
+        # Scaling factors and other attributes needed for the update
+        cov = getattr(self, 'cov_data', np.eye(ny))  # Data covariance matrix (ny,ny) or (ny,)
+        scx = getattr(self, 'scale_state', np.ones(nx))
+        scy = getattr(self, 'scale_data', self.sqrtm(cov))
+        PI  = getattr(
+            self, 'proj',
+            (np.eye(ne) - np.ones((ne, ne)) / ne)/ np.sqrt(ne-1)
+        )  # shape: (ne, ne) such that A@PI = A - mean(A)/sqrt(ne-1) for any ensemble matrix A of shape (na, ne)
+
+        # Check for adjoint-based update
+        if kwargs.get('enAdj', None) is not None:
+            Y = kwargs['enAdj'].mean(axis=-1) @ enX @ PI    # shape: (nd, ne)
         else:
-            Gavg = np.mean(kwargs['enAdj'], axis=-1)
-            Y = self.scale(Gavg @ enX @ self.proj, self.scale_data)
+            Y = enY @ PI                                    # shape: (nd, ne) --> Such that Cyy ≈ Y @ Y.T
 
-        # Perform truncated SVD on Y
-        U, S, VT = at.truncSVD(Y, energy=self.trunc_energy)
+        # Anomaly matrices
+        X_anom = self.solve(scx, enX @ PI)                  # shape: (nx, ne) --> State anomalies: (X-mean(X))/sqrt(ne-1)
+        Y_anom = self.solve(scy, Y)                         # shape: (nd, ne) --> Predicted data anomalies: (Y-mean(Y))/sqrt(ne-1)
+        D_anom = self.solve(scy, enE - enY)                 # shape: (nd, ne) --> Innovation ensemble: data - predictions
 
-        # Check for localization methods
-        if 'localization' in self.keys_da:
-            loc_info = self.localization.loc_info
+        # Truncated SVD on predicted data anomalies
+        Ur, Sr, VrT = at.truncSVD(Y_anom, energy=self.trunc_energy) # shape: (nd, nr), (nr,), (nr, ne)
 
-            # Calculate the localization projection matrix
-            if extract.is_enabled(self.keys_da.get('emp_cov', False)):
-                E = np.dot(enE, self.proj) # Such that Cdd ≈ E @ E.T
-                E = self.scale(E, self.scale_data)
+        # ===============================================
+        # Compute step
+        # ===============================================
+        X1 = Ur.T @ D_anom                                  # shape: (nr, ne) --> Projected innovation ensemble
 
-                # Calculate intermediate matrix
-                X0 = np.diag(1/S) @ U.T @ E
-                eigval, eigvec = np.linalg.eig(X0 @ X0.T)
-                reg_term = (self.lam + 1) * np.diag(eigval) + np.eye(len(eigval))
-                X = (VT.T @ eigvec) @ solve(reg_term, (U.T @ (np.diag(1/S) @ eigvec)).T)
+        if self.keys_da.get('emp_cov', False):
+            E_anom = self.solve(scy, enE @ PI)              # shape: (nd, ne)
+            invSr = (1/Sr)[:, None]                         # shape: (nr, 1)
+            X0 = invSr * (Ur.T @ E_anom)                    # shape: (nr, ne)
+            eigval, eigvec = np.linalg.eig(X0 @ X0.T)       # shape: (nr, nr), (nr, nr)
+            d = (self.lam + 1) * eigval + 1                 # shape: (nr, )
+            rhs = eigvec.T @ (invSr * X1)                   # shape: (nr, ne)
+            X2 = invSr * (eigvec @ self.solve(d, rhs))      # shape: (nr, ne)
+        else:
+            X2 = self.solve(1 + self.lam + Sr**2, X1)       # shape: (nr, ne)
 
+        # AUTO-ADAPTIVE LOCALIZATION
+        if self.localization.name == 'autoadaloc':
+            y_proj = self.localization.info.get('projection', 'rank-r')
+            assert y_proj in ['rank-r', 'ensemble'], "Projection method must be either 'rank-r' or 'ensemble'."
+
+            if y_proj == 'rank-r':
+                Y_anom_proj = np.diag(Sr) @ VrT             # shape: (nr, ne) --> Y_proj = U.T @ Y_anom
+                T_loc = self.localization(                  # shape: (nx, nr) --> nr < ne << ny (typically)
+                    X = scx[:, None]*X_anom,                # shape: (nx, ne)
+                    Y = Y_anom_proj
+                )
+                Cxy_loc = T_loc * (scx[:, None]*X_anom @ Y_anom_proj.T)
+                return Cxy_loc @ X2                         # shape: (nx, ne)
+
+            elif y_proj == 'ensemble':
+                Y_anom_proj = X2 @ D_anom                   # shape: (ne, ne)
+                T_loc = self.localization(                  # shape: (nx, ne)
+                    X = scx[:, None]*X_anom,                # shape: (nx, ne)
+                    Y = Y_anom_proj
+                )
+                step = (T_loc * scx[:, None]*X_anom) @ Y_anom_proj
+                return step                                 # shape: (nx, ne)
+
+        # DISTANCE-BASED LOCALIZATION
+        elif self.localization.name == 'distance_loc':
+
+            # Gain-factor matrix X shape: (nr, nd)
+            if self.keys_da.get('emp_cov', False):
+                A = X_anom * np.sqrt(ne - 1)                # Undo 1/sqrt(ne-1) normalisation; shape: (nx, ne)
+                X = (VrT.T @ eigvec) @ self.solve(d, eigvec.T @ (invSr * Ur.T))
             else:
-                reg_term = (self.lam + 1)*np.eye(S.size) + np.diag(S**2)
-                X = VT.T @ np.diag(S) @ solve(reg_term, U.T)
+                A = scx[:, None] * X_anom                   # shape: (nx, ne)
+                X = VrT.T @ (Sr[:, None] * self.solve(1 + self.lam + Sr**2, Ur.T))
 
+            T_loc = self.localization()                     # shape: (nx, nd) -- sparse localisation mask
+            K_loc = T_loc.multiply(A @ X)                   # shape: (nx, nd) -- elementwise sparse × dense
+            return K_loc @ D_anom                           # shape: (nx, ne)
 
-            # Check for adaptive localization
-            if 'autoadaloc' in loc_info:
+        # LOCAL ANALYSIS
+        elif self.localization.name == 'localanalysis':
+            # NOT IMPLEMENTED YET AFTER REFACTORING
+            warnings.warn(
+                "Local analysis is not currently implemented."
+            )
+            # TODO: Implement local analysis
+            pass
 
-                # Scale and center the state ensemble matrix, enX
-                if extract.is_enabled(self.keys_da.get('emp_cov', False)):
-                    enXcentered = self.scale(enX - np.mean(enX, 1)[:,None], self.state_scaling)
-                else:
-                    enXcentered = self.scale(np.dot(enX, self.proj), self.state_scaling)
+        # PARALLEL UPDATE
+        elif self.localization.name == 'parallel_update':
+            # NOT IMPLEMENTED YET AFTER REFACTORING
+            warnings.warn(
+                "Parallel update is not currently implemented."
+            )
+            # TODO: Implement parallel update
+            pass
 
-                # Calculate and scale difference between observations and predictions (residuals)
-                enRes = self.scale(enE - enY, self.scale_data)
-
-                # Compute the update step with auto-adaptive localization
-                self.step = self.localization.auto_ada_loc(
-                    pert_state     = self.state_scaling[:, None]*enXcentered,
-                    proj_pred_data = np.dot(X, enRes),
-                    curr_param     = self.list_states,
-                    prior_info     = self.prior_info
-                )
-
-
-            # Check for local analysis
-            elif ('localanalysis' in loc_info) and (loc_info['localanalysis']):
-
-                # Calculate weights
-                if 'distance' in loc_info:
-                    weight = _calc_loc(
-                        max_dist   = loc_info['range'],
-                        distance   = loc_info['distance'],
-                        prior_info = self.prior_info[self.list_states[0]],
-                        loc_type   = loc_info['type'],
-                        ne = self.ne
-                    )
-                else: # if no distance, do full update
-                    weight = np.ones((enX.shape[0], X.shape[1]))
-
-                # Center ensemble matrix
-                enXcentered = enX - np.mean(enX, axis=1, keepdims=True)
-
-                if not extract.is_enabled(self.keys_da.get('emp_cov', False)):
-                    enXcentered /= np.sqrt(self.ne - 1)
-
-                # Calculate and scale difference between observations and predictions (residuals)
-                enRes = self.scale(enE - enY, self.scale_data)
-
-                # Compute the update step with local analysis
-                try:
-                    self.step = weight.multiply(np.dot(enXcentered, X)).dot(enRes)
-                except Exception:
-                    self.step = (weight*(np.dot(enXcentered, X))).dot(enRes)
-
-
-            # Check for distance based localization
-            elif ('dist_loc' in self.keys_da['localization'].keys()) or ('dist_loc' in self.keys_da['localization'].values()):
-
-                # Setup localization mask
-                mask = self.localization.localize(
-                    self.list_datatypes,
-                    [self.keys_da['truedataindex'][int(elem)] for elem in self.assim_index[1]],
-                    self.list_states,
-                    self.ne,
-                    self.prior_info,
-                    at.get_obs_size(self.obs_data, self.assim_index[1], self.list_datatypes)
-                )
-
-                # Center ensemble matrix
-                enXcentered = enX - np.mean(enX, axis=1, keepdims=True)
-
-                if not extract.is_enabled(self.keys_da.get('emp_cov', False)):
-                    enXcentered /= np.sqrt(self.ne - 1)
-
-                # Calculate and scale difference between observations and predictions (residuals)
-                enRes = self.scale(enE - enY, self.scale_data)
-
-                # Compute the update step with distance-based localization
-                self.step = mask.multiply(np.dot(enXcentered, X)).dot(enRes)
-
-
-
-            # Else do parallel update (NOT TESTED AFTER UPDATES)
-            else:
-                act_data_list = {}
-                count = 0
-                for i in self.assim_index[1]:
-                    for el in list(self.idX.keys()):
-                        if self.real_obs_data[int(i)][el] is not None:
-                            act_data_list[(el, float(self.keys_da['truedataindex'][int(i)]))] = count
-                            count += 1
-
-                well  = [w for w in set([el[0] for el in loc_info.keys() if isinstance(el, tuple)])]
-                times = [t for t in set([el[1] for el in loc_info.keys() if isinstance(el, tuple)])]
-
-                tot_dat_index = {}
-                for uniq_well in well:
-                    tmp_index = []
-                    for t in times:
-                        if (uniq_well, t) in act_data_list:
-                            tmp_index.append(act_data_list[(uniq_well, t)])
-                    tot_dat_index[uniq_well] = tmp_index
-
-                if extract.is_enabled(self.keys_da.get('emp_cov', False)):
-                    emp_cov = True
-                else:
-                    emp_cov = False
-
-                self.step = at.parallel_upd(
-                    list(self.idX.keys()),
-                    self.prior_info,
-                    entools.matrix_to_dict(enX, self.idX),
-                    X,
-                    loc_info,
-                    enE,
-                    enY,
-                    int(self.keys_fwd['parallel']),
-                    actnum=loc_info['actnum'],
-                    field_dim=loc_info['field'],
-                    act_data_list=tot_dat_index,
-                    scale_data=self.scale_data,
-                    num_states=len([el for el in list(self.idX.keys())]),
-                    emp_d_cov=emp_cov
-                )
-                self.step = at.aug_state(self.step, list(self.idX.keys()))
-
+        # NO LOCALIZATION
         else:
-            A = np.dot(enX, self.proj) # Such that Cxx ≈ A @ A.T
-            A = self.scale(A, self.state_scaling)
-            enRes = self.scale(enE - enY, self.scale_data)
-            X1 = U.T @ enRes
-            X2 = solve((self.lam + 1)*np.eye(S.size) + np.diag(S**2), X1)
-            X3 = VT.T @ np.diag(S) @ X2
-            self.step = np.dot(self.state_scaling[:, None] * A, X3)
+            X3 = VrT.T @ np.diag(Sr) @ X2                   # shape: (ne, ne)
+            return scx[:, None] * X_anom @ X3               # shape: (nx, ne)
 
 
-    def scale(self, data, scaling):
-        """
-        Scale the data perturbations by the data error standard deviation.
-
-        Args:
-            data (np.ndarray): data perturbations
-            scaling (np.ndarray): data error standard deviation
-
-        Returns:
-            np.ndarray: scaled data perturbations
-        """
-
-        if len(scaling.shape) == 1:
-            return (scaling ** (-1))[:, None] * data
+    def solve(self, A, B):
+        if A.ndim == 2:
+            return solve(A, B)
         else:
-            return solve(scaling, data)
+            return (A ** (-1))[:, None] * B
+
+    def sqrtm(self, A):
+        if A.ndim == 2:
+            return sqrtm(A)
+        else:
+            return np.sqrt(A)
+

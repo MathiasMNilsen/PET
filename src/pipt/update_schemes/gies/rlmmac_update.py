@@ -4,7 +4,7 @@ import numpy as np
 from scipy.linalg import solve
 import pipt.misc_tools.analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
-from pipt.misc_tools.cov_regularization import _calc_loc
+from pipt.localization.local_analysis import _calc_loc
 
 class rlmmac_update():
     """

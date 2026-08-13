@@ -166,7 +166,7 @@ class esmdaMixIn(Ensemble):
                 enAdj = None
 
             # Perform the update
-            self.update(
+            self.step = self.update(
                 enX = self.enX,
                 enY = self.enPred,
                 enE = self.enObs,
@@ -176,7 +176,7 @@ class esmdaMixIn(Ensemble):
             )
 
             # Update the state ensemble and weights
-            if hasattr(self, 'step'):
+            if self.step is not None:
                 self.enX_temp = self.enX + self.step
             if hasattr(self, 'w_step'):
                 self.W = self.current_W + self.w_step

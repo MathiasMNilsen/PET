@@ -104,8 +104,8 @@ class GIESMixIn(Ensemble):
                     self.scale_data, self.aug_pred_data[:, 0:self.ne] - self.aug_pred_data[:, self.ne, None])
 
             aug_state = at.aug_state(self.current_state, self.list_states)
-            self.update()  # run ordinary analysis
-            if hasattr(self, 'step'):
+            self.step = self.update()  # run ordinary analysis
+            if self.step is not None:
                 aug_state_upd = aug_state + self.step
             if hasattr(self, 'w_step'):
                 self.W = self.current_W + self.w_step

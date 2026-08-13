@@ -4,7 +4,6 @@ EnRML type schemes
 # External imports
 import pipt.misc_tools.analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
-from pipt.misc_tools.analysis_tools import aug_state
 
 from geostat.decomp import Cholesky
 from pipt.loop.ensemble import Ensemble
@@ -151,7 +150,7 @@ class lmenrmlMixIn(Ensemble):
                 enAdj = None
 
             # Perform the update
-            self.update(
+            self.step = self.update(
                 enX = self.enX,
                 enY = self.enPred,
                 enE = self.enObs,
@@ -161,7 +160,7 @@ class lmenrmlMixIn(Ensemble):
             )
 
             # Update the state ensemble and weights
-            if hasattr(self, 'step'):
+            if self.step is not None:
                 self.enX_temp = self.enX + self.step
             if hasattr(self, 'w_step'):
                 self.W = self.current_W + self.w_step
@@ -414,7 +413,7 @@ class gnenrmlMixIn(Ensemble):
             else:
                 enAdj = None
 
-            self.update(
+            self.step = self.update(
                 enX=self.enX,
                 enY=self.enPred,
                 enE=self.enObs,
@@ -422,7 +421,7 @@ class gnenrmlMixIn(Ensemble):
                 enAdj=enAdj
             )
 
-            if hasattr(self, 'step'):
+            if self.step is not None:
                 self.enX_temp = self.enX + self.gamma * self.step
             if hasattr(self, 'w_step'):
                 self.W = self.current_W + self.gamma * self.w_step
@@ -699,9 +698,9 @@ class co_lm_enrml(lmenrmlMixIn, approx_update):
                     (np.sqrt(self.ne - 1))
         self.pert_preddata = pert_preddata
 
-        self.update()
-        if hasattr(self, 'step'):
-            aug_state_upd = aug_state + self.step
+        self.step = self.update()
+        if self.step is not None:
+            aug_state_upd = at.aug_state(self.current_state, self.list_states) + self.step
         if hasattr(self, 'w_step'):
             self.W = self.current_W - self.w_step
             aug_prior_state = at.aug_state(self.prior_state, self.list_states)
@@ -821,6 +820,7 @@ class gn_enrml(lmenrmlMixIn):
 
         else:
             # for analysis debug...
+            cov_data = self.cov_data
             obs_data_vector = self.obs_data_vector
             _, pred_data = at.aug_obs_pred_data(
                 self.obs_data, self.pred_data, assim_index, self.list_datatypes)
@@ -861,7 +861,7 @@ class gn_enrml(lmenrmlMixIn):
                         np.dot(X3_m.T, self.W))
 
         if 'localization' in self.keys_da:
-            if self.keys_da['localization'][1][0] == 'autoadaloc':
+            if hasattr(self.localization, 'auto_ada_loc'):
                 loc_step_d = np.dot(np.linalg.pinv(self.aug_prior), self.localization.auto_ada_loc(self.aug_prior,
                                                                                                    np.dot(np.dot(S.T, X2),
                                                                                                           np.dot(inv(
