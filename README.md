@@ -16,7 +16,7 @@ at NORCE Norwegian Research Centre AS.
 Before installing ensure you have python3 pre-requisites. On a Debian system run:
 
 ```
-sudo upt-get update
+sudo apt-get update
 sudo apt-get install python3
 sudo apt-get install python3-pip
 sudo apt-get install python3-venv
@@ -41,13 +41,6 @@ python3 -m venv venv-PET
 source venv-PET/bin/activate
 ```
 
-Some additional features might be not part of your default installation and need to be set in the Python (virtual) environment manually:
-
-```
-python3 -m pip install wheel
-python3 setup.py bdist_wheel
-```
-
 If you do not install PET inside a virtual environment,
 you may have to include the `--user` option in the following
 (to install to your local Python site packages, usually located in `~/.local`).
@@ -61,6 +54,26 @@ python3 -m pip install -e .
 - The dot is needed to point to the current directory.
 - The `-e` option installs PET such that changes to it take effect immediately
   (without re-installation).
+
+To also install the tools needed for running tests and linting locally:
+
+```sh
+python3 -m pip install -e ".[dev]"
+```
+
+## Command-line interface
+
+Installing PET also installs a `pet` command for working with config files:
+
+```sh
+pet validate my_config.toml   # check a config file for missing/invalid keys
+pet convert my_case.pipt      # convert a legacy .pipt/.popt file to .toml (or --to yaml)
+pet version                   # print the installed PET version
+```
+
+Running a data-assimilation or optimization job itself is still done from a
+Python driver script that wires up your forward simulator/cost function -- see
+the tutorials below.
 
 ## Examples
 
