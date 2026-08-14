@@ -21,12 +21,13 @@ import pipt.misc_tools.analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
 
 from pipt.ensembles.compression import CompressionMixin
+from pipt.ensembles.forecast import ForecastMixin
 from pipt.ensembles.local_analysis import LocalAnalysisMixin
 
 __all__ = ["AssimilationEnsemble"]
 
 
-class AssimilationEnsemble(CompressionMixin, LocalAnalysisMixin, BaseEnsemble):
+class AssimilationEnsemble(ForecastMixin, CompressionMixin, LocalAnalysisMixin, BaseEnsemble):
     """
     Class for organizing/initializing misc. variables and simulator for an
     ensemble-based inversion run. Inherits the PET ensemble structure

@@ -4,7 +4,6 @@ import os
 import pickle
 import numpy as np
 import pandas as pd
-from copy import deepcopy
 from importlib import import_module
 from typing import Any
 
@@ -32,9 +31,12 @@ class Assimilate:
     PRIOR_FORECAST_FILE = "prior_forecast.pkl"
     POSTERIOR_STATE_FILE = "posterior_state_estimate.npz"
     POSTERIOR_FORECAST_FILE = "posterior_forecast.pkl"
-    RESTART_RESULTS_FILE = "restart_sim_results.pkl"
-    SIM_RESULTS_FILE = "sim_results.pkl"
     STOP_REASON_FILE = "why_iter_loop_stopped.pkl"
+
+    #: Moved to the ensemble along with the forecast; aliased so any external
+    #: reference to ``Assimilate.SIM_RESULTS_FILE`` keeps resolving.
+    RESTART_RESULTS_FILE = Ensemble.RESTART_RESULTS_FILE
+    SIM_RESULTS_FILE = Ensemble.SIM_RESULTS_FILE
 
     def __init__(self, ensemble: Ensemble):
         """Initialize the assimilation loop.
@@ -49,7 +51,6 @@ class Assimilate:
         self.max_iter = self._get_max_iterations()
         self.why_stop: dict[str, Any] | None = None
         self.qaqc: QAQC | None = None
-        self.scale_val: float | None = None
         self.save_folder: str | None = None
 
         if self._saving_enabled:
@@ -338,155 +339,9 @@ class Assimilate:
         return value if isinstance(value, list) else [value]
 
     def calc_forecast(self) -> None:
-        """Run forecast simulations and prepare predicted data for analysis."""
-        if self._load_restart_prediction_if_available():
-            return
+        """Run forecast simulations and prepare predicted data for analysis.
 
-        enX = self.ensemble.enX if self.ensemble.enX_temp is None else self.ensemble.enX_temp
-        self.ensemble.calc_prediction(enX)
-        self.ensemble.pred_data = self.sim_to_pred_data(self.ensemble.sim_data)
-
-        self._apply_prediction_scaling()
-
-        if extract.is_enabled(self.ensemble.keys_da.get("post_process_forecast", False)):
-            self.post_process_forecast()
-
-        self._save_forecast_debug()
-
-    def _load_restart_prediction_if_available(self) -> bool:
-        if not os.path.exists(self.RESTART_RESULTS_FILE):
-            return False
-
-        with open(self.RESTART_RESULTS_FILE, "rb") as file:
-            self.ensemble.sim_data = pickle.load(file)
-
-        self.ensemble.pred_data = self.sim_to_pred_data(self.ensemble.sim_data)
-
-        os.rename(self.RESTART_RESULTS_FILE, self.SIM_RESULTS_FILE)
-        print("--- Restart sim results used ---")
-        return True
-
-    def _apply_prediction_scaling(self) -> None:
-        if "scale" not in self.ensemble.keys_da:
-            return
-
-        scale_keys, scale_factor = self.ensemble.keys_da["scale"]
-        for prediction in self.ensemble.pred_data:
-            for key in prediction:
-                if key in scale_keys:
-                    prediction[key] *= scale_factor
-
-    def _save_forecast_debug(self) -> None:
-        if "saveforecast" not in self.ensemble.sim.input_dict:
-            return
-        if not self._saving_enabled:
-            return
-
-        forecast = self.ensemble.sim_data
-        if self.ensemble.data_df.is_scaled:
-            forecast = forecast.copy().invert_scale()
-
-        with open(self._save_path(self.SIM_RESULTS_FILE), "wb") as file:
-            pickle.dump(forecast, file)
-
-    def sim_to_pred_data(self, pred: Any) -> Any:
-        '''
-        Filter the simulator output to match the structure of the predicted data expected.
-
-        Parameters
-        ----------
-        pred : Any
-            The raw output from the simulator, which may be a list of DataFrames or a single DataFrame.
-
-        Returns
-        -------
-        Any
-            The processed predicted data, structured to match the ensemble's expected format for analysis.
-        '''
-        if isinstance(pred, list):
-            return [self.sim_to_pred_data(frame) for frame in pred]
-        index = self.ensemble.data_df.index
-        columns = self.ensemble.data_df.columns
-        return pred.filter_dataframe(index=index, columns=columns)
-
-    def post_process_forecast(self) -> None:
-        """Post-process predicted data after a forecast run."""
-        compress_columns = self.ensemble.sparse_info["compress_data"]
-        if not isinstance(compress_columns, list):
-            compress_columns = [compress_columns]
-        pred_data_tmp = deepcopy(self.ensemble.pred_data[compress_columns])
-
-        self._apply_sim2seis_scaling(pred_data_tmp)
-        self._apply_sparse_compression(pred_data_tmp)
-        self._save_reconstructed_forecast_if_requested()
-
-    def _apply_sim2seis_scaling(self, pred_data_tmp: Any) -> None:
-        if not os.path.exists("scale_results.pkl"):
-            return
-
-        if self.scale_val is None:
-            with open("scale_results.pkl", "rb") as file:
-                scale = pickle.load(file)
-            self.scale_val = np.sum(scale[0]) / len(scale[0])
-
-        if self.ensemble.sparse_info is not None:
-            self._scale_sparse_sim2seis(pred_data_tmp, self.scale_val)
-        else:
-            self._scale_dense_sim2seis(self.scale_val)
-
-    def _scale_sparse_sim2seis(self, pred_data_tmp: Any, scale_value: float) -> None:
-        for index in pred_data_tmp.index:
-            row = pred_data_tmp.loc[index]
-            if row is None:
-                continue
-            for column in row:
-                if "sim2seis" in column and row[column] is not None:
-                    pred_data_tmp.at[index, column] = row[column] / scale_value
-
-    def _scale_dense_sim2seis(self, scale_value: float) -> None:
-        for index in self.ensemble.pred_data.index:
-            row = self.ensemble.pred_data.loc[index]
-            for column in row:
-                if "sim2seis" in column and row[column] is not None:
-                    self.ensemble.pred_data.at[index, column] = row[column] / scale_value
-
-    def _apply_sparse_compression(self, pred_data_tmp: Any) -> None:
-        if not self.ensemble.sparse_info:
-            return
-
-        self.ensemble.data_rec = []
-        compress_key = self.ensemble.sparse_info["compress_data"]
-        use_ensemble = self.ensemble.sparse_info["use_ensemble"]
-        ensemble_size = self.ensemble.ne + 1 if self.ensemble.keys_da["scheme"] == "gies" else self.ensemble.ne
-
-        vintage = 0
-        for index in pred_data_tmp.index:
-            cell = pred_data_tmp.loc[index, compress_key]
-            if None in cell:
-                continue
-
-            data_length = len(self.ensemble.data_df.loc[index, compress_key])
-            self.ensemble.pred_data.at[index, compress_key] = np.zeros((data_length, ensemble_size))
-
-            for member in range(ensemble_size):
-                compressed_data = self.ensemble.compress_manager(
-                    cell[:, member], vintage, use_ensemble,
-                )
-                self.ensemble.pred_data.at[index, compress_key][:, member] = compressed_data
-            vintage += 1
-
-        if use_ensemble:
-            self.ensemble.compress_manager()
-            self.ensemble.sparse_info["use_ensemble"] = None
-
-    def _save_reconstructed_forecast_if_requested(self) -> None:
-        if "saveforecast" not in self.ensemble.sim.input_dict:
-            return
-        if not self.ensemble.sparse_data:
-            return
-
-        for vintage in np.arange(len(self.ensemble.data_rec)):
-            self.ensemble.data_rec[vintage] = np.asarray(self.ensemble.data_rec[vintage]).T
-
-        with open("rec_results.pkl", "wb") as file:
-            pickle.dump(self.ensemble.data_rec, file)
+        Retained as a thin delegation: the forecast itself now lives on the
+        ensemble, as :meth:`pipt.ensembles.ForecastMixin.forecast`.
+        """
+        self.ensemble.forecast()

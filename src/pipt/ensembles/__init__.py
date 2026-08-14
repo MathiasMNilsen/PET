@@ -5,6 +5,7 @@ Mirrors the layout of :mod:`popt.ensembles`.
 
 from .ensemble_base import AssimilationEnsemble
 from .compression import CompressionMixin
+from .forecast import ForecastMixin
 from .local_analysis import LocalAnalysisMixin
 
 #: Historical name, kept so existing code and subclasses keep working.
@@ -14,5 +15,6 @@ __all__ = [
     "AssimilationEnsemble",
     "Ensemble",
     "CompressionMixin",
+    "ForecastMixin",
     "LocalAnalysisMixin",
 ]
