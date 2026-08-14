@@ -1,7 +1,5 @@
-from pathlib import Path
 import numpy as np
 import pytest
-import sys
 
 from popt.optimization_methods import BoundTransformHandler
 

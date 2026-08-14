@@ -15,7 +15,7 @@ DATETIMES_STR_ISO = [
     "2024-01-03T14:45:00"
 ]
 DATETIMES = [
-    dt.datetime(2024, 1, 1, 12, 0, 0), 
+    dt.datetime(2024, 1, 1, 12, 0, 0),
     dt.datetime(2024, 1, 2, 13, 30, 0),
     dt.datetime(2024, 1, 3, 14, 45, 0)
 ]

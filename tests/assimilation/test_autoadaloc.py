@@ -154,7 +154,7 @@ def test_approx_update_with_autoadaloc():
     Ur, Sr, VrT = truncSVD(Y_anom, energy=0.98)
     X1 = Ur.T @ D_anom
     X2 = X1 / (1 + 1.0 + Sr**2)[:, None]
-    X3 = VrT.T @ np.diag(Sr) @ X2 
+    X3 = VrT.T @ np.diag(Sr) @ X2
     step_expected_no_loc = X_anom @ X3
 
     # Calculate step manually with localization
@@ -170,7 +170,7 @@ def test_approx_update_with_autoadaloc():
 
 
 def compares_with_old_autoadaloc():
-    
+
     loc_info = {
         "name": "autoadaloc",
         "field": [4, 2],
@@ -214,7 +214,7 @@ def compares_with_old_autoadaloc():
     Ur, Sr, VrT = truncSVD(Y_anom, energy=0.98)
     X1 = Ur.T @ D_anom
     X2 = X1 / (1 + 1.0 + Sr**2)[:, None]
-    X3 = VrT.T @ np.diag(Sr) @ X2 
+    X3 = VrT.T @ np.diag(Sr) @ X2
     step_no_loc = X_anom @ X3
 
 
@@ -248,7 +248,7 @@ def compares_with_old_autoadaloc():
     # Comupare the full loc update
     # --------------------------------------------------------
     X_anom = enX @ PI
-    Y_anom = (enY @ PI) 
+    Y_anom = (enY @ PI)
     D_anom = (enE - enY)
 
     # Kalman gain with localization
@@ -262,7 +262,7 @@ def compares_with_old_autoadaloc():
     # --------------------------------------------------------
     # full step without localization
     step_no_loc_full = (X_anom @ Y_anom.T) @ np.linalg.solve(Y_anom @ Y_anom.T + np.diag(Cdd), D_anom)
-    
+
 
     import matplotlib.pyplot as plt
     from matplotlib.colors import TwoSlopeNorm

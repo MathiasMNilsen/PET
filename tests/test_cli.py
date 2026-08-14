@@ -1,8 +1,6 @@
 """Tests for the `pet` command-line interface."""
 
-from pathlib import Path
 
-import pytest
 
 from pet_cli.__main__ import main
 

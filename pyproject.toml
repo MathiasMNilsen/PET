@@ -97,3 +97,4 @@ ignore = [
 "src/misc/ecl.py" = ["E722", "E741"]
 "src/misc/grid/sector.py" = ["E722", "E741"]
 "src/misc/grid/unstruct.py" = ["F841"]  # untested legacy grid parser; allocations look WIP, not dead code
+"tests/assimilation/test_autoadaloc.py" = ["F841"]  # matplotlib imshow handles in a plotting helper

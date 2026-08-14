@@ -3,7 +3,6 @@ Tests for Gaussian ensemble.
 """
 import os
 import numpy as np
-from pathlib import Path
 from scipy.optimize import rosen, rosen_der
 from popt.ensembles import GaussianEnsemble, GeneralizedEnsemble
 
@@ -34,14 +33,14 @@ def test_gaussian_ensemble_gradient(tmp_path):
     Test the gradient estimation of the Gaussian ensemble.
     """
     os.chdir(tmp_path)
-    
+
     # =============================================================
     # Compute ensmble gradient
     # =============================================================
     np.random.seed(42)
     ensemble = GaussianEnsemble(
-        CFG, 
-        simulator = None,  
+        CFG,
+        simulator = None,
         objective = rosen_function_vectorized
     )
     x0 = ensemble.get_state()
@@ -49,7 +48,7 @@ def test_gaussian_ensemble_gradient(tmp_path):
     cov = ensemble.get_cov()
     grad_ensemble = ensemble.gradient(x0, cov)
     # =============================================================
-    
+
     # =============================================================
     # Compute ensmble gradient manually for comparison
     # =============================================================
@@ -77,13 +76,17 @@ def test_gaussian_ensemble_hessian(tmp_path):
     # =============================================================
     np.random.seed(42)
     ensemble = GaussianEnsemble(
-        CFG, 
-        simulator = None,  
+        CFG,
+        simulator = None,
         objective = rosen_function_vectorized
     )
     x0 = ensemble.get_state()
     f0 = ensemble.function(x0)
-    g0 = ensemble.gradient(x0, ensemble.get_cov())
+    # The return value is unused, but the call is required: hessian() below
+    # reuses the ensemble (self.enF) that gradient() populates, and also
+    # advances the global RNG that the manual comparison re-seeds against.
+    # Deleting this line makes hessian() raise TypeError on self.enF.
+    ensemble.gradient(x0, ensemble.get_cov())
     cov = ensemble.get_cov()
     hess_ensemble = ensemble.hessian(x0, cov)
     # =============================================================
@@ -91,7 +94,7 @@ def test_gaussian_ensemble_hessian(tmp_path):
     # =============================================================
     # Compute ensemble Hessian manually for comparison
     # =============================================================
-    np.random.seed(42) 
+    np.random.seed(42)
     enX = np.random.multivariate_normal(x0, cov, NE).T
     enX = enX - enX.mean(axis=1, keepdims=True) + x0[:, None]
     enX = np.clip(enX, -2, 2)
@@ -100,7 +103,7 @@ def test_gaussian_ensemble_hessian(tmp_path):
     dX  = enX - x0[:, None]
     hess_expected = (dX * dF) @ dX.T / NE - cov * np.mean(dF)
     hess_expected = np.linalg.solve(
-        cov, 
+        cov,
         np.linalg.solve(cov, hess_expected).T
     ).T
     # =============================================================
@@ -163,7 +166,7 @@ def test_gaussian_ensemble_gradient_convergence(tmp_path):
 
 def test_generalized_ensemble_gradient_convergence(tmp_path):
     os.chdir(tmp_path)
-    
+
     ne = 100_000
     cfg = {
         "ne": ne,
@@ -220,4 +223,3 @@ def test_generalized_ensemble_gradient_convergence(tmp_path):
 
 
 
-    

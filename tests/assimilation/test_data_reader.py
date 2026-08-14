@@ -244,7 +244,7 @@ class TestNPZHandling:
         # Check flattened representation
         assert result.to_matrix().shape == (len(flattened_expected),)
         np.testing.assert_array_equal(result.to_matrix(), flattened_expected)
-        
-        
+
+
 
 

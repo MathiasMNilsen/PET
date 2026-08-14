@@ -16,9 +16,16 @@ from p_tqdm import p_map
 import logging
 
 # Internal imports
-import pipt.misc_tools.analysis_tools as at
-import pipt.misc_tools.extract_tools as extract
 from misc.structures.structures import PETDataFrame, PETStateArray
+
+# NOTE: pipt.misc_tools is imported lazily inside the methods that need it.
+# `ensemble` is the foundation package that both pipt and popt build on, so a
+# module-level `import pipt...` here inverts the layering and creates a cycle:
+#   ensemble/__init__ -> ensemble.ensemble -> pipt.misc_tools
+#     -> pipt.loop.ensemble -> `from ensemble import BaseEnsemble`  (partial!)
+# That made `import ensemble` fail as a first import, and made single-file test
+# runs such as `pytest tests/optimization/test_ensembles.py` fail on collection
+# while the full suite passed by accident of import order.
 
 __all__ = ["BaseEnsemble"]
 
@@ -53,6 +60,8 @@ class BaseEnsemble:
         init_file : str
                     path to input file containing initiallization values
         """
+        import pipt.misc_tools.extract_tools as extract
+
         # Internalize PET dictionary
         self.keys_en = keys_en
         self.sim = sim
@@ -331,6 +340,8 @@ class BaseEnsemble:
 
 
     def run_on_HPC(self, enX, batch_size=None, **kwargs):
+        import pipt.misc_tools.analysis_tools as at
+
         list_member_index = list(range(self.ne))
 
         # Split the ensemble into batches of 500
@@ -390,6 +401,7 @@ class BaseEnsemble:
         ---------
         - ST 28/2-17
         """
+
         # Open save file and dump all info. in self
         with open(self.pickle_restart_file, 'wb') as f:
             pickle.dump(self.__dict__, f, protocol=4)
