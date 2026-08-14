@@ -6,7 +6,7 @@ import pipt.misc_tools.analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
 
 from geostat.decomp import Cholesky
-from pipt.loop.ensemble import Ensemble
+from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.update_methods_ns.subspace_update import subspace_update
 from pipt.update_schemes.update_methods_ns.full_update import full_update
 from pipt.update_schemes.update_methods_ns.approx_update import approx_update

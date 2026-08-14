@@ -7,7 +7,7 @@ from copy import deepcopy
 from geostat.decomp import Cholesky                     # Making realizations
 
 # Internal imports
-from pipt.loop.ensemble import Ensemble
+from pipt.ensembles import AssimilationEnsemble as Ensemble
 # Misc. tools used in analysis schemes
 from pipt.misc_tools import analysis_tools as at
 import pipt.misc_tools.ensemble_tools as entools

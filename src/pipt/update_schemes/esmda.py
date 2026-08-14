@@ -9,7 +9,7 @@ import numpy as np
 from geostat.decomp import Cholesky
 
 # Internal imports
-from pipt.loop.ensemble import Ensemble
+from pipt.ensembles import AssimilationEnsemble as Ensemble
 import pipt.misc_tools.analysis_tools as at
 
 # import update schemes

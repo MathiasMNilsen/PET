@@ -4,7 +4,7 @@ inherit the ensemble class, hence the main loop is inherited. These classes will
 '''
 
 #──────────────────────────────────────────────────────────────────────────────────────
-from pipt.loop.ensemble import Ensemble
+from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.esmda import esmdaMixIn
 from pipt.misc_tools import analysis_tools as at
 from geostat.decomp import Cholesky

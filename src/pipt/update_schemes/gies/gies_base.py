@@ -3,7 +3,7 @@ EnRML type schemes
 """
 # External imports
 import pipt.misc_tools.analysis_tools as at
-from pipt.loop.ensemble import Ensemble
+from pipt.ensembles import AssimilationEnsemble as Ensemble
 import numpy as np
 import copy as cp
 from scipy.linalg import solve

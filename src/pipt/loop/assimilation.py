@@ -8,7 +8,7 @@ from copy import deepcopy
 from importlib import import_module
 from typing import Any
 
-from pipt.loop.ensemble import Ensemble
+from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.misc_tools import analysis_tools as at
 from pipt.misc_tools.qaqc_tools import QAQC
 from misc.structures import PETDataFrame
