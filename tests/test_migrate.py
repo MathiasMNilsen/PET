@@ -192,3 +192,111 @@ def test_init_da_rejects_non_string_scheme():
 
     with pytest.raises(ValueError, match="as a string"):
         pipt_init.init_da({"scheme": ["esmda"], "analysis": "approx"}, {}, None)
+
+
+# ----------------------------------------------------------------------
+# Formatting preservation
+#
+# A round trip through a TOML/YAML writer discards everything that is not
+# data. Real configs carry comments, commented-out alternative blocks,
+# hand-aligned columns and inline tables, so the migration must edit the
+# daalg line in place instead.
+# ----------------------------------------------------------------------
+
+REALISTIC_TOML = """\
+[ensemble]
+    ne = 100
+    state = "PORO"
+    prior_PORO  = {var=1.0, grid=[50, 50]} # var is used for scaling
+
+[dataassim]
+    daalg       = ["enrml", "gnenrml"]
+    energy      = 99
+    analysis    = "approx"
+
+    # Distance-based localization options
+    #[dataassim.localization]
+    #    name    = "distance_loc"
+    #    field   = [1, 50, 50]   # nz, nx, ny
+
+    [dataassim.localization]
+        name   = "autoadaloc"
+        field  = [50, 50]   # nx, ny
+"""
+
+
+def test_migration_changes_exactly_one_line(tmp_path):
+    path = _write(tmp_path, "case.toml", REALISTIC_TOML)
+    migrate_config(path)
+
+    before = REALISTIC_TOML.split("\n")
+    after = path.read_text().split("\n")
+    assert len(before) == len(after), "line count changed; the file was rewritten"
+
+    differing = [i for i, (a, b) in enumerate(zip(before, after)) if a != b]
+    assert len(differing) == 1, f"expected 1 changed line, got {len(differing)}"
+    assert "daalg" in before[differing[0]]
+    assert 'scheme' in after[differing[0]]
+
+
+def test_comments_and_commented_out_blocks_survive(tmp_path):
+    path = _write(tmp_path, "case.toml", REALISTIC_TOML)
+    migrate_config(path)
+    text = path.read_text()
+
+    assert "# var is used for scaling" in text
+    assert "# Distance-based localization options" in text
+    assert '#    name    = "distance_loc"' in text, "commented-out block was deleted"
+    assert "# nx, ny" in text
+
+
+def test_inline_table_and_indentation_survive(tmp_path):
+    path = _write(tmp_path, "case.toml", REALISTIC_TOML)
+    migrate_config(path)
+    text = path.read_text()
+
+    assert "prior_PORO  = {var=1.0, grid=[50, 50]}" in text, "inline table was expanded"
+    assert "    energy      = 99" in text, "indentation was flattened"
+
+
+def test_aligned_equals_column_is_kept(tmp_path):
+    """`scheme` is one char longer than `daalg`; padding absorbs the difference."""
+    path = _write(tmp_path, "case.toml", REALISTIC_TOML)
+    migrate_config(path)
+
+    lines = [ln for ln in path.read_text().split("\n") if "=" in ln and "#" not in ln]
+    scheme_line = next(ln for ln in lines if "scheme" in ln)
+    energy_line = next(ln for ln in lines if "energy" in ln)
+    assert scheme_line.index("=") == energy_line.index("=")
+
+
+def test_only_the_scheme_key_changes_semantically(tmp_path):
+    import tomli
+
+    path = _write(tmp_path, "case.toml", REALISTIC_TOML)
+    original = tomli.loads(REALISTIC_TOML)
+    migrate_config(path)
+    with open(path, "rb") as handle:
+        migrated = tomli.load(handle)
+
+    assert migrated["dataassim"]["scheme"] == "gnenrml"
+    original["dataassim"].pop("daalg")
+    migrated["dataassim"].pop("scheme")
+    assert original == migrated
+
+
+def test_single_space_spacing_is_left_alone(tmp_path):
+    path = _write(tmp_path, "case.toml", '[dataassim]\ndaalg = ["esmda", "esmda"]\n')
+    migrate_config(path)
+    assert 'scheme = "esmda"' in path.read_text()
+
+
+def test_yaml_inline_form_preserves_comments(tmp_path):
+    path = _write(
+        tmp_path, "case.yaml",
+        "dataassim:\n  # which algorithm\n  daalg: [esmda, esmda]\n  analysis: approx\n",
+    )
+    migrate_config(path)
+    text = path.read_text()
+    assert "# which algorithm" in text
+    assert "scheme:" in text and "daalg" not in text
