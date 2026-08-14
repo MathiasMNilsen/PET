@@ -10,6 +10,7 @@ from geostat.decomp import Cholesky
 
 # Internal imports
 from pipt.ensembles import AssimilationEnsemble as Ensemble
+from pipt.update_schemes.scheme_base import AssimilationSchemeBase
 import pipt.misc_tools.analysis_tools as at
 
 # import update schemes
@@ -24,11 +25,23 @@ __all__ = [
     'esmda_geo'
 ]
 
-class esmdaMixIn(Ensemble):
+class esmdaMixIn(AssimilationSchemeBase):
     """
     This is the implementation of the ES-MDA algorithm given in [`emerick2013a`][].
     This algorithm have been implemented mostly to
     illustrate how a algorithm using the Mda loop can be implemented.
+
+    The scheme *has* an ensemble rather than *being* one. Attribute reads the
+    scheme does not own fall through to that collaborator (see
+    :meth:`AssimilationSchemeBase.__getattr__`), so the analysis strategies and
+    existing user code keep resolving names like ``keys_da`` and ``enX``.
+    Writes that the ensemble must observe go through ``self.ensemble``.
+
+    Both entry points share one implementation: :meth:`update_step` is the
+    contract from :class:`AssimilationSchemeBase`, while :meth:`calc_analysis`
+    and :meth:`check_convergence` remain for
+    :class:`pipt.loop.assimilation.Assimilate` to drive. They call the same
+    internals in the same order, so the two paths are numerically identical.
     """
 
     def __init__(self, keys_da, keys_en, sim):
@@ -45,15 +58,18 @@ class esmdaMixIn(Ensemble):
 
         sim : callable
         """
-        # Pass the init_file upwards in the hierarchy
-        super().__init__(keys_da, keys_en, sim)
+        # Build the collaborator, then hand it to the scheme base. Logging stays
+        # on the ensemble's logger so the log output is unchanged.
+        ensemble = Ensemble(keys_da, keys_en, sim)
+        super().__init__(ensemble, logit=False)
+        self.logger = ensemble.logger
 
         self.prev_data_misfit = None
 
         if self.restart is False:
-            self.prior_enX = deepcopy(self.enX)
-            self.list_states = list(self.enX.indices)
-            self.list_datatypes = self.keys_da['datatype']
+            self.ensemble.prior_enX = deepcopy(self.enX)
+            self.ensemble.list_states = list(self.enX.indices)
+            self.ensemble.list_datatypes = self.keys_da['datatype']
 
             # At the moment, the iterative loop is threated as an iterative smoother an thus we check if assim. indices
             # are given as in the Simultaneous loop.
@@ -65,6 +81,10 @@ class esmdaMixIn(Ensemble):
             # the number of iterations pluss one. Need one additional because the iter=0 is the prior run.
             self.max_iter = len(self._ext_assim_steps())+1
             self.iteration = 0
+            # Mirrored so ensemble-side helpers that consult the iteration
+            # counter (e.g. data screening in perturb_observations) agree with
+            # the scheme's, which is the one the loop advances.
+            self.ensemble.iteration = 0
 
             self.lam = 0  # set LM lamda to zero as we are doing one full update.
             if 'energy' in self.keys_da:
@@ -77,16 +97,43 @@ class esmdaMixIn(Ensemble):
 
             # Get the perturbed observations and observation scaling
             self.vecObs = self.data_df.to_matrix()
-            self.enObs = self.perturb_observations(self.vecObs)
+            self.enObs = self.ensemble.perturb_observations(self.vecObs)
             self.enObs_conv = deepcopy(self.enObs)
 
             # Get state scaling and svd of scaled prior
-            self._ext_scaling()
+            self.ensemble._ext_scaling()
 
         # Extract the inflation parameter from MDA keyword
         self.alpha = self._ext_inflation_param()
 
         self.prev_data_misfit = None
+
+    # ------------------------------------------------------------------
+    # AssimilationSchemeBase contract
+    # ------------------------------------------------------------------
+    def update_step(self) -> bool:
+        """Run one ES-MDA assimilation step.
+
+        Analysis, forecast on the updated state, then misfit and commit -- the
+        same order :class:`~pipt.loop.assimilation.Assimilate` applies when it
+        drives the legacy hooks.
+
+        Returns
+        -------
+        bool
+            Always ``True``. ES-MDA takes a fixed number of inflated steps and
+            never rejects one. The ``success`` flag it logs compares the misfit
+            against the previous iteration and is a *reporting* signal only --
+            returning it here would make the base class discard accepted steps.
+        """
+        self.calc_analysis()
+        self.ensemble.forecast()
+        self.score_and_commit()
+        return True
+
+    def check_convergence(self) -> bool:
+        """ES-MDA runs its full schedule of inflated steps; nothing stops early."""
+        return False
 
     def calc_analysis(self):
         r"""
@@ -156,7 +203,7 @@ class esmdaMixIn(Ensemble):
             self.E = np.dot(self.enObs, self.proj)
 
         if 'localanalysis' in self.keys_da:
-            self.local_analysis_update()
+            self.ensemble.local_analysis_update()
         else:
 
             # Check for adjoint
@@ -175,30 +222,33 @@ class esmdaMixIn(Ensemble):
                 enAdj = enAdj
             )
 
-            # Update the state ensemble and weights
+            # Update the state ensemble and weights. These land on the ensemble
+            # explicitly: the forecast reads enX_temp off the collaborator, and
+            # attribute delegation covers reads only.
             if self.step is not None:
-                self.enX_temp = self.enX + self.step
+                self.ensemble.enX_temp = self.enX + self.step
             if hasattr(self, 'w_step'):
                 self.W = self.current_W + self.w_step
-                self.enX_temp = np.dot(self.prior_enX, (np.eye(self.ne) + self.W/np.sqrt(self.ne - 1)))
+                self.ensemble.enX_temp = np.dot(self.prior_enX, (np.eye(self.ne) + self.W/np.sqrt(self.ne - 1)))
 
 
             # Ensure limits are respected
             limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
-            self.enX_temp.clip_matrix(limits)
+            self.ensemble.enX_temp.clip_matrix(limits)
 
-    def check_convergence(self):
-        """
-        Check if LM-EnRML have converged based on evaluation of change sizes of objective function, state and damping
-        parameter.
+    def score_and_commit(self):
+        """Score the forecast that followed the analysis, then commit the step.
+
+        Was the second half of ``check_convergence``: ES-MDA never actually
+        tested for convergence there, it recomputed the misfit, logged the
+        iteration and promoted ``enX_temp``. Under the new contract the
+        convergence question lives in :meth:`check_convergence` and this keeps
+        the bookkeeping.
 
         Returns
         -------
-        bool
-            Logic variable telling if algorithm has converged
         dict
-            Dict. with keys corresponding to conv. criteria, with logical variable telling which of them that has been
-            met
+            The ``why_stop`` record, also stored on ``self.why_stop``.
         """
 
         self.prev_data_misfit = self.data_misfit
@@ -221,14 +271,15 @@ class esmdaMixIn(Ensemble):
         success = self.data_misfit < self.prev_data_misfit
         self.log_update(success=success)
 
-        # Return conv = False, why_stop var.
-        # Update state ensemble
-        self.enX = deepcopy(self.enX_temp)
-        self.enX_temp = None
+        # Promote the trial state. Written through the ensemble so the next
+        # forecast and any external reader see it.
+        self.ensemble.enX = deepcopy(self.enX_temp)
+        self.ensemble.enX_temp = None
         if hasattr(self, 'W'):
             self.current_W = deepcopy(self.W)
 
-        return False, True, why_stop
+        self.why_stop = why_stop
+        return why_stop
 
     def log_update(self, success=None, prior_run=False):
         '''

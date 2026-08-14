@@ -8,6 +8,7 @@ from importlib import import_module
 from typing import Any
 
 from pipt.ensembles import AssimilationEnsemble as Ensemble
+from pipt.update_schemes.scheme_base import AssimilationSchemeBase
 from pipt.misc_tools import analysis_tools as at
 from pipt.misc_tools.qaqc_tools import QAQC
 from misc.structures import PETDataFrame
@@ -47,7 +48,12 @@ class Assimilate:
             Prepared ensemble instance containing configuration, state,
             simulator, observations and update-scheme methods.
         """
-        self.ensemble = ensemble
+        # A migrated scheme *has* an ensemble; a legacy one *is* one. Keeping
+        # both handles lets this loop drive either while the migration is in
+        # progress -- for a legacy scheme the two names point at one object.
+        self.scheme = ensemble
+        self.ensemble = getattr(ensemble, "ensemble", ensemble)
+        self.new_style = isinstance(ensemble, AssimilationSchemeBase)
         self.max_iter = self._get_max_iterations()
         self.why_stop: dict[str, Any] | None = None
         self.qaqc: QAQC | None = None
@@ -62,8 +68,8 @@ class Assimilate:
         return "nosave" not in self.ensemble.keys_da
 
     def _get_max_iterations(self) -> int:
-        if hasattr(self.ensemble, "max_iter"):
-            return self.ensemble.max_iter
+        if hasattr(self.scheme, "max_iter"):
+            return self.scheme.max_iter
         return extract.extract_maxiter(self.ensemble.keys_da)
 
     def run(self) -> None:
@@ -97,8 +103,8 @@ class Assimilate:
         converged = False
         self.qaqc = self._build_qaqc()
 
-        while self.ensemble.iteration < self.max_iter and not converged:
-            if self.ensemble.iteration == 0:
+        while self.scheme.iteration < self.max_iter and not converged:
+            if self.scheme.iteration == 0:
                 self._run_prior_iteration()
                 successful_iteration = True
             else:
@@ -106,7 +112,8 @@ class Assimilate:
 
             if successful_iteration:
                 self._handle_successful_iteration()
-                self.ensemble.iteration += 1
+                self.scheme.iteration += 1
+                self.ensemble.iteration = self.scheme.iteration
 
             if extract.is_enabled(self.ensemble.keys_da.get("restartsave", False)):
                 self.ensemble.save()
@@ -153,7 +160,7 @@ class Assimilate:
         self.qaqc.set(
             self.ensemble.pred_data,
             self.ensemble.enX.to_dict(),
-            self.ensemble.lam,
+            self.scheme.lam,
         )
         self.qaqc.calc_mahalanobis((1, "time", 2, "time", 1, None, 2, None))
         self.qaqc.calc_coverage()
@@ -168,15 +175,27 @@ class Assimilate:
             np.savez(self._save_path(self.PRIOR_FORECAST_FILE), sim_data=self.ensemble.sim_data)
 
     def _run_analysis_iteration(self) -> tuple[bool, bool]:
-        """Run analysis, forecast, outlier handling and convergence check."""
-        self.ensemble.calc_analysis()
+        """Run analysis, forecast, outlier handling and convergence check.
+
+        The interleaving is what matters and is identical for both scheme
+        styles: analysis produces a trial state, the forecast runs on it, any
+        outliers are replaced, and only then is the misfit scored -- so outlier
+        replacement still feeds into the number the scheme sees.
+        """
+        self.scheme.calc_analysis()
         self._refresh_screened_qaqc_datavar()
 
         self.calc_forecast()
         if "remove_outliers" in self.ensemble.keys_da:
             self._remove_outliers()
 
-        converged, successful_iteration, self.why_stop = self.ensemble.check_convergence()
+        if self.new_style:
+            # Scoring and the convergence question are separate under the new
+            # contract; a migrated scheme never rejects from this path.
+            self.why_stop = self.scheme.score_and_commit()
+            return self.scheme.check_convergence(), True
+
+        converged, successful_iteration, self.why_stop = self.scheme.check_convergence()
         return converged, successful_iteration
 
     def _refresh_screened_qaqc_datavar(self) -> None:
@@ -187,7 +206,7 @@ class Assimilate:
             return
         if not extract.is_enabled(self.ensemble.keys_da.get("screendata", False)):
             return
-        if self.ensemble.iteration != 1:
+        if self.scheme.iteration != 1:
             return
 
         self.ensemble.logger.info("Recomputing Mahalanobis distance with updated datavar")
@@ -199,7 +218,7 @@ class Assimilate:
         if "iterinfo" in self.ensemble.keys_da:
             self._save_iteration_information()
 
-        if self.ensemble.iteration == 0:
+        if self.scheme.iteration == 0:
             return
 
         if "analysisdebug" in self.ensemble.keys_da:
@@ -212,7 +231,7 @@ class Assimilate:
             self.qaqc.set(
                 self.ensemble.pred_data,
                 self.ensemble.enX.to_dict(),
-                self.ensemble.lam,
+                self.scheme.lam,
             )
             self.qaqc.calc_da_stat()
 
@@ -220,7 +239,7 @@ class Assimilate:
             self.qaqc.set(
                 self.ensemble.pred_data,
                 self.ensemble.enX.to_dict(),
-                self.ensemble.lam,
+                self.scheme.lam,
             )
             self.qaqc.calc_mahalanobis((1, "time", 2, "time", 1, None, 2, None))
             self.qaqc.calc_kg()
@@ -252,14 +271,14 @@ class Assimilate:
             pickle.dump(why, file, protocol=4)
 
     def _log_convergence_summary(self) -> None:
-        if self.ensemble.prev_data_misfit is None:
+        if self.scheme.prev_data_misfit is None:
             return
 
         out_str = "\n Convergence was met."
-        if self.ensemble.prior_data_misfit > self.ensemble.data_misfit:
+        if self.scheme.prior_data_misfit > self.scheme.data_misfit:
             out_str += (
-                f" Obj. function reduced from {self.ensemble.prior_data_misfit:0.1f} "
-                f"to {self.ensemble.data_misfit:0.1f}"
+                f" Obj. function reduced from {self.scheme.prior_data_misfit:0.1f} "
+                f"to {self.scheme.data_misfit:0.1f}"
             )
         self.ensemble.logger(out_str)
 
@@ -312,8 +331,8 @@ class Assimilate:
         for save_type in self._as_list(self.ensemble.keys_da["analysisdebug"]):
             if hasattr(self, save_type):
                 save_dict[save_type] = getattr(self, save_type)
-            elif hasattr(self.ensemble, save_type):
-                save_attr = getattr(self.ensemble, save_type)
+            elif hasattr(self.scheme, save_type):
+                save_attr = getattr(self.scheme, save_type)
                 if isinstance(save_attr, (pd.DataFrame, PETDataFrame)):
                     save_dict[save_type] = save_attr.to_dict(orient='records')
                 else:
@@ -324,7 +343,7 @@ class Assimilate:
                 print(f"Cannot save {save_type}, because it is a local variable!\n\n")
 
         save_dict["savefolder"] = self.save_folder
-        at.save_analysisdebug(self.ensemble.iteration, **save_dict)
+        at.save_analysisdebug(self.scheme.iteration, **save_dict)
 
     def _state_debug_dict(self) -> dict[str, Any]:
         if hasattr(self.ensemble, "multilevel") and self.ensemble.multilevel is not None:

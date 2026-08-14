@@ -140,6 +140,34 @@ class AssimilationSchemeBase(RestartMixin, ABC):
         self.results = AssimilationResult()
 
     # ------------------------------------------------------------------
+    # Ensemble delegation
+    # ------------------------------------------------------------------
+    def __getattr__(self, name):
+        """Fall back to the ensemble for attributes the scheme does not own.
+
+        The analysis strategies in :mod:`pipt.update_schemes.update_methods_ns`
+        read their context off ``self`` -- ``keys_da``, ``proj``, ``cov_data``,
+        ``localization`` and friends -- which resolved by inheritance while a
+        scheme *was* an ensemble. Under composition they would not, so reads
+        fall through to the collaborator instead. Replacing this with an
+        explicit strategy context is the follow-on step noted in
+        ``pipt/update_schemes/analysis/base.py``.
+
+        Reads only. Assignments still land on the scheme, so anything the
+        ensemble must actually see -- ``enX``, ``enX_temp``, ``pred_data`` --
+        has to be written through ``self.ensemble`` explicitly.
+        """
+        # Guard against recursion before __init__ has bound the collaborator,
+        # and keep dunder lookups (copy, pickle) off the delegation path.
+        if name.startswith("__") or name == "ensemble":
+            raise AttributeError(name)
+        try:
+            ensemble = object.__getattribute__(self, "ensemble")
+        except AttributeError:
+            raise AttributeError(name) from None
+        return getattr(ensemble, name)
+
+    # ------------------------------------------------------------------
     # Subclass contract
     # ------------------------------------------------------------------
     @abstractmethod
