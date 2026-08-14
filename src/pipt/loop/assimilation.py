@@ -191,9 +191,11 @@ class Assimilate:
 
         if self.new_style:
             # Scoring and the convergence question are separate under the new
-            # contract; a migrated scheme never rejects from this path.
+            # contract. `step_accepted` carries the LM family's rejection: a
+            # rejected step leaves enX uncommitted and must not advance the
+            # iteration counter, which is exactly what returning False here does.
             self.why_stop = self.scheme.score_and_commit()
-            return self.scheme.check_convergence(), True
+            return self.scheme.check_convergence(), self.scheme.step_accepted
 
         converged, successful_iteration, self.why_stop = self.scheme.check_convergence()
         return converged, successful_iteration

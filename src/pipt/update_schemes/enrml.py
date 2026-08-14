@@ -7,6 +7,7 @@ import pipt.misc_tools.extract_tools as extract
 
 from geostat.decomp import Cholesky
 from pipt.ensembles import AssimilationEnsemble as Ensemble
+from pipt.update_schemes.scheme_base import AssimilationSchemeBase
 from pipt.update_schemes.update_methods_ns.subspace_update import subspace_update
 from pipt.update_schemes.update_methods_ns.full_update import full_update
 from pipt.update_schemes.update_methods_ns.approx_update import approx_update
@@ -50,7 +51,7 @@ __all__ = [
 ]
 
 
-class lmenrmlMixIn(Ensemble):
+class lmenrmlMixIn(AssimilationSchemeBase):
     """
     This is an implementation of EnRML using Levenberg-Marquardt. The update scheme is selected by a MixIn with multiple
     update_methods_ns. This class must therefore facititate many different update schemes.
@@ -61,8 +62,11 @@ class lmenrmlMixIn(Ensemble):
         The class is initialized by passing the PIPT init. file upwards in the hierarchy to be read and parsed in
         `pipt.input_output.pipt_init.ReadInitFile`.
         """
-        # Pass the init_file upwards in the hierarchy
-        super().__init__(keys_da, keys_en, sim)
+        # Build the collaborator, then hand it to the scheme base. Logging
+        # stays on the ensemble's logger so log output is unchanged.
+        ensemble = Ensemble(keys_da, keys_en, sim)
+        super().__init__(ensemble, logit=False)
+        self.logger = ensemble.logger
 
         if self.restart is False:
 
@@ -89,9 +93,12 @@ class lmenrmlMixIn(Ensemble):
 
             # Initalize some variables
             self.iteration = 0
-            self.prior_enX = cp.deepcopy(self.enX) # (Not sure if this is wise!)
+            # Mirrored for ensemble-side helpers that consult it.
+            self.ensemble.iteration = 0
+            self._converged = False
+            self.ensemble.prior_enX = cp.deepcopy(self.enX) # (Not sure if this is wise!)
             self.prev_data_misfit = None  # Data misfit at previous iteration
-            self.list_datatypes = list(self.data_df.columns)
+            self.ensemble.list_datatypes = list(self.data_df.columns)
 
             # Load ACTNUM if given
             self.actnum = None
@@ -103,14 +110,14 @@ class lmenrmlMixIn(Ensemble):
 
             # At the moment, the iterative loop is threated as an iterative smoother and thus we check if assim. indices
             # are given as in the Simultaneous loop.
-            self.check_assimindex_simultaneous()
-            self.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
+            self.ensemble.check_assimindex_simultaneous()
+            self.ensemble.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
 
             # Get the perturbed observations and scaling
             self.data_random_state = cp.deepcopy(np.random.get_state())
             self.vecObs = self.data_df.to_matrix()
-            self.enObs = self.perturb_observations(self.vecObs)
-            self._ext_scaling()
+            self.enObs = self.ensemble.perturb_observations(self.vecObs)
+            self.ensemble._ext_scaling()
 
 
 
@@ -140,7 +147,7 @@ class lmenrmlMixIn(Ensemble):
             self.log_update(success=True, prior_run=True)
 
         if 'localanalysis' in self.keys_da:
-            self.local_analysis_update()
+            self.ensemble.local_analysis_update()
         else:
 
             # Check for adjoint
@@ -161,17 +168,39 @@ class lmenrmlMixIn(Ensemble):
 
             # Update the state ensemble and weights
             if self.step is not None:
-                self.enX_temp = self.enX + self.step
+                self.ensemble.enX_temp = self.enX + self.step
             if hasattr(self, 'w_step'):
                 self.W = self.current_W + self.w_step
-                self.enX_temp = np.dot(self.prior_enX, (np.eye(self.ne) + self.W/np.sqrt(self.ne - 1)))
+                self.ensemble.enX_temp = np.dot(self.prior_enX, (np.eye(self.ne) + self.W/np.sqrt(self.ne - 1)))
 
 
             # Ensure limits are respected
             limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
-            self.enX_temp.clip_matrix(limits)
+            self.ensemble.enX_temp.clip_matrix(limits)
 
-    def check_convergence(self):
+    # ------------------------------------------------------------------
+    # AssimilationSchemeBase contract
+    # ------------------------------------------------------------------
+    def update_step(self) -> bool:
+        """Run one LM-EnRML step: analysis, forecast, then score and commit.
+
+        Returns
+        -------
+        bool
+            Whether the step was accepted. A rejected step leaves ``enX``
+            untouched and backs off, so the loop retries at the same iteration
+            number rather than advancing.
+        """
+        self.calc_analysis()
+        self.ensemble.forecast()
+        self.score_and_commit()
+        return self.step_accepted
+
+    def check_convergence(self) -> bool:
+        """Report the verdict reached by the preceding :meth:`score_and_commit`."""
+        return self._converged
+
+    def score_and_commit(self):
         """
         Check if LM-EnRML have converged based on evaluation of change sizes of objective function, state and damping
         parameter.
@@ -231,8 +260,10 @@ class lmenrmlMixIn(Ensemble):
                     f'from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}'
                 )
 
-            # Return conv = True, why_stop var.
-            return True, success, why_stop
+            self._converged = True
+            self.step_accepted = success
+            self.why_stop = why_stop
+            return why_stop
 
         else:  # conv. not met
             # Logical variables for conv. criteria
@@ -258,8 +289,8 @@ class lmenrmlMixIn(Ensemble):
                     self.logger(f'λ reduced: {self.lam * self.gamma} ──> {self.lam}')
 
                 # Update state ensemble
-                self.enX = cp.deepcopy(self.enX_temp)
-                self.enX_temp = None
+                self.ensemble.enX = cp.deepcopy(self.enX_temp)
+                self.ensemble.enX_temp = None
 
                 # Update ensemble weights
                 if hasattr(self, 'W'):
@@ -273,8 +304,8 @@ class lmenrmlMixIn(Ensemble):
                 self.log_update(success=success)
 
                 # Update state ensemble
-                self.enX = cp.deepcopy(self.enX_temp)
-                self.enX_temp = None
+                self.ensemble.enX = cp.deepcopy(self.enX_temp)
+                self.ensemble.enX_temp = None
 
                 # Update ensemble weights
                 if hasattr(self, 'W'):
@@ -292,8 +323,10 @@ class lmenrmlMixIn(Ensemble):
                 self.data_misfit = self.prev_data_misfit
                 self.data_misfit_std = self.prev_data_misfit_std
 
-            # Return conv = False, why_stop var.
-            return False, success, why_stop
+            self._converged = False
+            self.step_accepted = success
+            self.why_stop = why_stop
+            return why_stop
 
     def log_update(self, success, prior_run=False):
         '''
@@ -327,7 +360,7 @@ class lmenrml_subspace(lmenrmlMixIn, subspace_update):
     pass
 
 
-class gnenrmlMixIn(Ensemble):
+class gnenrmlMixIn(AssimilationSchemeBase):
     """
     This is an implementation of EnRML using the Gauss-Newton approach. The update scheme is selected by a MixIn with multiple
     update_methods_ns. This class must therefore facititate many different update schemes.
@@ -338,8 +371,11 @@ class gnenrmlMixIn(Ensemble):
         The class is initialized by passing the PIPT init. file upwards in the hierarchy to be read and parsed in
         `pipt.input_output.pipt_init.ReadInitFile`.
         """
-        # Pass the init_file upwards in the hierarchy
-        super().__init__(keys_da, keys_en, sim)
+        # Build the collaborator, then hand it to the scheme base. Logging
+        # stays on the ensemble's logger so log output is unchanged.
+        ensemble = Ensemble(keys_da, keys_en, sim)
+        super().__init__(ensemble, logit=False)
+        self.logger = ensemble.logger
 
         if self.restart is False:
             options = self.keys_da['iteration']
@@ -357,9 +393,12 @@ class gnenrmlMixIn(Ensemble):
                 self.trunc_energy /= 100.
 
             self.iteration = 0
-            self.prior_enX = cp.deepcopy(self.enX)
+            # Mirrored for ensemble-side helpers that consult it.
+            self.ensemble.iteration = 0
+            self._converged = False
+            self.ensemble.prior_enX = cp.deepcopy(self.enX)
             self.prev_data_misfit = None
-            self.list_datatypes = list(self.data_df.columns)
+            self.ensemble.list_datatypes = list(self.data_df.columns)
 
             self.actnum = None
             if 'actnum' in self.keys_da.keys():
@@ -370,13 +409,13 @@ class gnenrmlMixIn(Ensemble):
 
             # At the moment, the iterative loop is threated as an iterative smoother and thus we check if assim. indices
             # are given as in the Simultaneous loop.
-            self.check_assimindex_simultaneous()
-            self.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
+            self.ensemble.check_assimindex_simultaneous()
+            self.ensemble.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
 
             self.data_random_state = cp.deepcopy(np.random.get_state())
             self.vecObs = self.data_df.to_matrix()
-            self.enObs = self.perturb_observations(self.vecObs)
-            self._ext_scaling()
+            self.enObs = self.ensemble.perturb_observations(self.vecObs)
+            self.ensemble._ext_scaling()
 
             # ensure that the updates does not invoke the LM inflation of the Hessian.
             self.lam = 0
@@ -405,7 +444,7 @@ class gnenrmlMixIn(Ensemble):
             self.log_update(success=True, prior_run=True)
 
         if 'localanalysis' in self.keys_da:
-            self.local_analysis_update()
+            self.ensemble.local_analysis_update()
         else:
 
             if hasattr(self, 'adjoints'):
@@ -422,15 +461,37 @@ class gnenrmlMixIn(Ensemble):
             )
 
             if self.step is not None:
-                self.enX_temp = self.enX + self.gamma * self.step
+                self.ensemble.enX_temp = self.enX + self.gamma * self.step
             if hasattr(self, 'w_step'):
                 self.W = self.current_W + self.gamma * self.w_step
-                self.enX_temp = np.dot(self.prior_enX, (np.eye(self.ne) + self.W / np.sqrt(self.ne - 1)))
+                self.ensemble.enX_temp = np.dot(self.prior_enX, (np.eye(self.ne) + self.W / np.sqrt(self.ne - 1)))
 
             limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
-            self.enX_temp.clip_matrix(limits)
+            self.ensemble.enX_temp.clip_matrix(limits)
 
-    def check_convergence(self):
+    # ------------------------------------------------------------------
+    # AssimilationSchemeBase contract
+    # ------------------------------------------------------------------
+    def update_step(self) -> bool:
+        """Run one GN-EnRML step: analysis, forecast, then score and commit.
+
+        Returns
+        -------
+        bool
+            Whether the step was accepted. A rejected step leaves ``enX``
+            untouched and backs off, so the loop retries at the same iteration
+            number rather than advancing.
+        """
+        self.calc_analysis()
+        self.ensemble.forecast()
+        self.score_and_commit()
+        return self.step_accepted
+
+    def check_convergence(self) -> bool:
+        """Report the verdict reached by the preceding :meth:`score_and_commit`."""
+        return self._converged
+
+    def score_and_commit(self):
         """
         Check if LM-EnRML have converged based on evaluation of change sizes of objective function, state and damping
         parameter.
@@ -481,8 +542,10 @@ class gnenrmlMixIn(Ensemble):
                 self.logger.info(
                     f'Iterations have converged after {self.iteration} iterations. Objective function reduced '
                     f'from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}')
-            # Return conv = True, why_stop var.
-            return True, success, why_stop
+            self._converged = True
+            self.step_accepted = success
+            self.why_stop = why_stop
+            return why_stop
 
         else:  # conv. not met
             # Logical variables for conv. criteria
@@ -504,8 +567,8 @@ class gnenrmlMixIn(Ensemble):
                         -(self.iteration) / (self.gamma_factor - 1)
                     )
 
-                self.enX = cp.deepcopy(self.enX_temp)
-                self.enX_temp = None
+                self.ensemble.enX = cp.deepcopy(self.enX_temp)
+                self.ensemble.enX_temp = None
                 if hasattr(self, 'W'):
                     self.current_W = cp.deepcopy(self.W)
 
@@ -514,8 +577,8 @@ class gnenrmlMixIn(Ensemble):
                 success = True
                 self.log_update(success=success)
 
-                self.enX = cp.deepcopy(self.enX_temp)
-                self.enX_temp = None
+                self.ensemble.enX = cp.deepcopy(self.enX_temp)
+                self.ensemble.enX_temp = None
                 if hasattr(self, 'W'):
                     self.current_W = cp.deepcopy(self.W)
 
@@ -534,8 +597,10 @@ class gnenrmlMixIn(Ensemble):
                 self.data_misfit = self.prev_data_misfit
                 self.data_misfit_std = self.prev_data_misfit_std
 
-            # Return conv = False, why_stop var.
-            return False, success, why_stop
+            self._converged = False
+            self.step_accepted = success
+            self.why_stop = why_stop
+            return why_stop
 
     def log_update(self, success, prior_run=False):
         '''

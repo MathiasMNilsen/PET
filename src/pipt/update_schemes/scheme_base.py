@@ -139,6 +139,13 @@ class AssimilationSchemeBase(RestartMixin, ABC):
         self.why_stop = {}
         self.results = AssimilationResult()
 
+        #: Whether the most recent step was accepted. Schemes that can reject a
+        #: step -- the Levenberg-Marquardt family backing off with a larger
+        #: damping parameter -- set this in their scoring pass, so both this
+        #: base's loop and the legacy :class:`~pipt.loop.assimilation.Assimilate`
+        #: loop can tell an accepted iteration from a retried one.
+        self.step_accepted = True
+
     # ------------------------------------------------------------------
     # Ensemble delegation
     # ------------------------------------------------------------------
