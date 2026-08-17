@@ -146,7 +146,7 @@ class enkfMixIn(Ensemble):
         # only calulate for the final (posterior) estimate
         if self.iteration == len(self.keys_da['assimindex']):
             enPred = self.pred_data.to_matrix()
-            data_misfit = at.calc_objectivefun(self.enObs, enPred, self.full_cov_data)
+            data_misfit = at.calc_objectivefun(self.enObs, enPred, self.scale_data)
             self.data_misfit = np.mean(data_misfit)
             self.data_misfit_std = np.std(data_misfit)
 

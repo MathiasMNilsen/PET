@@ -152,13 +152,11 @@ def _write_config(name, scheme, analysis, report_points, ne=ENSEMBLE_SIZE):
 
 #: (scheme, analysis) combinations under characterisation.
 #:
-#: ``enkf`` is absent because it cannot run: ``enkf.check_convergence`` reads
-#: ``self.full_cov_data``, which nothing in the codebase ever assigns, so every
-#: enkf run raises ``AttributeError`` at the end of its first iteration. The
-#: ``subspace`` flavour of both ``es`` and ``enkf`` is absent for a second,
-#: independent reason -- it raises ``ValueError: Length of values (11) does not
-#: match length of index (15)`` on this case. Both predate the Phase 8 work and
-#: are untested elsewhere; see docs/phase8_handover.md.
+#: The ``subspace`` flavour of both ``es`` and ``enkf`` is absent: it raises
+#: ``ValueError: Length of values (11) does not match length of index (15)`` on
+#: this case, which predates the Phase 8 work and is untested elsewhere.
+#: ``esmda/subspace`` is fine, so the fault is in the sequential path rather
+#: than in the subspace strategy. See docs/phase8_handover.md.
 CASES = [
     ("esmda", "approx"),
     ("esmda", "full"),
@@ -167,6 +165,7 @@ CASES = [
     ("gnenrml", "approx"),
     ("es", "approx"),
     ("es", "full"),
+    ("enkf", "approx"),
 ]
 
 
