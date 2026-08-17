@@ -54,6 +54,21 @@ def _make(scheme, flavours, doc_summary):
     def constructor(da_input, en_input, sim, analysis="approx"):
         return build_scheme(scheme, da_input, en_input, sim, analysis=analysis)
 
+    def assimilate(da_input, en_input, sim, analysis="approx"):
+        """Construct this scheme and run it to completion.
+
+        Takes exactly what the constructor takes, so ``ESMDA.assimilate(...)``
+        mirrors ``ESMDA(...)``. Scheme settings come from the config, as they do
+        for the constructor. Returns the
+        :class:`~pipt.update_schemes.scheme_base.AssimilationResult`.
+        """
+        return constructor(da_input, en_input, sim, analysis=analysis).assimilation_loop()
+
+    # These constructors are functions rather than classes, because the flavour
+    # selects *which* class you get. Attaching assimilate keeps the classmethod
+    # spelling working at this level too.
+    constructor.assimilate = assimilate
+
     constructor.__name__ = scheme
     constructor.__qualname__ = scheme
     constructor.__doc__ = f"""{doc_summary}

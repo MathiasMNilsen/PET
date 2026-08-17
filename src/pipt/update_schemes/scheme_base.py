@@ -384,20 +384,25 @@ class AssimilationSchemeBase(RestartMixin, ABC):
     # Convenience entry point
     # ------------------------------------------------------------------
     @classmethod
-    def assimilate(cls, ensemble, **options) -> AssimilationResult:
+    def assimilate(cls, *args, **options) -> AssimilationResult:
         """Construct the scheme and run it to completion.
 
         The assimilation counterpart of ``Optimizer.minimize(...)``.
 
-        Parameters
-        ----------
-        ensemble : object
-            Ensemble collaborator, as described in the module docstring.
-        **options
-            Forwarded to the scheme constructor.
+        Every argument is forwarded verbatim to the constructor, so this takes
+        whatever the scheme itself takes rather than imposing a second, separate
+        signature. For the shipped PIPT schemes that is the parsed config::
+
+            result = ESMDA.assimilate(cfg_da, cfg_en, sim, analysis="approx")
+
+        which is the same triple ``ESMDA(cfg_da, cfg_en, sim)`` accepts; the
+        scheme builds its own ensemble from it. A scheme defined directly
+        against the collaborator protocol is handed its ensemble instead::
+
+            result = MyScheme.assimilate(ensemble, maxiter=10)
 
         Returns
         -------
         AssimilationResult
         """
-        return cls(ensemble, **options).assimilation_loop()
+        return cls(*args, **options).assimilation_loop()

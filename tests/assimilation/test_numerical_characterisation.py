@@ -275,3 +275,34 @@ if __name__ == "__main__":
             os.chdir(cwd)
     else:
         print(__doc__)
+
+
+@pytest.mark.parametrize("scheme,analysis", [("esmda", "approx")])
+def test_assimilate_entry_point_matches_reference(scheme, analysis, tmp_path, reference):
+    """``Scheme.assimilate(cfg_da, cfg_en, sim)`` runs and matches the reference.
+
+    The convenience entry point takes the same arguments as the constructor.
+    It went unexercised through the Phase 8 migration -- every test drove
+    ``init_da(...)`` then ``assimilation_loop()`` -- and was inert as a result,
+    so it is pinned here alongside the numbers it must reproduce.
+    """
+    from pipt import ESMDA
+    from pipt.update_schemes.registry import get_scheme
+
+    os.chdir(tmp_path)
+    report_points = _write_synthetic_case()
+    np.random.seed(GLOBAL_SEED)
+    config_file = _write_config(f"assim_{scheme}_{analysis}", scheme, analysis, report_points)
+    cfg_da, cfg_sim, cfg_ens = read_config.read(config_file)
+
+    result = ESMDA.assimilate(cfg_da, cfg_ens, VanDerPolOscillator(cfg_sim), analysis=analysis)
+
+    assert result is not None, "assimilate() returned nothing"
+    np.testing.assert_allclose(
+        np.asarray(result["x"], dtype=float),
+        reference[_key(scheme, analysis, "enX")],
+        rtol=RTOL, atol=ATOL,
+        err_msg="assimilate() does not reproduce the reference posterior.",
+    )
+    # Same class the registry resolves, just reached a different way.
+    assert get_scheme(scheme, analysis).__name__ == "esmda_approx"
