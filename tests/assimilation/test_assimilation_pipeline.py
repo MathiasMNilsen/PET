@@ -22,7 +22,7 @@ import pandas as pd
 
 from simulator.vanderpol import VanDerPolOscillator, _integrate
 from input_output import read_config
-from pipt import pipt_init
+from pipt import ES, ESMDA, EnKF, GNEnRML, LMEnRML
 
 
 # ----------------------------------------------------------------------
@@ -142,20 +142,34 @@ def compute_data_misfit(observed, predicted, cov):
     return float(np.squeeze(misfit))
 
 
+#: The public class per algorithm.
+SCHEME_CLASSES = {
+    "enkf": EnKF,
+    "es": ES,
+    "esmda": ESMDA,
+    "lmenrml": LMEnRML,
+    "gnenrml": GNEnRML,
+}
+
+
 def run_assimilation(config_file: str):
-    """
-    Initialize and run assimilation given a config file.
+    """Initialize and run assimilation given a config file.
+
+    Constructs the scheme class directly, as a user would. The scheme itself is
+    returned rather than only the result, because the assertions here read
+    `vecObs`, `pred_data` and `cov_data`, which the result object does not
+    carry.
     """
     cfg_da, cfg_sim, cfg_ens = read_config.read(config_file)
 
-    ensemble = pipt_init.init_da(
+    scheme = SCHEME_CLASSES[cfg_da["scheme"]](
         cfg_da,
         cfg_ens,
         VanDerPolOscillator(cfg_sim),
     )
 
-    ensemble.assimilation_loop()
-    return ensemble
+    scheme.assimilation_loop()
+    return scheme
 
 
 def assert_assimilation_quality(ensemble, misfit_threshold=60.0):

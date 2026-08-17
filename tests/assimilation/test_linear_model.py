@@ -7,7 +7,7 @@ import numpy as np
 
 from misc.structures import PETDataFrame
 from simulator.simple_models import lin_1d
-from pipt.update_schemes import lmenrml_full
+from pipt import LMEnRML
 
 
 # ---------------------------------------------------------------------------
@@ -109,19 +109,12 @@ def test_lin_1d(tmp_path):
     # --- Generate synthetic dataset
     setup_synthetic_data()
 
-    # --- Initialize ensemble
+    # --- Initialize and run
     np.random.seed(10)
-    ensemble = lmenrml_full(
-        keys_da=CFG_DA,
-        keys_en=CFG_ENS,
-        sim=lin_1d(CFG_SIM),
-    )
+    result = LMEnRML.assimilate(CFG_DA, CFG_ENS, lin_1d(CFG_SIM), analysis="full")
 
-    # --- Run assimilation
-    ensemble.assimilation_loop()
-
-    # --- Validate results
-    ensemble_mean = ensemble.enX.mean(axis=-1)
+    # --- Validate results. `result.x` is the posterior state ensemble.
+    ensemble_mean = result.x.mean(axis=-1)
     expected = np.array([
         -0.07294738,
          0.00353635,
