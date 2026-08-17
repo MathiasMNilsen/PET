@@ -47,8 +47,18 @@ import pandas as pd
 import yaml
 
 from input_output import read_config
-from pipt import pipt_init
+from pipt import ES, ESMDA, EnKF, GNEnRML, LMEnRML
 from simulator.vanderpol import VanDerPolOscillator, _integrate
+
+#: The public class per algorithm. Cases run through these so the numbers pin
+#: the documented entry point, not just the internals.
+SCHEME_CLASSES = {
+    "enkf": EnKF,
+    "es": ES,
+    "esmda": ESMDA,
+    "lmenrml": LMEnRML,
+    "gnenrml": GNEnRML,
+}
 
 REFERENCE_FILE = Path(__file__).with_name("characterisation_reference.npz")
 
@@ -184,14 +194,19 @@ def run_case(scheme, analysis, tmpdir):
         f"characterise_{scheme}_{analysis}", scheme, analysis, report_points
     )
     cfg_da, cfg_sim, cfg_ens = read_config.read(config_file)
-    ensemble = pipt_init.init_da(cfg_da, cfg_ens, VanDerPolOscillator(cfg_sim))
-    ensemble.assimilation_loop()
+
+    # Exactly what a user writes. Driving the cases through this means the
+    # reference numbers pin the public entry point and the result object's
+    # contents, not only the internal loop.
+    result = SCHEME_CLASSES[scheme].assimilate(
+        cfg_da, cfg_ens, VanDerPolOscillator(cfg_sim), analysis=analysis
+    )
 
     return {
-        "enX": np.asarray(ensemble.enX, dtype=float),
-        "data_misfit": np.atleast_1d(np.asarray(ensemble.data_misfit, dtype=float)),
+        "enX": np.asarray(result.x, dtype=float),
+        "data_misfit": np.atleast_1d(np.asarray(result.data_misfit, dtype=float)),
         "prior_data_misfit": np.atleast_1d(
-            np.asarray(ensemble.prior_data_misfit, dtype=float)
+            np.asarray(result.prior_data_misfit, dtype=float)
         ),
     }
 
@@ -266,6 +281,40 @@ def regenerate():
     print(f"\nWrote {REFERENCE_FILE} with {len(payload)} arrays.")
 
 
+@pytest.mark.parametrize("scheme,analysis", [("esmda", "approx")])
+def test_config_driven_entry_point_matches_reference(scheme, analysis, tmp_path, reference):
+    """``init_da(...)`` then ``assimilation_loop()`` agrees with ``assimilate()``.
+
+    The cases above all run through ``Scheme.assimilate(...)``, so this pins the
+    other supported path -- config-driven construction through the registry --
+    against the same reference. The roles used to be reversed, and
+    ``assimilate()`` was the entry point nothing exercised, which is how it
+    stayed inert through the whole Phase 8 migration.
+    """
+    from pipt import pipt_init
+
+    os.chdir(tmp_path)
+    report_points = _write_synthetic_case()
+    np.random.seed(GLOBAL_SEED)
+    config_file = _write_config(f"cfg_{scheme}_{analysis}", scheme, analysis, report_points)
+    cfg_da, cfg_sim, cfg_ens = read_config.read(config_file)
+
+    scheme_obj = pipt_init.init_da(cfg_da, cfg_ens, VanDerPolOscillator(cfg_sim))
+    result = scheme_obj.assimilation_loop()
+
+    # Both spellings must work: AssimilationResult subclasses scipy's
+    # OptimizeResult so PIPT and POPT results are handled alike.
+    np.testing.assert_array_equal(
+        np.asarray(result["x"], dtype=float), np.asarray(result.x, dtype=float)
+    )
+    np.testing.assert_allclose(
+        np.asarray(result.x, dtype=float),
+        reference[_key(scheme, analysis, "enX")],
+        rtol=RTOL, atol=ATOL,
+        err_msg="init_da + assimilation_loop does not reproduce the reference posterior.",
+    )
+
+
 if __name__ == "__main__":
     if "--regenerate" in sys.argv:
         cwd = os.getcwd()
@@ -275,34 +324,3 @@ if __name__ == "__main__":
             os.chdir(cwd)
     else:
         print(__doc__)
-
-
-@pytest.mark.parametrize("scheme,analysis", [("esmda", "approx")])
-def test_assimilate_entry_point_matches_reference(scheme, analysis, tmp_path, reference):
-    """``Scheme.assimilate(cfg_da, cfg_en, sim)`` runs and matches the reference.
-
-    The convenience entry point takes the same arguments as the constructor.
-    It went unexercised through the Phase 8 migration -- every test drove
-    ``init_da(...)`` then ``assimilation_loop()`` -- and was inert as a result,
-    so it is pinned here alongside the numbers it must reproduce.
-    """
-    from pipt import ESMDA
-    from pipt.update_schemes.registry import get_scheme
-
-    os.chdir(tmp_path)
-    report_points = _write_synthetic_case()
-    np.random.seed(GLOBAL_SEED)
-    config_file = _write_config(f"assim_{scheme}_{analysis}", scheme, analysis, report_points)
-    cfg_da, cfg_sim, cfg_ens = read_config.read(config_file)
-
-    result = ESMDA.assimilate(cfg_da, cfg_ens, VanDerPolOscillator(cfg_sim), analysis=analysis)
-
-    assert result is not None, "assimilate() returned nothing"
-    np.testing.assert_allclose(
-        np.asarray(result["x"], dtype=float),
-        reference[_key(scheme, analysis, "enX")],
-        rtol=RTOL, atol=ATOL,
-        err_msg="assimilate() does not reproduce the reference posterior.",
-    )
-    # Same class the registry resolves, just reached a different way.
-    assert get_scheme(scheme, analysis).__name__ == "esmda_approx"
