@@ -58,11 +58,18 @@ class esMixIn():
                     'data_misfit': self.data_misfit,
                     'prev_data_misfit': self.prev_data_misfit}
 
+        # Update state ensemble. This is unconditional, as it is in every other
+        # scheme: the analysis result lives in enX_temp and is worthless until
+        # promoted. It used to sit inside the equal-misfit branch below, which
+        # is essentially never taken -- prev_data_misfit is the prior misfit and
+        # data_misfit is the posterior one -- so ES returned its prior ensemble
+        # unchanged while logging a reduced misfit.
+        self.enX = deepcopy(self.enX_temp)
+        self.enX_temp = None
+
         if self.data_misfit == self.prev_data_misfit:
             self.logger.info(
                 f'ES update {self.iteration} complete!')
-            self.enX = deepcopy(self.enX_temp)
-            self.enX_temp = None
         else:
 
             # Reduction
