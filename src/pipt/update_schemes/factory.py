@@ -56,83 +56,9 @@ def build_scheme(scheme, da_input, en_input, sim, analysis=None):
     return get_scheme(scheme, analysis)(da_input, en_input, sim)
 
 
-def _make(scheme, flavours, doc_summary):
-    """Build a named constructor for one algorithm."""
-
-    def constructor(da_input, en_input, sim, analysis=None):
-        return build_scheme(scheme, da_input, en_input, sim, analysis=analysis)
-
-    def assimilate(da_input, en_input, sim, analysis=None):
-        """Construct this scheme and run it to completion.
-
-        Takes exactly what the constructor takes, so ``ESMDA.assimilate(...)``
-        mirrors ``ESMDA(...)``. Scheme settings come from the config, as they do
-        for the constructor. Returns the
-        :class:`~pipt.update_schemes.scheme_base.AssimilationResult`.
-        """
-        return constructor(da_input, en_input, sim, analysis=analysis).assimilation_loop()
-
-    # These constructors are functions rather than classes, because the flavour
-    # selects *which* class you get. Attaching assimilate keeps the classmethod
-    # spelling working at this level too.
-    constructor.assimilate = assimilate
-
-    constructor.__name__ = scheme
-    constructor.__qualname__ = scheme
-    constructor.__doc__ = f"""{doc_summary}
-
-    Parameters
-    ----------
-    da_input : dict
-        Parsed data-assimilation config.
-    en_input : dict
-        Parsed ensemble config.
-    sim : object
-        Forward simulator instance.
-    analysis : str, optional
-        Analysis flavour, one of: {', '.join(repr(f) for f in flavours)}.
-        Defaults to the config's ``analysis`` key, falling back to ``'approx'``.
-        Pass it to override the config.
-
-    Returns
-    -------
-    object
-        Instance of the concrete ``{scheme}_<analysis>`` class.
-    """
-    return constructor
-
-
-EnKF = _make(
-    "enkf",
-    ("approx", "full", "subspace"),
-    "Ensemble Kalman Filter.",
-)
-EnKF.__name__ = EnKF.__qualname__ = "EnKF"
-
-ES = _make(
-    "es",
-    ("approx", "full", "subspace"),
-    "Ensemble Smoother.",
-)
-ES.__name__ = ES.__qualname__ = "ES"
-
-ESMDA = _make(
-    "esmda",
-    ("approx", "full", "subspace", "geo", "hybrid"),
-    "Ensemble Smoother with Multiple Data Assimilation.",
-)
-ESMDA.__name__ = ESMDA.__qualname__ = "ESMDA"
-
-LMEnRML = _make(
-    "lmenrml",
-    ("approx", "full", "subspace"),
-    "Levenberg-Marquardt Ensemble Randomized Maximum Likelihood.",
-)
-LMEnRML.__name__ = LMEnRML.__qualname__ = "LMEnRML"
-
-GNEnRML = _make(
-    "gnenrml",
-    ("approx", "full", "subspace", "margis"),
-    "Gauss-Newton Ensemble Randomized Maximum Likelihood.",
-)
-GNEnRML.__name__ = GNEnRML.__qualname__ = "GNEnRML"
+# The algorithm classes themselves. The flavour is a parameter of each, so
+# these are plain classes now rather than functions that pick one of eighteen.
+from pipt.update_schemes.enkf import EnKF  # noqa: E402
+from pipt.update_schemes.enrml import GNEnRML, LMEnRML  # noqa: E402
+from pipt.update_schemes.es import ES  # noqa: E402
+from pipt.update_schemes.esmda import ESMDA  # noqa: E402

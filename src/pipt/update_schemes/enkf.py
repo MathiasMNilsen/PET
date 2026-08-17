@@ -10,22 +10,21 @@ from geostat.decomp import Cholesky                     # Making realizations
 from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.scheme_base import AssimilationSchemeBase
 from pipt.update_schemes.workflow import AssimilationWorkflowMixin
+from pipt.update_schemes.strategy import StrategyMixin
 # Misc. tools used in analysis schemes
 from pipt.misc_tools import analysis_tools as at
 import pipt.misc_tools.ensemble_tools as entools
 import pipt.misc_tools.extract_tools as extract
 
-from pipt.update_schemes.update_methods_ns.approx_update import approx_update
-from pipt.update_schemes.update_methods_ns.subspace_update import subspace_update
 
 
-class enkfMixIn(AssimilationWorkflowMixin, AssimilationSchemeBase):
+class EnKF(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     """
     Straightforward EnKF analysis scheme implementation. The sequential updating can be done with general grouping and
     ordering of data. If only one-step EnKF is to be done, use `es` instead.
     """
 
-    def __init__(self, keys_da, keys_en, sim):
+    def __init__(self, keys_da, keys_en, sim, analysis=None):
         """
         The class is initialized by passing the PIPT init. file upwards in the hierarchy to be read and parsed in
         `pipt.input_output.pipt_init.ReadInitFile`.
@@ -39,6 +38,9 @@ class enkfMixIn(AssimilationWorkflowMixin, AssimilationSchemeBase):
         # run early on a criterion the scheme never opted into.
         super().__init__(ensemble, logit=False, misfit_tol=0.0, step_tol=0.0)
         self.logger = ensemble.logger
+
+        # Flavour is a parameter, so it selects a strategy object not a class.
+        self.bind_strategy(self.resolve_analysis(analysis, keys_da))
 
         self.prev_data_misfit = None
 
@@ -211,23 +213,27 @@ class enkfMixIn(AssimilationWorkflowMixin, AssimilationSchemeBase):
         return why_stop
 
 
-class enkf_approx(enkfMixIn, approx_update):
-    """
-    MixIn the main EnKF update class with the standard analysis scheme.
-    """
-    pass
+#: Historical name, kept for subclasses outside this module.
+enkfMixIn = EnKF
 
 
-class enkf_full(enkfMixIn, approx_update):
-    """
-    MixIn the main EnKF update class with the standard analysis scheme. Note that this class is only included for
-    completness. The EnKF does not iterate, and the standard scheme is therefor always applied.
-    """
-    pass
+class enkf_approx(EnKF):
+    """Deprecated alias: prefer ``EnKF(..., analysis="approx")``."""
+
+    FLAVOUR = "approx"
 
 
-class enkf_subspace(enkfMixIn, subspace_update):
+class enkf_full(EnKF):
+    """Deprecated alias: prefer ``EnKF(..., analysis="approx")``.
+
+    The EnKF does not iterate, so the standard scheme is always applied; this
+    name resolves to the same "approx" strategy it always did.
     """
-    MixIn the main EnKF update class with the subspace analysis scheme.
-    """
-    pass
+
+    FLAVOUR = "approx"
+
+
+class enkf_subspace(EnKF):
+    """Deprecated alias: prefer ``EnKF(..., analysis="subspace")``."""
+
+    FLAVOUR = "subspace"

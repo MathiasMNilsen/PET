@@ -36,9 +36,8 @@ def test_constructor_is_named_readably(name):
     [(n, s, f) for n, (s, fs) in ALGORITHMS.items() for f in fs],
 )
 def test_every_flavour_documented_is_registered(name, scheme, flavour):
-    """Each flavour named in a constructor's docstring must actually resolve."""
+    """Every advertised (scheme, flavour) pair must still resolve to a class."""
     assert registry.get_scheme(scheme, flavour) is not None
-    assert flavour in getattr(pipt, name).__doc__
 
 
 @pytest.mark.parametrize("name,scheme", [(n, s) for n, (s, _) in ALGORITHMS.items()])
@@ -54,8 +53,13 @@ def test_constructors_collapse_the_name_explosion():
     assert len(ALGORITHMS) == 5
 
 
-def test_build_scheme_and_named_constructor_agree(monkeypatch):
-    """Both paths must resolve to the same concrete class."""
+def test_build_scheme_still_dispatches_through_the_registry(monkeypatch):
+    """`build_scheme` resolves by name; the classes no longer do.
+
+    `pipt.ESMDA` used to be a function that looked the flavour up in the
+    registry. It is now the class itself, so only the name-driven entry points
+    -- build_scheme and init_da -- consult the registry.
+    """
     captured = {}
 
     class Spy:
@@ -64,12 +68,37 @@ def test_build_scheme_and_named_constructor_agree(monkeypatch):
 
     monkeypatch.setitem(registry.SCHEMES, ("esmda", "approx"), Spy)
 
-    a = pipt.ESMDA({"d": 1}, {"e": 2}, "sim", analysis="approx")
-    assert isinstance(a, Spy)
-    assert captured["args"] == ({"d": 1}, {"e": 2}, "sim")
-
     b = pipt.build_scheme("esmda", {"d": 1}, {"e": 2}, "sim", analysis="approx")
     assert isinstance(b, Spy)
+    assert captured["args"] == ({"d": 1}, {"e": 2}, "sim")
+
+
+def test_registry_aliases_pin_the_flavour_the_class_name_promises():
+    """`esmda_full` must still mean "full", now via FLAVOUR rather than a mixin."""
+    for scheme, flavour in registry.available_schemes():
+        cls = registry.get_scheme(scheme, flavour)
+        pinned = getattr(cls, "FLAVOUR", None)
+        if pinned is not None:
+            # es_full/enkf_full historically resolved to the approx strategy,
+            # because neither scheme iterates.
+            assert pinned in {flavour, "approx"}, (
+                f"{cls.__name__} pins {pinned!r} but is registered under {flavour!r}"
+            )
+
+
+def test_geo_and_hybrid_stay_separate_classes():
+    """Not every registered flavour is a strategy.
+
+    `geo` and `hybrid` are distinct algorithms sharing the ESMDA name, so they
+    remain their own classes and are reachable through the registry rather than
+    through `ESMDA(analysis=...)`.
+    """
+    from pipt.update_schemes.analysis.registry import available_strategies
+
+    assert "geo" not in available_strategies()
+    assert "hybrid" not in available_strategies()
+    assert registry.get_scheme("esmda", "geo") is not None
+    assert registry.get_scheme("esmda", "hybrid") is not None
 
 
 def test_default_analysis_is_approx(monkeypatch):
@@ -78,12 +107,12 @@ def test_default_analysis_is_approx(monkeypatch):
             pass
 
     monkeypatch.setitem(registry.SCHEMES, ("esmda", "approx"), Spy)
-    assert isinstance(pipt.ESMDA({}, {}, None), Spy)
+    assert isinstance(pipt.build_scheme("esmda", {}, {}, None), Spy)
 
 
 def test_bad_flavour_reports_valid_ones():
     with pytest.raises(KeyError, match="no 'nope' analysis flavour"):
-        pipt.ESMDA({}, {}, None, analysis="nope")
+        pipt.build_scheme("esmda", {}, {}, None, analysis="nope")
 
 
 def test_concrete_classes_remain_importable():
@@ -128,7 +157,8 @@ def test_config_analysis_beats_the_fallback(monkeypatch):
             pass
 
     monkeypatch.setitem(registry.SCHEMES, ("esmda", "subspace"), Spy)
-    assert isinstance(pipt.ESMDA({"scheme": "esmda", "analysis": "subspace"}, {}, None), Spy)
+    cfg = {"scheme": "esmda", "analysis": "subspace"}
+    assert isinstance(pipt.build_scheme("esmda", cfg, {}, None), Spy)
 
 
 def test_explicit_analysis_beats_the_config(monkeypatch):
@@ -138,4 +168,16 @@ def test_explicit_analysis_beats_the_config(monkeypatch):
 
     monkeypatch.setitem(registry.SCHEMES, ("esmda", "full"), Spy)
     cfg = {"scheme": "esmda", "analysis": "subspace"}
-    assert isinstance(pipt.ESMDA(cfg, {}, None, analysis="full"), Spy)
+    assert isinstance(pipt.build_scheme("esmda", cfg, {}, None, analysis="full"), Spy)
+
+
+def test_class_resolves_flavour_by_the_same_precedence():
+    """The classes apply explicit -> config -> approx, as build_scheme does."""
+    from pipt.update_schemes.esmda import ESMDA, esmda_subspace
+
+    resolve = ESMDA.resolve_analysis
+    assert resolve(ESMDA, "full", {"analysis": "subspace"}) == "full"
+    assert resolve(ESMDA, None, {"analysis": "subspace"}) == "subspace"
+    assert resolve(ESMDA, None, {}) == "approx"
+    # A pinned alias ignores both, because its name is the promise.
+    assert resolve(esmda_subspace, "full", {"analysis": "approx"}) == "subspace"

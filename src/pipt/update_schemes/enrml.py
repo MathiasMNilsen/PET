@@ -9,8 +9,7 @@ from geostat.decomp import Cholesky
 from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.scheme_base import AssimilationSchemeBase
 from pipt.update_schemes.workflow import AssimilationWorkflowMixin
-from pipt.update_schemes.update_methods_ns.subspace_update import subspace_update
-from pipt.update_schemes.update_methods_ns.full_update import full_update
+from pipt.update_schemes.strategy import StrategyMixin
 from pipt.update_schemes.update_methods_ns.approx_update import approx_update
 import pkgutil
 import inspect
@@ -52,13 +51,13 @@ __all__ = [
 ]
 
 
-class lmenrmlMixIn(AssimilationWorkflowMixin, AssimilationSchemeBase):
+class LMEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     """
     This is an implementation of EnRML using Levenberg-Marquardt. The update scheme is selected by a MixIn with multiple
     update_methods_ns. This class must therefore facititate many different update schemes.
     """
 
-    def __init__(self, keys_da, keys_en, sim):
+    def __init__(self, keys_da, keys_en, sim, analysis=None):
         """
         The class is initialized by passing the PIPT init. file upwards in the hierarchy to be read and parsed in
         `pipt.input_output.pipt_init.ReadInitFile`.
@@ -72,6 +71,9 @@ class lmenrmlMixIn(AssimilationWorkflowMixin, AssimilationSchemeBase):
         # run early on a criterion the scheme never opted into.
         super().__init__(ensemble, logit=False, misfit_tol=0.0, step_tol=0.0)
         self.logger = ensemble.logger
+
+        # Flavour is a parameter, so it selects a strategy object not a class.
+        self.bind_strategy(self.resolve_analysis(analysis, keys_da))
 
         if self.restart is False:
 
@@ -358,25 +360,35 @@ class lmenrmlMixIn(AssimilationWorkflowMixin, AssimilationSchemeBase):
 
 
 
-class lmenrml_approx(lmenrmlMixIn, approx_update):
-    pass
+#: Historical names.
+lmenrmlMixIn = LMEnRML
 
 
-class lmenrml_full(lmenrmlMixIn, full_update):
-    pass
+class lmenrml_approx(LMEnRML):
+    """Deprecated alias: prefer ``LMEnRML(..., analysis="approx")``."""
+
+    FLAVOUR = "approx"
 
 
-class lmenrml_subspace(lmenrmlMixIn, subspace_update):
-    pass
+class lmenrml_full(LMEnRML):
+    """Deprecated alias: prefer ``LMEnRML(..., analysis="full")``."""
+
+    FLAVOUR = "full"
 
 
-class gnenrmlMixIn(AssimilationWorkflowMixin, AssimilationSchemeBase):
+class lmenrml_subspace(LMEnRML):
+    """Deprecated alias: prefer ``LMEnRML(..., analysis="subspace")``."""
+
+    FLAVOUR = "subspace"
+
+
+class GNEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     """
     This is an implementation of EnRML using the Gauss-Newton approach. The update scheme is selected by a MixIn with multiple
     update_methods_ns. This class must therefore facititate many different update schemes.
     """
 
-    def __init__(self, keys_da, keys_en, sim):
+    def __init__(self, keys_da, keys_en, sim, analysis=None):
         """
         The class is initialized by passing the PIPT init. file upwards in the hierarchy to be read and parsed in
         `pipt.input_output.pipt_init.ReadInitFile`.
@@ -390,6 +402,9 @@ class gnenrmlMixIn(AssimilationWorkflowMixin, AssimilationSchemeBase):
         # run early on a criterion the scheme never opted into.
         super().__init__(ensemble, logit=False, misfit_tol=0.0, step_tol=0.0)
         self.logger = ensemble.logger
+
+        # Flavour is a parameter, so it selects a strategy object not a class.
+        self.bind_strategy(self.resolve_analysis(analysis, keys_da))
 
         if self.restart is False:
             options = self.keys_da['iteration']
@@ -639,19 +654,29 @@ class gnenrmlMixIn(AssimilationWorkflowMixin, AssimilationSchemeBase):
         self.logger(**info)
 
 
-class gnenrml_approx(gnenrmlMixIn, approx_update):
-    pass
+#: Historical names.
+gnenrmlMixIn = GNEnRML
 
 
-class gnenrml_full(gnenrmlMixIn, full_update):
-    pass
+class gnenrml_approx(GNEnRML):
+    """Deprecated alias: prefer ``GNEnRML(..., analysis="approx")``."""
+
+    FLAVOUR = "approx"
 
 
-class gnenrml_subspace(gnenrmlMixIn, subspace_update):
-    pass
+class gnenrml_full(GNEnRML):
+    """Deprecated alias: prefer ``GNEnRML(..., analysis="full")``."""
+
+    FLAVOUR = "full"
 
 
-class gnenrml_margis(gnenrmlMixIn, margIS_update):
+class gnenrml_subspace(GNEnRML):
+    """Deprecated alias: prefer ``GNEnRML(..., analysis="subspace")``."""
+
+    FLAVOUR = "subspace"
+
+
+class gnenrml_margis(GNEnRML, margIS_update):
     '''
     The marg-IS scheme is currently not available in this version of PIPT. To utilize the scheme you have to import the
     *margIS_update* class from a standalone repository.
@@ -659,7 +684,7 @@ class gnenrml_margis(gnenrmlMixIn, margIS_update):
     pass
 
 
-class co_lm_enrml(lmenrmlMixIn, approx_update):
+class co_lm_enrml(LMEnRML, approx_update):
     """
     This is the implementation of the approximative LM-EnRML algorithm as described in [`chen2013`][].
 
@@ -795,7 +820,7 @@ class co_lm_enrml(lmenrmlMixIn, approx_update):
         self.state = at.update_state(aug_state_upd, self.state, self.list_states)
         self.state = at.limits(self.state, self.prior_info)
 
-class gn_enrml(lmenrmlMixIn):
+class gn_enrml(LMEnRML):
     """
     This is the implementation of the stochastig IES as  described in [`raanes2019`][].
 

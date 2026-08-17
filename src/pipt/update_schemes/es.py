@@ -1,16 +1,14 @@
 """
 ES type schemes
 """
-from pipt.update_schemes.enkf import enkf_approx
-from pipt.update_schemes.enkf import enkf_full
-from pipt.update_schemes.enkf import enkf_subspace
+from pipt.update_schemes.enkf import EnKF
 
 import numpy as np
 from copy import deepcopy
 from pipt.misc_tools import analysis_tools as at
 
 
-class esMixIn():
+class ES(EnKF):
     """
     This is the straightforward ES analysis scheme. We treat this as a all-data-at-once EnKF step, hence the
     calc_analysis method here is identical to that in the `enkf` class. Since, for the moment, ASSIMINDEX is parsed in a
@@ -21,13 +19,12 @@ class esMixIn():
     structure and `enkf` is inherited to get `calc_analysis`, so we do not have to implement it again.
     """
 
-    def __init__(self, keys_da, keys_en, sim):
+    def __init__(self, keys_da, keys_en, sim, analysis=None):
         """
         The class is initialized by passing the PIPT init. file upwards in the hierarchy to be read and parsed in
         `pipt.input_output.pipt_init.ReadInitFile`.
         """
-        # Pass init. file to Simultaneous parent class (Python searches parent classes from left to right).
-        super().__init__(keys_da, keys_en, sim)
+        super().__init__(keys_da, keys_en, sim, analysis=analysis)
 
         if self.restart is False:
             # At the moment, the iterative loop is threated as an iterative smoother an thus we check if assim. indices
@@ -94,23 +91,27 @@ class esMixIn():
         return why_stop
 
 
-class es_approx(esMixIn, enkf_approx):
-    """
-    Mixin of ES class and approximate update
-    """
-    pass
+#: Historical name.
+esMixIn = ES
 
 
-class es_full(esMixIn, enkf_full):
-    """
-    mixin of ES class and full update.
-    Note that since we do not iterate there is no difference between is full and approx.
-    """
-    pass
+class es_approx(ES):
+    """Deprecated alias: prefer ``ES(..., analysis="approx")``."""
+
+    FLAVOUR = "approx"
 
 
-class es_subspace(esMixIn, enkf_subspace):
+class es_full(ES):
+    """Deprecated alias: prefer ``ES(..., analysis="approx")``.
+
+    ES takes a single step, so full and approx coincide -- as the original
+    docstring noted.
     """
-    mixin of ES class and subspace update.
-    """
-    pass
+
+    FLAVOUR = "approx"
+
+
+class es_subspace(ES):
+    """Deprecated alias: prefer ``ES(..., analysis="subspace")``."""
+
+    FLAVOUR = "subspace"

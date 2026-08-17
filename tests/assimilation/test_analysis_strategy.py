@@ -81,13 +81,25 @@ def test_sqrtm_dense_squares_back():
 # The mixin products must keep working unchanged
 # ----------------------------------------------------------------------
 
-def test_existing_scheme_classes_still_compose():
-    from pipt.update_schemes import esmda_approx, gnenrml_subspace, lmenrml_full
+def test_historical_names_still_select_their_flavour():
+    """The per-flavour names keep their meaning, by holding rather than being.
 
-    for scheme, flavour in [
-        (esmda_approx, approx_update),
-        (lmenrml_full, full_update),
-        (gnenrml_subspace, subspace_update),
+    BREAKING: these classes used to *inherit* their strategy, so
+    ``issubclass(esmda_approx, approx_update)`` held. Collapsing the eighteen
+    classes into five made the flavour a parameter, so the alias now binds an
+    approx_update *instance*. What matters -- which strategy it uses -- is
+    unchanged, and that is what this asserts.
+    """
+    from pipt.update_schemes import esmda_approx, gnenrml_subspace, lmenrml_full
+    from pipt.update_schemes.analysis.registry import get_strategy
+
+    for scheme, flavour_name, flavour_cls in [
+        (esmda_approx, "approx", approx_update),
+        (lmenrml_full, "full", full_update),
+        (gnenrml_subspace, "subspace", subspace_update),
     ]:
-        assert issubclass(scheme, flavour)
-        assert issubclass(scheme, AnalysisStrategy)
+        assert scheme.FLAVOUR == flavour_name
+        assert get_strategy(scheme.FLAVOUR) is flavour_cls
+        assert not issubclass(scheme, AnalysisStrategy), (
+            f"{scheme.__name__} should hold a strategy, not inherit one"
+        )

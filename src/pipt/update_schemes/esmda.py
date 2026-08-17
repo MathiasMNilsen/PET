@@ -12,21 +12,20 @@ from geostat.decomp import Cholesky
 from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.scheme_base import AssimilationSchemeBase
 from pipt.update_schemes.workflow import AssimilationWorkflowMixin
+from pipt.update_schemes.strategy import StrategyMixin
 import pipt.misc_tools.analysis_tools as at
 
-# import update schemes
-from pipt.update_schemes.update_methods_ns.approx_update import approx_update
-from pipt.update_schemes.update_methods_ns.full_update import full_update
-from pipt.update_schemes.update_methods_ns.subspace_update import subspace_update
+# Flavours are resolved through the strategy registry now, not mixed in.
 
 __all__ = [
+    'ESMDA',
     'esmda_approx',
     'esmda_full',
     'esmda_subspace',
     'esmda_geo'
 ]
 
-class esmdaMixIn(AssimilationWorkflowMixin, AssimilationSchemeBase):
+class ESMDA(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     """
     This is the implementation of the ES-MDA algorithm given in [`emerick2013a`][].
     This algorithm have been implemented mostly to
@@ -45,7 +44,7 @@ class esmdaMixIn(AssimilationWorkflowMixin, AssimilationSchemeBase):
     internals in the same order, so the two paths are numerically identical.
     """
 
-    def __init__(self, keys_da, keys_en, sim):
+    def __init__(self, keys_da, keys_en, sim, analysis=None):
         """
         The class is initialized by passing the keywords and simulator object upwards in the hierarchy.
 
@@ -68,6 +67,10 @@ class esmdaMixIn(AssimilationWorkflowMixin, AssimilationSchemeBase):
         # run early on a criterion the scheme never opted into.
         super().__init__(ensemble, logit=False, misfit_tol=0.0, step_tol=0.0)
         self.logger = ensemble.logger
+
+        # The analysis flavour is a parameter of the algorithm, not a different
+        # algorithm, so it selects a strategy object rather than a class.
+        self.bind_strategy(self.resolve_analysis(analysis, keys_da))
 
         self.prev_data_misfit = None
 
@@ -393,16 +396,26 @@ class esmdaMixIn(AssimilationWorkflowMixin, AssimilationSchemeBase):
         return assim_steps
 
 
-class esmda_approx(esmdaMixIn, approx_update):
-    pass
+#: Historical name. ``multilevel.esmda_hybrid`` still subclasses it.
+esmdaMixIn = ESMDA
 
 
-class esmda_full(esmdaMixIn, full_update):
-    pass
+class esmda_approx(ESMDA):
+    """Deprecated alias: prefer ``ESMDA(..., analysis="approx")``."""
+
+    FLAVOUR = "approx"
 
 
-class esmda_subspace(esmdaMixIn, subspace_update):
-    pass
+class esmda_full(ESMDA):
+    """Deprecated alias: prefer ``ESMDA(..., analysis="full")``."""
+
+    FLAVOUR = "full"
+
+
+class esmda_subspace(ESMDA):
+    """Deprecated alias: prefer ``ESMDA(..., analysis="subspace")``."""
+
+    FLAVOUR = "subspace"
 
 
 class esmda_geo(esmda_approx):
