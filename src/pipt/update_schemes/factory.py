@@ -24,7 +24,7 @@ from pipt.update_schemes.registry import get_scheme
 __all__ = ["EnKF", "ES", "ESMDA", "LMEnRML", "GNEnRML", "build_scheme"]
 
 
-def build_scheme(scheme, da_input, en_input, sim, analysis="approx"):
+def build_scheme(scheme, da_input, en_input, sim, analysis=None):
     """Construct any registered scheme by name.
 
     Parameters
@@ -38,23 +38,31 @@ def build_scheme(scheme, da_input, en_input, sim, analysis="approx"):
     sim : object
         Forward simulator instance.
     analysis : str, optional
-        Analysis flavour. Defaults to ``"approx"``.
+        Analysis flavour. Defaults to the config's ``analysis`` key, so that
+        this agrees with :func:`pipt.pipt_init.init_da`, falling back to
+        ``"approx"`` if the config does not say. Pass it to override the config.
 
     Returns
     -------
     object
         The instantiated scheme.
     """
+    if analysis is None:
+        # The config is the source of truth, so that this agrees with
+        # `init_da`. "approx" remains the fallback for a config that does not
+        # say -- but a config that *does* say must never be overridden by a
+        # default, which is what silently built the wrong scheme before.
+        analysis = da_input.get("analysis", "approx")
     return get_scheme(scheme, analysis)(da_input, en_input, sim)
 
 
 def _make(scheme, flavours, doc_summary):
     """Build a named constructor for one algorithm."""
 
-    def constructor(da_input, en_input, sim, analysis="approx"):
+    def constructor(da_input, en_input, sim, analysis=None):
         return build_scheme(scheme, da_input, en_input, sim, analysis=analysis)
 
-    def assimilate(da_input, en_input, sim, analysis="approx"):
+    def assimilate(da_input, en_input, sim, analysis=None):
         """Construct this scheme and run it to completion.
 
         Takes exactly what the constructor takes, so ``ESMDA.assimilate(...)``
@@ -83,7 +91,8 @@ def _make(scheme, flavours, doc_summary):
         Forward simulator instance.
     analysis : str, optional
         Analysis flavour, one of: {', '.join(repr(f) for f in flavours)}.
-        Defaults to ``'approx'``.
+        Defaults to the config's ``analysis`` key, falling back to ``'approx'``.
+        Pass it to override the config.
 
     Returns
     -------

@@ -92,3 +92,50 @@ def test_concrete_classes_remain_importable():
 
     assert registry.get_scheme("esmda", "full") is esmda_full
     assert registry.get_scheme("lmenrml", "approx") is lmenrml_approx
+
+
+def test_factory_honours_config_analysis():
+    """The factory must not silently disagree with init_da.
+
+    `analysis` used to default to "approx" in the factory while init_da read it
+    from the config, so a config asking for "subspace" built esmda_approx
+    through one entry point and esmda_subspace through the other.
+    """
+    import inspect
+
+    from pipt import ESMDA, build_scheme
+
+    # The defaults are what caused the disagreement: "approx" here vs the
+    # config's value in init_da.
+    assert inspect.signature(ESMDA).parameters["analysis"].default is None
+    assert inspect.signature(build_scheme).parameters["analysis"].default is None
+
+
+def test_factory_resolves_each_flavour_from_config():
+    from pipt.update_schemes.registry import get_scheme
+
+    for flavour in ("approx", "full", "subspace"):
+        cfg_da = {"scheme": "esmda", "analysis": flavour}
+        assert get_scheme(cfg_da["scheme"], cfg_da["analysis"]) is get_scheme(
+            "esmda", flavour
+        )
+
+
+def test_config_analysis_beats_the_fallback(monkeypatch):
+    """A config asking for a flavour must not be overridden by the default."""
+    class Spy:
+        def __init__(self, da, en, sim):
+            pass
+
+    monkeypatch.setitem(registry.SCHEMES, ("esmda", "subspace"), Spy)
+    assert isinstance(pipt.ESMDA({"scheme": "esmda", "analysis": "subspace"}, {}, None), Spy)
+
+
+def test_explicit_analysis_beats_the_config(monkeypatch):
+    class Spy:
+        def __init__(self, da, en, sim):
+            pass
+
+    monkeypatch.setitem(registry.SCHEMES, ("esmda", "full"), Spy)
+    cfg = {"scheme": "esmda", "analysis": "subspace"}
+    assert isinstance(pipt.ESMDA(cfg, {}, None, analysis="full"), Spy)
