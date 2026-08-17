@@ -48,7 +48,6 @@ import yaml
 
 from input_output import read_config
 from pipt import pipt_init
-from pipt.loop.assimilation import Assimilate
 from simulator.vanderpol import VanDerPolOscillator, _integrate
 
 REFERENCE_FILE = Path(__file__).with_name("characterisation_reference.npz")
@@ -186,7 +185,7 @@ def run_case(scheme, analysis, tmpdir):
     )
     cfg_da, cfg_sim, cfg_ens = read_config.read(config_file)
     ensemble = pipt_init.init_da(cfg_da, cfg_ens, VanDerPolOscillator(cfg_sim))
-    Assimilate(ensemble).run()
+    ensemble.assimilation_loop()
 
     return {
         "enX": np.asarray(ensemble.enX, dtype=float),

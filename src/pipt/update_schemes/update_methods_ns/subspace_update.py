@@ -55,7 +55,7 @@ class subspace_update(AnalysisStrategy):
                       (np.eye(ne) - np.ones((ne, ne)) / ne) / np.sqrt(ne - 1))
 
         # Initialise weight matrix and projected observation perturbations once
-        if self.iteration == 1:
+        if self.iteration == 0:
             self.current_W = np.zeros((ne, ne))
             self.E = enE @ PI                                # shape: (nd, ne)
 

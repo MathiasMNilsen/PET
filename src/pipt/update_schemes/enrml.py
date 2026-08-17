@@ -8,6 +8,7 @@ import pipt.misc_tools.extract_tools as extract
 from geostat.decomp import Cholesky
 from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.scheme_base import AssimilationSchemeBase
+from pipt.update_schemes.workflow import AssimilationWorkflowMixin
 from pipt.update_schemes.update_methods_ns.subspace_update import subspace_update
 from pipt.update_schemes.update_methods_ns.full_update import full_update
 from pipt.update_schemes.update_methods_ns.approx_update import approx_update
@@ -51,7 +52,7 @@ __all__ = [
 ]
 
 
-class lmenrmlMixIn(AssimilationSchemeBase):
+class lmenrmlMixIn(AssimilationWorkflowMixin, AssimilationSchemeBase):
     """
     This is an implementation of EnRML using Levenberg-Marquardt. The update scheme is selected by a MixIn with multiple
     update_methods_ns. This class must therefore facititate many different update schemes.
@@ -65,7 +66,11 @@ class lmenrmlMixIn(AssimilationSchemeBase):
         # Build the collaborator, then hand it to the scheme base. Logging
         # stays on the ensemble's logger so log output is unchanged.
         ensemble = Ensemble(keys_da, keys_en, sim)
-        super().__init__(ensemble, logit=False)
+        # misfit_tol/step_tol disable the base class's *generic* convergence
+        # criteria. PIPT schemes decide convergence themselves, in
+        # check_convergence(); letting the generic ones also fire would stop a
+        # run early on a criterion the scheme never opted into.
+        super().__init__(ensemble, logit=False, misfit_tol=0.0, step_tol=0.0)
         self.logger = ensemble.logger
 
         if self.restart is False:
@@ -95,6 +100,10 @@ class lmenrmlMixIn(AssimilationSchemeBase):
             self.iteration = 0
             # Mirrored for ensemble-side helpers that consult it.
             self.ensemble.iteration = 0
+            # The prior forecast is no longer one of the counted iterations,
+            # so the loop budget is one less than the legacy max_iter.
+            self.max_iter = extract.extract_maxiter(self.keys_da)
+            self.maxiter = self.max_iter - 1
             self._converged = False
             self.ensemble.prior_enX = cp.deepcopy(self.enX) # (Not sure if this is wise!)
             self.prev_data_misfit = None  # Data misfit at previous iteration
@@ -129,7 +138,7 @@ class lmenrmlMixIn(AssimilationSchemeBase):
         # Get Ensemble of predicted data
         self.enPred = self.pred_data.to_matrix()
 
-        if self.iteration == 1:  # first iteration
+        if self.iteration == 0:  # first iteration
 
             # Calculate the prior data misfit
             data_misfit = at.calc_objectivefun(self.enObs, self.enPred, self.cov_data)
@@ -192,7 +201,8 @@ class lmenrmlMixIn(AssimilationSchemeBase):
             number rather than advancing.
         """
         self.calc_analysis()
-        self.ensemble.forecast()
+        self.after_analysis()
+        self.run_forecast()
         self.score_and_commit()
         return self.step_accepted
 
@@ -250,13 +260,13 @@ class lmenrmlMixIn(AssimilationSchemeBase):
                 success = False
                 self.log_update(success=success)
                 self.logger(
-                    f'Iterations have converged after {self.iteration} iterations. Objective function reduced '
+                    f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
                     f'from {self.prior_data_misfit:0.1f} to {self.prev_data_misfit:0.1f}'
             )
             else:
                 self.log_update(success=True)
                 self.logger.info(
-                    f'Iterations have converged after {self.iteration} iterations. Objective function reduced '
+                    f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
                     f'from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}'
                 )
 
@@ -333,7 +343,7 @@ class lmenrmlMixIn(AssimilationSchemeBase):
         Log the update results in a formatted table.
         '''
         info = {
-            "Iteration"     : f'{0 if prior_run else self.iteration}',
+            "Iteration"     : f'{0 if prior_run else self.iteration + 1}',
             "Status"        : "Success" if (prior_run or success) else "Failed",
             "Data Misfit"   : self.data_misfit,
             "Change (%)"    : '',
@@ -360,7 +370,7 @@ class lmenrml_subspace(lmenrmlMixIn, subspace_update):
     pass
 
 
-class gnenrmlMixIn(AssimilationSchemeBase):
+class gnenrmlMixIn(AssimilationWorkflowMixin, AssimilationSchemeBase):
     """
     This is an implementation of EnRML using the Gauss-Newton approach. The update scheme is selected by a MixIn with multiple
     update_methods_ns. This class must therefore facititate many different update schemes.
@@ -374,7 +384,11 @@ class gnenrmlMixIn(AssimilationSchemeBase):
         # Build the collaborator, then hand it to the scheme base. Logging
         # stays on the ensemble's logger so log output is unchanged.
         ensemble = Ensemble(keys_da, keys_en, sim)
-        super().__init__(ensemble, logit=False)
+        # misfit_tol/step_tol disable the base class's *generic* convergence
+        # criteria. PIPT schemes decide convergence themselves, in
+        # check_convergence(); letting the generic ones also fire would stop a
+        # run early on a criterion the scheme never opted into.
+        super().__init__(ensemble, logit=False, misfit_tol=0.0, step_tol=0.0)
         self.logger = ensemble.logger
 
         if self.restart is False:
@@ -395,6 +409,10 @@ class gnenrmlMixIn(AssimilationSchemeBase):
             self.iteration = 0
             # Mirrored for ensemble-side helpers that consult it.
             self.ensemble.iteration = 0
+            # The prior forecast is no longer one of the counted iterations,
+            # so the loop budget is one less than the legacy max_iter.
+            self.max_iter = extract.extract_maxiter(self.keys_da)
+            self.maxiter = self.max_iter - 1
             self._converged = False
             self.ensemble.prior_enX = cp.deepcopy(self.enX)
             self.prev_data_misfit = None
@@ -429,7 +447,7 @@ class gnenrmlMixIn(AssimilationSchemeBase):
 
         self.enPred = self.pred_data.to_matrix()
 
-        if self.iteration == 1:  # first iteration
+        if self.iteration == 0:  # first iteration
             data_misfit = at.calc_objectivefun(self.enObs, self.enPred, self.cov_data)
 
             # Store the (mean) data misfit (also for conv. check)
@@ -483,7 +501,8 @@ class gnenrmlMixIn(AssimilationSchemeBase):
             number rather than advancing.
         """
         self.calc_analysis()
-        self.ensemble.forecast()
+        self.after_analysis()
+        self.run_forecast()
         self.score_and_commit()
         return self.step_accepted
 
@@ -535,12 +554,12 @@ class gnenrmlMixIn(AssimilationSchemeBase):
                 success = False
                 self.log_update(success=success)
                 self.logger.info(
-                    f'Iterations have converged after {self.iteration} iterations. Objective function reduced '
+                    f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
                     f'from {self.prior_data_misfit:0.1f} to {self.prev_data_misfit:0.1f}')
             else:
                 self.log_update(success=True)
                 self.logger.info(
-                    f'Iterations have converged after {self.iteration} iterations. Objective function reduced '
+                    f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
                     f'from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}')
             self._converged = True
             self.step_accepted = success
@@ -564,7 +583,7 @@ class gnenrmlMixIn(AssimilationSchemeBase):
 
                 if self.gamma_factor > 1:
                     self.gamma = self.gamma + (self.gamma_max - self.gamma) * 2 ** (
-                        -(self.iteration) / (self.gamma_factor - 1)
+                        -(self.iteration + 1) / (self.gamma_factor - 1)
                     )
 
                 self.ensemble.enX = cp.deepcopy(self.enX_temp)
@@ -607,7 +626,7 @@ class gnenrmlMixIn(AssimilationSchemeBase):
         Log the update results in a formatted table.
         '''
         info = {
-            "Iteration"     : f'{0 if prior_run else self.iteration}',
+            "Iteration"     : f'{0 if prior_run else self.iteration + 1}',
             "Status"        : "Success" if (prior_run or success) else "Failed",
             "Data Misfit"   : self.data_misfit,
             "Change (%)"    : '',
@@ -1042,10 +1061,10 @@ class gn_enrml(lmenrmlMixIn):
 
             if self.data_misfit >= self.prev_data_misfit:
                 success = False
-                self.logger.info(f'Iterations have converged after {self.iteration} iterations. Objective function reduced '
+                self.logger.info(f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
                                  f'from {self.prior_data_misfit:0.1f} to {self.prev_data_misfit:0.1f}')
             else:
-                self.logger.info(f'Iterations have converged after {self.iteration} iterations. Objective function reduced '
+                self.logger.info(f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
                                  f'from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}')
 
             # Return conv = True, why_stop var.

@@ -18,9 +18,10 @@ from typing import Any
 
 import numpy as np
 
+import pipt.misc_tools.analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
 
-__all__ = ["ForecastMixin"]
+__all__ = ["ForecastMixin", "OutlierMixin"]
 
 
 class ForecastMixin:
@@ -209,3 +210,38 @@ class ForecastMixin:
 
         with open("rec_results.pkl", "wb") as file:
             pickle.dump(self.data_rec, file)
+
+
+class OutlierMixin:
+    """Replacement of outlier ensemble members.
+
+    Ensemble work, like the forecast: it rewrites ``pred_data``, ``sim_data``
+    and the state matrix in place. Called between forecast and scoring, so the
+    replacement feeds into the misfit the scheme sees.
+    """
+
+    def remove_outliers(self) -> None:
+        """Replace outlier ensemble members with resampled non-outliers."""
+        outlier_idx, non_outlier_idx = at.get_outlier_index(
+            self.pred_data, self.data_df, self.data_var_df,
+        )
+        if len(outlier_idx) == 0:
+            return
+        idx = np.arange(self.ne)
+        for outlier in outlier_idx:
+            new_idx = np.random.choice(non_outlier_idx)
+            idx[outlier] = new_idx
+            self.logger(f"Replaced outlier {outlier} with member {new_idx}")
+
+        # Remove outliers from state ensemble
+        state_attribute = "enX_temp" if self.enX_temp is not None else "enX"
+        enX_filtered = getattr(self, state_attribute)[:, idx]
+        setattr(self, state_attribute, enX_filtered)
+
+        # Filter outliers from dataframes
+        def filter_outliers(cell):
+            return cell[..., idx] if cell.ndim > 1 else cell[idx]
+        self.pred_data = self.pred_data.map(filter_outliers)
+        self.sim_data = self.sim_data.map(filter_outliers)
+        if getattr(self, "adjoints", None) is not None:
+            self.adjoints = self.adjoints.map(filter_outliers)

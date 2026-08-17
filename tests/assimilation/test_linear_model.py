@@ -5,7 +5,6 @@ Integration test for 1D linear model with LM-EnRML assimilation.
 import os
 import numpy as np
 
-from pipt.loop.assimilation import Assimilate
 from misc.structures import PETDataFrame
 from simulator.simple_models import lin_1d
 from pipt.update_schemes import lmenrml_full
@@ -119,8 +118,7 @@ def test_lin_1d(tmp_path):
     )
 
     # --- Run assimilation
-    assimilator = Assimilate(ensemble)
-    assimilator.run()
+    ensemble.assimilation_loop()
 
     # --- Validate results
     ensemble_mean = ensemble.enX.mean(axis=-1)

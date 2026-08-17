@@ -11,6 +11,7 @@ from geostat.decomp import Cholesky
 # Internal imports
 from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.scheme_base import AssimilationSchemeBase
+from pipt.update_schemes.workflow import AssimilationWorkflowMixin
 import pipt.misc_tools.analysis_tools as at
 
 # import update schemes
@@ -25,7 +26,7 @@ __all__ = [
     'esmda_geo'
 ]
 
-class esmdaMixIn(AssimilationSchemeBase):
+class esmdaMixIn(AssimilationWorkflowMixin, AssimilationSchemeBase):
     """
     This is the implementation of the ES-MDA algorithm given in [`emerick2013a`][].
     This algorithm have been implemented mostly to
@@ -61,7 +62,11 @@ class esmdaMixIn(AssimilationSchemeBase):
         # Build the collaborator, then hand it to the scheme base. Logging stays
         # on the ensemble's logger so the log output is unchanged.
         ensemble = Ensemble(keys_da, keys_en, sim)
-        super().__init__(ensemble, logit=False)
+        # misfit_tol/step_tol disable the base class's *generic* convergence
+        # criteria. PIPT schemes decide convergence themselves, in
+        # check_convergence(); letting the generic ones also fire would stop a
+        # run early on a criterion the scheme never opted into.
+        super().__init__(ensemble, logit=False, misfit_tol=0.0, step_tol=0.0)
         self.logger = ensemble.logger
 
         self.prev_data_misfit = None
@@ -80,6 +85,8 @@ class esmdaMixIn(AssimilationSchemeBase):
             # Extract no. assimilation steps from MDA keyword in DATAASSIM part of init. file and set this equal to
             # the number of iterations pluss one. Need one additional because the iter=0 is the prior run.
             self.max_iter = len(self._ext_assim_steps())+1
+            # Prior forecast is not a counted iteration under the base loop.
+            self.maxiter = self.max_iter - 1
             self.iteration = 0
             # Mirrored so ensemble-side helpers that consult the iteration
             # counter (e.g. data screening in perturb_observations) agree with
@@ -127,7 +134,8 @@ class esmdaMixIn(AssimilationSchemeBase):
             returning it here would make the base class discard accepted steps.
         """
         self.calc_analysis()
-        self.ensemble.forecast()
+        self.after_analysis()
+        self.run_forecast()
         self.score_and_commit()
         return True
 
@@ -163,7 +171,7 @@ class esmdaMixIn(AssimilationSchemeBase):
         # Get Ensemble matrix of predicted data
         self.enPred = self.pred_data.to_matrix()
 
-        if self.iteration == 1:  # first iteration
+        if self.iteration == 0:  # first iteration
 
             # Calculate the prior data misfit
             data_misfit = at.calc_objectivefun(
@@ -186,7 +194,7 @@ class esmdaMixIn(AssimilationSchemeBase):
 
             self.enObs, self.scale_data = Cholesky().gen_real(
                 self.vecObs,
-                self.alpha[self.iteration - 1] * self.cov_data,
+                self.alpha[self.iteration] * self.cov_data,
                 self.ne,
                 return_chol=True
             )
@@ -196,7 +204,7 @@ class esmdaMixIn(AssimilationSchemeBase):
             self.data_random_state = deepcopy(np.random.get_state())
             self.enObs, self.scale_data = Cholesky().gen_real(
                 self.vecObs,
-                self.alpha[self.iteration - 1] * self.cov_data,
+                self.alpha[self.iteration] * self.cov_data,
                 self.ne,
                 return_chol=True
             )
@@ -286,11 +294,11 @@ class esmdaMixIn(AssimilationSchemeBase):
         Log the update results in a formatted table.
         '''
         info = {
-            "Iteration"     : f'{0 if prior_run else self.iteration}',
+            "Iteration"     : f'{0 if prior_run else self.iteration + 1}',
             "Status"        : "Success" if (prior_run or success) else "Failed",
             "Data Misfit"   : self.data_misfit,
             "Change (%)"    : '',
-            "α"             : self.alpha[self.iteration - 1] if not prior_run else '',
+            "α"             : self.alpha[self.iteration] if not prior_run else '',
         }
         if not prior_run:
             delta = 100*(self.data_misfit / self.prev_data_misfit - 1)

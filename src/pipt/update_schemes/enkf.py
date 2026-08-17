@@ -9,6 +9,7 @@ from geostat.decomp import Cholesky                     # Making realizations
 # Internal imports
 from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.scheme_base import AssimilationSchemeBase
+from pipt.update_schemes.workflow import AssimilationWorkflowMixin
 # Misc. tools used in analysis schemes
 from pipt.misc_tools import analysis_tools as at
 import pipt.misc_tools.ensemble_tools as entools
@@ -18,7 +19,7 @@ from pipt.update_schemes.update_methods_ns.approx_update import approx_update
 from pipt.update_schemes.update_methods_ns.subspace_update import subspace_update
 
 
-class enkfMixIn(AssimilationSchemeBase):
+class enkfMixIn(AssimilationWorkflowMixin, AssimilationSchemeBase):
     """
     Straightforward EnKF analysis scheme implementation. The sequential updating can be done with general grouping and
     ordering of data. If only one-step EnKF is to be done, use `es` instead.
@@ -32,7 +33,11 @@ class enkfMixIn(AssimilationSchemeBase):
         # Build the collaborator, then hand it to the scheme base. Logging
         # stays on the ensemble's logger so log output is unchanged.
         ensemble = Ensemble(keys_da, keys_en, sim)
-        super().__init__(ensemble, logit=False)
+        # misfit_tol/step_tol disable the base class's *generic* convergence
+        # criteria. PIPT schemes decide convergence themselves, in
+        # check_convergence(); letting the generic ones also fire would stop a
+        # run early on a criterion the scheme never opted into.
+        super().__init__(ensemble, logit=False, misfit_tol=0.0, step_tol=0.0)
         self.logger = ensemble.logger
 
         self.prev_data_misfit = None
@@ -52,6 +57,8 @@ class enkfMixIn(AssimilationSchemeBase):
             # Extract no. assimilation steps from MDA keyword in DATAASSIM part of init. file and set this equal to
             # the number of iterations pluss one. Need one additional because the iter=0 is the prior run.
             self.max_iter = len(self.keys_da['assimindex'])+1
+            # Prior forecast is not a counted iteration under the base loop.
+            self.maxiter = self.max_iter - 1
             self.iteration = 0
             # Mirrored for ensemble-side helpers that consult it.
             self.ensemble.iteration = 0
@@ -156,7 +163,8 @@ class enkfMixIn(AssimilationSchemeBase):
             has no rejection path.
         """
         self.calc_analysis()
-        self.ensemble.forecast()
+        self.after_analysis()
+        self.run_forecast()
         self.score_and_commit()
         return True
 
@@ -171,7 +179,7 @@ class enkfMixIn(AssimilationSchemeBase):
         self.prev_data_misfit = self.prior_data_misfit
 
         # only calulate for the final (posterior) estimate
-        if self.iteration == len(self.keys_da['assimindex']):
+        if self.iteration + 1 == len(self.keys_da['assimindex']):
             enPred = self.pred_data.to_matrix()
             data_misfit = at.calc_objectivefun(self.enObs, enPred, self.scale_data)
             self.data_misfit = np.mean(data_misfit)

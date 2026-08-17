@@ -227,6 +227,7 @@ class AssimilationSchemeBase(RestartMixin, ABC):
         elif not self.restart:
             self.clear_restart()
             self.run_prior_forecast()
+            self.after_prior_forecast()
 
         converged = False
         rejected = 0
@@ -246,6 +247,7 @@ class AssimilationSchemeBase(RestartMixin, ABC):
 
             rejected = 0
             self.iteration += 1
+            self.after_accepted_iteration()
 
             if self.check_misfit_convergence():
                 converged = True
@@ -263,11 +265,40 @@ class AssimilationSchemeBase(RestartMixin, ABC):
         if self.iteration >= self.maxiter and not converged:
             self.conv_msg = "Maximum number of iterations reached"
 
+        self.after_loop(converged)
         return self._finalize(converged)
 
     def run_prior_forecast(self) -> None:
         """Run the iteration-zero forecast on the prior ensemble."""
         self.ensemble.forecast()
+
+    # ------------------------------------------------------------------
+    # Workflow hooks
+    # ------------------------------------------------------------------
+    # Extension points for work that surrounds the algorithm rather than being
+    # part of it -- diagnostics, artifact saving, outlier handling. They are
+    # no-ops here so the loop stays algorithm-only; PIPT supplies them through
+    # :class:`pipt.update_schemes.workflow.AssimilationWorkflowMixin`.
+
+    def after_prior_forecast(self) -> None:
+        """Called once, after the prior forecast and before any iteration."""
+
+    def after_analysis(self) -> None:
+        """Called after the analysis, before the forecast it will be scored on."""
+
+    def after_forecast(self) -> None:
+        """Called after each in-iteration forecast, before the misfit is scored."""
+
+    def run_forecast(self) -> None:
+        """Forecast the trial state, then run the post-forecast hook."""
+        self.ensemble.forecast()
+        self.after_forecast()
+
+    def after_accepted_iteration(self) -> None:
+        """Called after each accepted iteration, once the counter has advanced."""
+
+    def after_loop(self, converged: bool) -> None:
+        """Called once the loop has stopped, before the result is assembled."""
 
     # ------------------------------------------------------------------
     # Shared convergence criteria

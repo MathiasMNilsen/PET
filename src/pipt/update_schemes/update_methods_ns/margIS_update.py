@@ -9,7 +9,7 @@ class margIS_update():
     Placeholder for private margIS method
     """
     def update(self):
-        if self.iteration == 1: # method requires some initiallization
+        if self.iteration == 0: # method requires some initiallization
             self.aug_prior = cp.deepcopy(at.aug_state(self.prior_state, self.list_states))
             self.mean_prior = self.aug_prior.mean(axis=1)
             self.X = (self.aug_prior - np.dot(np.resize(self.mean_prior, (len(self.mean_prior), 1)),

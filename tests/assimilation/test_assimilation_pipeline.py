@@ -21,7 +21,6 @@ import numpy as np
 import pandas as pd
 
 from simulator.vanderpol import VanDerPolOscillator, _integrate
-from pipt.loop.assimilation import Assimilate
 from input_output import read_config
 from pipt import pipt_init
 
@@ -155,7 +154,7 @@ def run_assimilation(config_file: str):
         VanDerPolOscillator(cfg_sim),
     )
 
-    Assimilate(ensemble).run()
+    ensemble.assimilation_loop()
     return ensemble
 
 

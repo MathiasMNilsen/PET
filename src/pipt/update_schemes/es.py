@@ -37,6 +37,8 @@ class esMixIn():
             # Extract no. assimilation steps from MDA keyword in DATAASSIM part of init. file and set this equal to
             # the number of iterations pluss one. Need one additional because the iter=0 is the prior run.
             self.max_iter = 2
+            # Prior forecast is not a counted iteration under the base loop.
+            self.maxiter = self.max_iter - 1
 
     def check_convergence(self) -> bool:
         """ES takes a single all-data-at-once step; nothing stops early."""
@@ -48,7 +50,7 @@ class esMixIn():
         """
         self.prev_data_misfit = self.prior_data_misfit
         # only calulate for the final (posterior) estimate
-        if self.iteration == len(self.keys_da['assimindex']):
+        if self.iteration + 1 == len(self.keys_da['assimindex']):
             enPred = self.pred_data.to_matrix()
             data_misfit = at.calc_objectivefun(self.enObs, enPred, self.scale_data)
             self.data_misfit = np.mean(data_misfit)
