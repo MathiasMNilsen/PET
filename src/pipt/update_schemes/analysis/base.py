@@ -108,6 +108,29 @@ class AnalysisStrategy(ABC):
             raise AttributeError(name)
         return getattr(scheme, name)
 
+    def __setattr__(self, name, value):
+        """Write public attributes through to the bound scheme.
+
+        Some strategies deliver their result by *assignment* rather than by
+        return value: ``subspace_update`` sets ``w_step``, which is what the
+        scheme actually applies, and ``full_update`` caches ``Am``. Mixed in,
+        those writes landed on the scheme because ``self`` was the scheme. Bound,
+        they would land here instead and the scheme's ``hasattr(self, 'w_step')``
+        would silently be False -- the update quietly skipped, no error.
+
+        So write-through is what makes binding faithful, not a convenience.
+        Private names stay local, which is what keeps ``_scheme`` itself out of
+        the loop.
+        """
+        if name.startswith("_"):
+            object.__setattr__(self, name, value)
+            return
+        scheme = getattr(self, "_scheme", None)
+        if scheme is None:
+            object.__setattr__(self, name, value)
+        else:
+            setattr(scheme, name, value)
+
     @abstractmethod
     def update(self, enX, enY, enE, **kwargs):
         """Compute the analysis update step.

@@ -95,13 +95,32 @@ def test_binding_does_not_swallow_genuine_attribute_errors():
         strategy.no_such_attribute_anywhere
 
 
-def test_delegation_is_reads_only():
-    """Assignment must land on the strategy, never silently on the scheme."""
+def test_public_writes_go_through_to_the_scheme():
+    """Mixed in, every `self.x = ...` in a strategy set it on the scheme.
+
+    Binding has to reproduce that: `subspace_update` delivers its result by
+    assigning `w_step`, and the scheme applies it only if `hasattr(self,
+    'w_step')`. Without write-through the update is skipped silently.
+    """
     scheme = FakeScheme(lam=1.0)
     strategy = approx_update(scheme)
 
     strategy.lam = 99.0
-    assert scheme.lam == 1.0
+    assert scheme.lam == 99.0
+
+
+def test_private_writes_stay_on_the_strategy():
+    scheme = FakeScheme()
+    strategy = approx_update(scheme)
+
+    strategy._local = "mine"
+    assert not hasattr(scheme, "_local")
+
+
+def test_unbound_writes_stay_local():
+    strategy = approx_update()
+    strategy.w_step = 5
+    assert strategy.w_step == 5
 
 
 # ----------------------------------------------------------------------
@@ -130,14 +149,30 @@ def test_bound_strategy_matches_mixed_in_result(flavour):
     scheme.iteration = 0
     bound_step = strategy_cls(scheme).update(enX=enX, enY=enY, enE=enE)
 
-    np.testing.assert_array_equal(
-        np.asarray(bound_step, dtype=float),
-        np.asarray(mixed_step, dtype=float),
-        err_msg=(
-            f"{flavour}: bound and mixed-in strategies disagree, so collapsing "
-            f"the per-flavour classes would change the numerics."
-        ),
-    )
+    if mixed_step is not None or bound_step is not None:
+        np.testing.assert_array_equal(
+            np.asarray(bound_step, dtype=float),
+            np.asarray(mixed_step, dtype=float),
+            err_msg=(
+                f"{flavour}: bound and mixed-in return values disagree, so "
+                f"collapsing the per-flavour classes would change the numerics."
+            ),
+        )
+
+    # Side effects are the real payload for some flavours: subspace_update
+    # delivers via `w_step` and returns nothing useful, full_update caches `Am`.
+    # Comparing only return values would have missed that entirely.
+    for attr in ("w_step", "Am"):
+        assert hasattr(scheme, attr) == hasattr(mixed, attr), (
+            f"{flavour}: bound path {'set' if hasattr(scheme, attr) else 'did not set'} "
+            f"{attr} but mixed-in path did the opposite"
+        )
+        if hasattr(mixed, attr) and getattr(mixed, attr) is not None:
+            np.testing.assert_array_equal(
+                np.asarray(getattr(scheme, attr), dtype=float),
+                np.asarray(getattr(mixed, attr), dtype=float),
+                err_msg=f"{flavour}: bound and mixed-in disagree on {attr}",
+            )
 
 
 def test_mixin_path_is_untouched_by_the_new_init():
