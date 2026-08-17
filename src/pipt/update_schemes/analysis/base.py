@@ -24,9 +24,17 @@ Strategy contract
 
 Strategies read the surrounding scheme's configuration off ``self`` -- the
 damping parameter ``lam``, ``trunc_energy``, ``localization``, ``keys_da``, and
-optionally ``cov_data`` / ``scale_state`` / ``scale_data`` / ``proj``. That
-coupling is inherited from the mixin design and is what a later phase replaces
-with an explicit context object.
+optionally ``cov_data`` / ``scale_state`` / ``scale_data`` / ``proj``.
+``full_update`` reads more still: ``prior_enX``, ``Am``, ``ext_Am`` and
+``state_scaling``. Note that ``prior_enX`` is *ensemble* state -- it resolves
+under the mixin only because the scheme delegates unknown reads to its
+ensemble, so the context spans both objects.
+
+That coupling is inherited from the mixin design and is what a later phase
+replaces with an explicit context object. :meth:`AnalysisStrategy.__getattr__`
+is the intermediate step: a strategy can now be *bound* to a scheme and reach
+the same context by delegation, which is what allows the flavour to become a
+parameter rather than part of the class name.
 """
 
 from abc import ABC, abstractmethod
@@ -45,7 +53,60 @@ class AnalysisStrategy(ABC):
     a full 2-D matrix or a 1-D array holding just the diagonal, which is how
     PIPT represents a diagonal data covariance without materialising ``nd x nd``
     zeros.
+
+    Two usages
+    ----------
+    **Mixed in** (what every shipped scheme still does)::
+
+        class esmda_approx(esmdaMixIn, approx_update): ...
+
+    ``self`` is the scheme, so ``self.lam`` and friends resolve by inheritance
+    and nothing here is involved.
+
+    **Bound** -- constructed against a scheme it holds a reference to::
+
+        strategy = approx_update(scheme)
+        step = strategy.update(enX, enY, enE)
+
+    which is what lets the flavour become a *parameter* of one scheme class
+    rather than picking which class you get. Context reads then fall through to
+    the bound scheme via :meth:`__getattr__`, the same delegation
+    :class:`~pipt.update_schemes.scheme_base.AssimilationSchemeBase` uses to
+    reach its ensemble.
+
+    An unbound strategy resolves nothing and raises ``AttributeError``, which is
+    deliberate: the optional context reads below are written as
+    ``getattr(self, 'scale_state', <default>)`` and must keep falling back to
+    their defaults rather than finding a half-initialised scheme.
     """
+
+    def __init__(self, scheme=None):
+        """
+        Parameters
+        ----------
+        scheme : object, optional
+            Scheme to read analysis context from. ``None`` leaves the strategy
+            unbound. Never invoked in the mixin case: no ``__init__`` in that
+            MRO chains to ``super()``.
+        """
+        self._scheme = scheme
+
+    def __getattr__(self, name):
+        """Fall back to the bound scheme for context this strategy lacks.
+
+        Only reached when normal lookup fails, so a mixed-in strategy -- where
+        ``self`` is the scheme -- never gets here for an attribute that exists.
+        """
+        # Guard the recursion: resolving `_scheme` must not re-enter this.
+        if name.startswith("__") or name == "_scheme":
+            raise AttributeError(name)
+        try:
+            scheme = object.__getattribute__(self, "_scheme")
+        except AttributeError:
+            raise AttributeError(name) from None
+        if scheme is None:
+            raise AttributeError(name)
+        return getattr(scheme, name)
 
     @abstractmethod
     def update(self, enX, enY, enE, **kwargs):
