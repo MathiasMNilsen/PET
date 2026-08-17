@@ -8,6 +8,7 @@ from geostat.decomp import Cholesky                     # Making realizations
 
 # Internal imports
 from pipt.ensembles import AssimilationEnsemble as Ensemble
+from pipt.update_schemes.scheme_base import AssimilationSchemeBase
 # Misc. tools used in analysis schemes
 from pipt.misc_tools import analysis_tools as at
 import pipt.misc_tools.ensemble_tools as entools
@@ -17,7 +18,7 @@ from pipt.update_schemes.update_methods_ns.approx_update import approx_update
 from pipt.update_schemes.update_methods_ns.subspace_update import subspace_update
 
 
-class enkfMixIn(Ensemble):
+class enkfMixIn(AssimilationSchemeBase):
     """
     Straightforward EnKF analysis scheme implementation. The sequential updating can be done with general grouping and
     ordering of data. If only one-step EnKF is to be done, use `es` instead.
@@ -28,27 +29,32 @@ class enkfMixIn(Ensemble):
         The class is initialized by passing the PIPT init. file upwards in the hierarchy to be read and parsed in
         `pipt.input_output.pipt_init.ReadInitFile`.
         """
-        # Pass the init_file upwards in the hierarchy
-        super().__init__(keys_da, keys_en, sim)
+        # Build the collaborator, then hand it to the scheme base. Logging
+        # stays on the ensemble's logger so log output is unchanged.
+        ensemble = Ensemble(keys_da, keys_en, sim)
+        super().__init__(ensemble, logit=False)
+        self.logger = ensemble.logger
 
         self.prev_data_misfit = None
 
         if self.restart is False:
-            self.prior_enX = deepcopy(self.enX)
-            self.list_states = list(self.idX.keys())
+            self.ensemble.prior_enX = deepcopy(self.enX)
+            self.ensemble.list_states = list(self.idX.keys())
 
             # At the moment, the iterative loop is threated as an iterative smoother an thus we check if assim. indices
             # are given as in the Simultaneous loop.
-            self.check_assimindex_simultaneous()
+            self.ensemble.check_assimindex_simultaneous()
 
-            self.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
-            self.list_datatypes = self.keys_da['datatype']
+            self.ensemble.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
+            self.ensemble.list_datatypes = self.keys_da['datatype']
 
 
             # Extract no. assimilation steps from MDA keyword in DATAASSIM part of init. file and set this equal to
             # the number of iterations pluss one. Need one additional because the iter=0 is the prior run.
             self.max_iter = len(self.keys_da['assimindex'])+1
             self.iteration = 0
+            # Mirrored for ensemble-side helpers that consult it.
+            self.ensemble.iteration = 0
             self.lam = 0  # set LM lamda to zero as we are doing one full update.
 
             if 'energy' in self.keys_da:
@@ -61,9 +67,9 @@ class enkfMixIn(Ensemble):
 
             # Get the perturbed observations and observation scaling
             self.vecObs = self.data_df.to_matrix()
-            self.enObs = self.perturb_observations(self.vecObs)
+            self.enObs = self.ensemble.perturb_observations(self.vecObs)
             self.enObs_conv = deepcopy(self.enObs)
-            self._ext_scaling()
+            self.ensemble._ext_scaling()
 
     def calc_analysis(self):
         """
@@ -72,7 +78,7 @@ class enkfMixIn(Ensemble):
         """
         # If this is initial analysis we calculate the objective function for all data. In the final convergence check
         # we calculate the posterior objective function for all data
-        if not hasattr(self, 'prior_data_misfit'):
+        if self.prior_data_misfit is None:
             enPred = self.pred_data.to_matrix()
 
             # Calc. misfit for the initial iteration
@@ -111,7 +117,7 @@ class enkfMixIn(Ensemble):
         self.E = np.dot(self.enObs, self.proj)
 
         if 'localanalysis' in self.keys_da:
-            self.local_analysis_update()
+            self.ensemble.local_analysis_update()
         else:
             # Check for adjoint
             if hasattr(self, 'adjoints'):
@@ -128,16 +134,37 @@ class enkfMixIn(Ensemble):
             )
             # Update the state ensemble and weights
             if self.step is not None:
-                self.enX_temp = self.enX + self.step
+                self.ensemble.enX_temp = self.enX + self.step
             if hasattr(self, 'w_step'):
                 self.W = self.current_W + self.w_step
-                self.enX_temp = np.dot(self.prior_enX, (np.eye(self.ne) + self.W/np.sqrt(self.ne - 1)))
+                self.ensemble.enX_temp = np.dot(self.prior_enX, (np.eye(self.ne) + self.W/np.sqrt(self.ne - 1)))
 
             # Ensure limits are respected
             limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.idX.keys()}
-            self.enX_temp = entools.clip_matrix(self.enX_temp, limits, self.idX)
+            self.ensemble.enX_temp = entools.clip_matrix(self.enX_temp, limits, self.idX)
 
-    def check_convergence(self):
+    # ------------------------------------------------------------------
+    # AssimilationSchemeBase contract
+    # ------------------------------------------------------------------
+    def update_step(self) -> bool:
+        """Run one EnKF step: analysis, forecast, then score and commit.
+
+        Returns
+        -------
+        bool
+            Always ``True``. The EnKF applies one update per data group and
+            has no rejection path.
+        """
+        self.calc_analysis()
+        self.ensemble.forecast()
+        self.score_and_commit()
+        return True
+
+    def check_convergence(self) -> bool:
+        """The EnKF runs its full sweep of data groups; nothing stops early."""
+        return False
+
+    def score_and_commit(self):
         """
         Calculate the "convergence" of the method. Important to
         """
@@ -159,8 +186,8 @@ class enkfMixIn(Ensemble):
                     'prev_data_misfit': self.prev_data_misfit}
 
         # Update state ensemble
-        self.enX = deepcopy(self.enX_temp)
-        self.enX_temp = None
+        self.ensemble.enX = deepcopy(self.enX_temp)
+        self.ensemble.enX_temp = None
 
         if self.data_misfit == self.prev_data_misfit:
             self.logger.info(
@@ -172,8 +199,8 @@ class enkfMixIn(Ensemble):
             else:
                 self.logger.info(
                     f'EnKF update complete! Objective function increased from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}.')
-        # Return conv = False, why_stop var.
-        return False, True, why_stop
+        self.why_stop = why_stop
+        return why_stop
 
 
 class enkf_approx(enkfMixIn, approx_update):

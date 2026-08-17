@@ -32,13 +32,17 @@ class esMixIn():
         if self.restart is False:
             # At the moment, the iterative loop is threated as an iterative smoother an thus we check if assim. indices
             # are given as in the Simultaneous loop.
-            self.check_assimindex_simultaneous()
+            self.ensemble.check_assimindex_simultaneous()
 
             # Extract no. assimilation steps from MDA keyword in DATAASSIM part of init. file and set this equal to
             # the number of iterations pluss one. Need one additional because the iter=0 is the prior run.
             self.max_iter = 2
 
-    def check_convergence(self):
+    def check_convergence(self) -> bool:
+        """ES takes a single all-data-at-once step; nothing stops early."""
+        return False
+
+    def score_and_commit(self):
         """
         Calculate the "convergence" of the method. Important to
         """
@@ -64,8 +68,8 @@ class esMixIn():
         # is essentially never taken -- prev_data_misfit is the prior misfit and
         # data_misfit is the posterior one -- so ES returned its prior ensemble
         # unchanged while logging a reduced misfit.
-        self.enX = deepcopy(self.enX_temp)
-        self.enX_temp = None
+        self.ensemble.enX = deepcopy(self.enX_temp)
+        self.ensemble.enX_temp = None
 
         if self.data_misfit == self.prev_data_misfit:
             self.logger.info(
@@ -84,8 +88,8 @@ class esMixIn():
                 self.logger.info(
                     f'ES update complete! Objective function increased from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}.')
 
-        # Return conv = False, why_stop var.
-        return False, True, why_stop
+        self.why_stop = why_stop
+        return why_stop
 
 
 class es_approx(esMixIn, enkf_approx):
