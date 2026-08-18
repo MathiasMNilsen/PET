@@ -5,8 +5,25 @@ It exists so a fresh session (or a different person) can pick the work up cold
 without re-deriving the context, and without re-discovering the traps listed at
 the bottom.
 
-**Status:** not started. Everything it depends on is done and on
-`claude/pet-refactoring-o8iwqd`.
+**Status: COMPLETE.** All five steps are done, plus the follow-on that made the
+analysis flavour a parameter rather than a class name. Kept as a record of how
+the migration was sequenced and, more usefully, of the traps in §7 -- several of
+which bit again during the work and are still live hazards for anyone touching
+this code.
+
+What actually happened, against the plan below:
+
+- The ordering in §4 was inverted. `es`/`enkf` turned out to be the only schemes
+  with no runtime coverage, and `enkf` could not run at all, so `esmda` and
+  `enrml` went first -- migrating against the characterisation suite instead of
+  against nothing.
+- `es` and `enkf` could not be separated: `es_approx` inherits its
+  `calc_analysis` from `enkf`, so steps 1 and 2 were one slice.
+- Three bugs surfaced that were not part of the refactor: `enkf` reading a
+  `full_cov_data` that nothing assigns, ES discarding its own update, and the
+  multilevel scheme never having completed a run. See CHANGELOG.md.
+- The open question in §8 was answered: `Assimilate` was deleted outright, with
+  no deprecated wrapper.
 
 ---
 

@@ -99,11 +99,18 @@ algorithm now takes the flavour as an argument:
 ```python
 from pipt import ESMDA, available_schemes
 
-scheme = ESMDA(cfg_da, cfg_en, sim, analysis="approx")
+scheme = ESMDA(cfg_da, cfg_en, sim)   # flavour comes from the config's `analysis`
+result = scheme.assimilation_loop()   # the scheme owns its iteration loop
+
 available_schemes()   # every valid (scheme, analysis) pair
 ```
 
-The concrete classes (`esmda_approx`, `lmenrml_full`, ...) remain importable.
+`analysis=` overrides the config when passed. `ESMDA.assimilate(cfg_da, cfg_en,
+sim)` is the one-line form for when the scheme object is not needed afterwards;
+it returns the same `AssimilationResult`, whose `x` is the posterior ensemble.
+
+The concrete classes (`esmda_approx`, `lmenrml_full`, ...) remain importable as
+subclasses pinning their flavour.
 
 Running a data-assimilation or optimization job itself is still done from a
 Python driver script that wires up your forward simulator/cost function -- see
