@@ -103,6 +103,11 @@ class ESMDA(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     LMEnRML : Iterates to convergence instead of on a fixed schedule.
     """
 
+    #: Ensemble class this scheme composes. Subclasses needing a specialised
+    #: collaborator -- the multilevel variant, for instance -- override it
+    #: rather than duplicating the constructor.
+    ENSEMBLE_CLASS = Ensemble
+
     def __init__(self, keys_da, keys_en, sim, analysis=None):
         """Build the ensemble from the config and bind the analysis strategy.
 
@@ -110,7 +115,7 @@ class ESMDA(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
         """
         # Build the collaborator, then hand it to the scheme base. Logging stays
         # on the ensemble's logger so the log output is unchanged.
-        ensemble = Ensemble(keys_da, keys_en, sim)
+        ensemble = self.ENSEMBLE_CLASS(keys_da, keys_en, sim)
         # misfit_tol/step_tol disable the base class's *generic* convergence
         # criteria. PIPT schemes decide convergence themselves, in
         # check_convergence(); letting the generic ones also fire would stop a
@@ -125,8 +130,14 @@ class ESMDA(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
         self.prev_data_misfit = None
 
         if self.restart is False:
-            self.ensemble.prior_enX = deepcopy(self.enX)
-            self.ensemble.list_states = list(self.enX.indices)
+            # A specialised ensemble may already have established these -- the
+            # multilevel one partitions enX into per-level blocks and sets both
+            # itself, and `enX.indices` does not exist on that shape. Only fill
+            # them in when the collaborator has not.
+            if getattr(self.ensemble, 'prior_enX', None) is None:
+                self.ensemble.prior_enX = deepcopy(self.enX)
+            if getattr(self.ensemble, 'list_states', None) is None:
+                self.ensemble.list_states = list(self.enX.indices)
             self.ensemble.list_datatypes = self.keys_da['datatype']
 
             # At the moment, the iterative loop is threated as an iterative smoother an thus we check if assim. indices

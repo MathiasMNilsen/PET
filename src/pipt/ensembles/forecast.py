@@ -39,6 +39,12 @@ class ForecastMixin:
         self.calc_prediction(enX)
         self.pred_data = self.sim_to_pred_data(self.sim_data)
 
+        # Multilevel runs correct each level towards the reference level's mean.
+        # This needs `pred_data`, so it happens here rather than inside
+        # `calc_prediction`, which only produces `sim_data`.
+        if getattr(self, "multilevel", None) is not None:
+            self.treat_modeling_error()
+
         self._apply_prediction_scaling()
 
         if extract.is_enabled(self.keys_da.get("post_process_forecast", False)):

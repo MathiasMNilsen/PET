@@ -191,8 +191,12 @@ class BaseEnsemble:
 
         if hasattr(self, 'multilevel') and (self.multilevel is not None):
             is_multilevel = True
-            levels = tqdm(self.multilevel['ml_ne'], desc='Fidelity level', position=1, **progbar_settings)
+            # Iterate over level *indices*: `level` is used below to index both
+            # `ne` and `enX`. Iterating the ml_ne values instead made `level`
+            # an ensemble size, so `ne[level]` raised IndexError and multilevel
+            # forward simulation could never run.
             ne = self.multilevel['ml_ne']
+            levels = tqdm(range(len(ne)), desc='Fidelity level', position=1, **progbar_settings)
             assert isinstance(enX, list)
             if not all(isinstance(x, PETStateArray) for x in enX):
                 enX = [PETStateArray(x, indices=self.idX) for x in enX]
@@ -325,8 +329,10 @@ class BaseEnsemble:
         if len(self.sim_data) == 1:
             self.sim_data = self.sim_data[0]
 
-        if is_multilevel:
-            self.treat_modeling_error()
+        # `treat_modeling_error` corrects `pred_data`, which does not exist
+        # until the caller has filtered `sim_data`. It is invoked from
+        # `ForecastMixin.forecast` once that is done; calling it here raised
+        # TypeError on `self.pred_data[-1]` being None.
 
         if save_prediction is not None:
             folder = self.ensemble.keys_da.get('savefolder', 'Predictions')
