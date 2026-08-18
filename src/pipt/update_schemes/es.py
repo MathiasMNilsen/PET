@@ -9,20 +9,77 @@ from pipt.misc_tools import analysis_tools as at
 
 
 class ES(EnKF):
-    """
-    This is the straightforward ES analysis scheme. We treat this as a all-data-at-once EnKF step, hence the
-    calc_analysis method here is identical to that in the `enkf` class. Since, for the moment, ASSIMINDEX is parsed in a
-    specific manner (or more precise, single rows and columns in the PIPT init. file is parsed to a 1D list), a
-    `Simultaneous` 'loop' had to be implemented, and `es` will use this to do the inversion. Maybe in the future, we can
-    make the `enkf` class do simultaneous updating also. The consequence of all this is that we inherit BOTH `enkf` and
-    `Simultaneous` classes, which is convenient. The `Simultaneous` class is inherited to set up the correct inversion
-    structure and `enkf` is inherited to get `calc_analysis`, so we do not have to implement it again.
+    """Ensemble Smoother (ES).
+
+    Assimilates all observations simultaneously in a single update, rather than
+    sequentially in time as the filter does. It is :class:`EnKF` specialised to
+    one data group, and shares its analysis step; only the iteration budget and
+    the misfit bookkeeping differ.
+
+    A single conditioning step is cheap but can over-correct when the model is
+    strongly non-linear. :class:`ESMDA` addresses this by spreading the same
+    update over several inflated steps.
+
+    Parameters
+    ----------
+    keys_da : dict
+        Parsed ``dataassim`` configuration. Besides the keys every scheme
+        reads -- ``data``, ``datavar``, ``obsname``, ``truedataindex`` -- the
+        ones this scheme acts on are listed under Notes.
+    keys_en : dict
+        Parsed ``ensemble`` configuration: ensemble size ``ne``, the ``state``
+        variable names, and the ``prior_<name>`` blocks describing each.
+    sim : object
+        Forward simulator instance, e.g. ``simulator.opm.flow``.
+    analysis : {'approx', 'full', 'subspace'}, optional
+        Analysis flavour, i.e. how the ensemble-approximated sensitivity is
+        inverted. Defaults to the ``analysis`` key in ``keys_da``, falling back
+        to ``'approx'``. The flavours differ in cost and in how they handle a
+        rank-deficient ensemble; they solve the same update equation.
+
+    Attributes
+    ----------
+    ensemble : pipt.ensembles.AssimilationEnsemble
+        Collaborator holding the state realisations, observed data and
+        simulator. Attribute reads the scheme does not own fall through to it,
+        so ``scheme.enX`` and ``scheme.keys_da`` resolve as expected.
+    strategy : pipt.update_schemes.analysis.AnalysisStrategy
+        The bound analysis flavour.
+    iteration : int
+        Accepted iterations completed so far.
+    data_misfit, prior_data_misfit : float
+        Current and initial mean data misfit.
+
+    Notes
+    -----
+    ``assimindex`` is flattened to a single group at construction, so the
+    ordering that matters for :class:`EnKF` has no effect here.
+
+    Because there is only one step, the ``full`` flavour coincides with
+    ``approx`` -- the prior-increment term they differ over is only reached
+    when iterating -- and ``es_full`` accordingly resolves to the approx
+    strategy.
+
+    Examples
+    --------
+    >>> result = ES.assimilate(keys_da, keys_en, flow(keys_sim))
+    >>> result.nit
+    1
+
+    References
+    ----------
+    Evensen, *Data Assimilation: The Ensemble Kalman Filter* [`evensen2009a`][].
+
+    See Also
+    --------
+    EnKF : Sequential form of the same update.
+    ESMDA : Spreads the conditioning over several inflated steps.
     """
 
     def __init__(self, keys_da, keys_en, sim, analysis=None):
-        """
-        The class is initialized by passing the PIPT init. file upwards in the hierarchy to be read and parsed in
-        `pipt.input_output.pipt_init.ReadInitFile`.
+        """Build the ensemble from the config and bind the analysis strategy.
+
+        See the class docstring for the parameters.
         """
         super().__init__(keys_da, keys_en, sim, analysis=analysis)
 

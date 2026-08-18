@@ -19,15 +19,75 @@ import pipt.misc_tools.extract_tools as extract
 
 
 class EnKF(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
-    """
-    Straightforward EnKF analysis scheme implementation. The sequential updating can be done with general grouping and
-    ordering of data. If only one-step EnKF is to be done, use `es` instead.
+    """Ensemble Kalman Filter (EnKF).
+
+    Assimilates data sequentially, updating the state once per group of
+    observations in the order given by ``assimindex``. Each update applies the
+    Kalman equations with the covariances approximated from the ensemble:
+
+    .. math::
+
+        m \\leftarrow m + C_{md} (C_{dd} + C_d)^{-1} (d_{obs} - g(m))
+
+    There is no damping and no rejection: every step is accepted, and the run
+    ends once the data groups are exhausted.
+
+    Parameters
+    ----------
+    keys_da : dict
+        Parsed ``dataassim`` configuration. Besides the keys every scheme
+        reads -- ``data``, ``datavar``, ``obsname``, ``truedataindex`` -- the
+        ones this scheme acts on are listed under Notes.
+    keys_en : dict
+        Parsed ``ensemble`` configuration: ensemble size ``ne``, the ``state``
+        variable names, and the ``prior_<name>`` blocks describing each.
+    sim : object
+        Forward simulator instance, e.g. ``simulator.opm.flow``.
+    analysis : {'approx', 'full', 'subspace'}, optional
+        Analysis flavour, i.e. how the ensemble-approximated sensitivity is
+        inverted. Defaults to the ``analysis`` key in ``keys_da``, falling back
+        to ``'approx'``. The flavours differ in cost and in how they handle a
+        rank-deficient ensemble; they solve the same update equation.
+
+    Attributes
+    ----------
+    ensemble : pipt.ensembles.AssimilationEnsemble
+        Collaborator holding the state realisations, observed data and
+        simulator. Attribute reads the scheme does not own fall through to it,
+        so ``scheme.enX`` and ``scheme.keys_da`` resolve as expected.
+    strategy : pipt.update_schemes.analysis.AnalysisStrategy
+        The bound analysis flavour.
+    iteration : int
+        Accepted iterations completed so far.
+    data_misfit, prior_data_misfit : float
+        Current and initial mean data misfit.
+
+    Notes
+    -----
+    ``assimindex`` determines the grouping and ordering of the sequential
+    updates. If all data are to be assimilated in a single step, use :class:`ES`,
+    which is this scheme specialised to one group.
+
+    ``energy`` sets the fraction of singular values retained in the truncated
+    SVD (default 0.98); values above 1 are read as percentages.
+
+    Examples
+    --------
+    >>> result = EnKF.assimilate(keys_da, keys_en, flow(keys_sim))
+
+    References
+    ----------
+    Evensen, *Data Assimilation: The Ensemble Kalman Filter* [`evensen2009a`][].
+
+    See Also
+    --------
+    ES : All-data-at-once form of the same update.
     """
 
     def __init__(self, keys_da, keys_en, sim, analysis=None):
-        """
-        The class is initialized by passing the PIPT init. file upwards in the hierarchy to be read and parsed in
-        `pipt.input_output.pipt_init.ReadInitFile`.
+        """Build the ensemble from the config and bind the analysis strategy.
+
+        See the class docstring for the parameters.
         """
         # Build the collaborator, then hand it to the scheme base. Logging
         # stays on the ensemble's logger so log output is unchanged.

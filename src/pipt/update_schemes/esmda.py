@@ -26,37 +26,87 @@ __all__ = [
 ]
 
 class ESMDA(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
-    """
-    This is the implementation of the ES-MDA algorithm given in [`emerick2013a`][].
-    This algorithm have been implemented mostly to
-    illustrate how a algorithm using the Mda loop can be implemented.
+    """Ensemble Smoother with Multiple Data Assimilation (ES-MDA).
 
-    The scheme *has* an ensemble rather than *being* one. Attribute reads the
-    scheme does not own fall through to that collaborator (see
-    :meth:`AssimilationSchemeBase.__getattr__`), so the analysis strategies and
-    existing user code keep resolving names like ``keys_da`` and ``enX``.
-    Writes that the ensemble must observe go through ``self.ensemble``.
+    An iterative ensemble smoother that assimilates all data repeatedly over a
+    fixed number of steps, inflating the data-error covariance at each one so
+    that the repeated conditioning does not over-fit. With inflation factors
+    :math:`\\alpha_i` satisfying :math:`\\sum_i 1/\\alpha_i = 1`, each step applies
 
-    Both entry points share one implementation: :meth:`update_step` is the
-    contract from :class:`AssimilationSchemeBase`, while :meth:`calc_analysis`
-    and :meth:`check_convergence` remain for
-    :class:`pipt.loop.assimilation.Assimilate` to drive. They call the same
-    internals in the same order, so the two paths are numerically identical.
+    .. math::
+
+        m \\leftarrow m + C_{md} (C_{dd} + \\alpha_i C_d)^{-1} (d_{obs} - g(m))
+
+    with the observations re-perturbed as
+    :math:`d_{obs} = d_{true} + \\sqrt{\\alpha_i} C_d^{1/2} Z`.
+
+    The schedule is fixed rather than convergence-driven, so a run normally
+    ends by exhausting its steps and reports ``success=False``. That is the
+    expected outcome, not a failure.
+
+    Parameters
+    ----------
+    keys_da : dict
+        Parsed ``dataassim`` configuration. Besides the keys every scheme
+        reads -- ``data``, ``datavar``, ``obsname``, ``truedataindex`` -- the
+        ones this scheme acts on are listed under Notes.
+    keys_en : dict
+        Parsed ``ensemble`` configuration: ensemble size ``ne``, the ``state``
+        variable names, and the ``prior_<name>`` blocks describing each.
+    sim : object
+        Forward simulator instance, e.g. ``simulator.opm.flow``.
+    analysis : {'approx', 'full', 'subspace'}, optional
+        Analysis flavour, i.e. how the ensemble-approximated sensitivity is
+        inverted. Defaults to the ``analysis`` key in ``keys_da``, falling back
+        to ``'approx'``. The flavours differ in cost and in how they handle a
+        rank-deficient ensemble; they solve the same update equation.
+
+    Attributes
+    ----------
+    ensemble : pipt.ensembles.AssimilationEnsemble
+        Collaborator holding the state realisations, observed data and
+        simulator. Attribute reads the scheme does not own fall through to it,
+        so ``scheme.enX`` and ``scheme.keys_da`` resolve as expected.
+    strategy : pipt.update_schemes.analysis.AnalysisStrategy
+        The bound analysis flavour.
+    iteration : int
+        Accepted iterations completed so far.
+    data_misfit, prior_data_misfit : float
+        Current and initial mean data misfit.
+
+    Notes
+    -----
+    Configured through the ``mda`` block of ``keys_da``:
+
+    ``tot_assim_steps``
+        Number of assimilation steps, e.g. ``3``.
+    ``inflation_param``
+        Inflation factors, one per step, e.g. ``[3, 3, 3]``. Their reciprocals
+        must sum to 1, which is asserted at construction. Defaults to
+        ``tot_assim_steps`` repeated, which satisfies the constraint.
+
+    Examples
+    --------
+    >>> result = ESMDA.assimilate(keys_da, keys_en, flow(keys_sim))
+    >>> result.nit
+    3
+
+    References
+    ----------
+    Emerick and Reynolds, *Ensemble smoother with multiple data assimilation*
+    [`emerick2013a`][]. For the geometric inflation schedule used by
+    :class:`esmda_geo`, see Rafiee and Reynolds [`rafiee2017`][].
+
+    See Also
+    --------
+    ES : Single-step smoother; ES-MDA with one assimilation step.
+    LMEnRML : Iterates to convergence instead of on a fixed schedule.
     """
 
     def __init__(self, keys_da, keys_en, sim, analysis=None):
-        """
-        The class is initialized by passing the keywords and simulator object upwards in the hierarchy.
+        """Build the ensemble from the config and bind the analysis strategy.
 
-        Parameters
-        ----------
-        keys_da['mda'] : dict
-            - tot_assim_steps: total number of iterations in MDA, e.g., 3
-            - inflation_param: covariance inflation factors, e.g., [2, 4, 4]
-
-        keys_en : dict
-
-        sim : callable
+        See the class docstring for the parameters.
         """
         # Build the collaborator, then hand it to the scheme base. Logging stays
         # on the ensemble's logger so the log output is unchanged.
@@ -124,9 +174,10 @@ class ESMDA(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     def update_step(self) -> bool:
         """Run one ES-MDA assimilation step.
 
-        Analysis, forecast on the updated state, then misfit and commit -- the
-        same order :class:`~pipt.loop.assimilation.Assimilate` applies when it
-        drives the legacy hooks.
+        Computes the inflated analysis, forecasts the trial state, then scores
+        the resulting misfit and promotes the state. Scoring after the forecast
+        is what lets outlier replacement, which runs in between, feed into the
+        number the scheme sees.
 
         Returns
         -------
@@ -426,9 +477,9 @@ class esmda_geo(esmda_approx):
     """
 
     def __init__(self, keys_da):
-        """
-        The class is initialized by passing the PIPT init. file upwards in the hierarchy to be read and parsed in
-        `pipt.input_output.pipt_init.ReadInitFile`.
+        """Build the ensemble from the config and bind the analysis strategy.
+
+        See the class docstring for the parameters.
         """
         # Pass the init_file upwards in the hierarchy
         super().__init__(keys_da)

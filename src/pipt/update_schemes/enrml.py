@@ -52,15 +52,99 @@ __all__ = [
 
 
 class LMEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
-    """
-    This is an implementation of EnRML using Levenberg-Marquardt. The update scheme is selected by a MixIn with multiple
-    update_methods_ns. This class must therefore facititate many different update schemes.
+    """Levenberg-Marquardt Ensemble Randomized Maximum Likelihood (LM-EnRML).
+
+    An iterative ensemble smoother that solves the randomized maximum
+    likelihood problem by repeated linearisation, with a Levenberg-Marquardt
+    damping parameter :math:`\\lambda` controlling the step size. The damped
+    update inflates the Hessian approximation:
+
+    .. math::
+
+        m \\leftarrow m + C_{md} \\big((1 + \\lambda) C_d + C_{dd}\\big)^{-1}
+        (d_{obs} - g(m))
+
+    Unlike ES-MDA, iterations are accepted or rejected. A step that increases
+    the mean data misfit is discarded, :math:`\\lambda` is multiplied by
+    ``lambda_factor`` and the iteration is retried; a step that decreases it is
+    kept and :math:`\\lambda` reduced. The run stops when the relative misfit
+    change falls below ``data_misfit_tol``, when :math:`\\lambda` reaches
+    ``lambda_max``, or on ``max_iter``.
+
+    Parameters
+    ----------
+    keys_da : dict
+        Parsed ``dataassim`` configuration. Besides the keys every scheme
+        reads -- ``data``, ``datavar``, ``obsname``, ``truedataindex`` -- the
+        ones this scheme acts on are listed under Notes.
+    keys_en : dict
+        Parsed ``ensemble`` configuration: ensemble size ``ne``, the ``state``
+        variable names, and the ``prior_<name>`` blocks describing each.
+    sim : object
+        Forward simulator instance, e.g. ``simulator.opm.flow``.
+    analysis : {'approx', 'full', 'subspace'}, optional
+        Analysis flavour, i.e. how the ensemble-approximated sensitivity is
+        inverted. Defaults to the ``analysis`` key in ``keys_da``, falling back
+        to ``'approx'``. The flavours differ in cost and in how they handle a
+        rank-deficient ensemble; they solve the same update equation.
+
+    Attributes
+    ----------
+    ensemble : pipt.ensembles.AssimilationEnsemble
+        Collaborator holding the state realisations, observed data and
+        simulator. Attribute reads the scheme does not own fall through to it,
+        so ``scheme.enX`` and ``scheme.keys_da`` resolve as expected.
+    strategy : pipt.update_schemes.analysis.AnalysisStrategy
+        The bound analysis flavour.
+    iteration : int
+        Accepted iterations completed so far.
+    data_misfit, prior_data_misfit : float
+        Current and initial mean data misfit.
+
+    Notes
+    -----
+    Configured through the ``iteration`` block of ``keys_da``:
+
+    ``max_iter``
+        Maximum accepted iterations.
+    ``lambda``
+        Initial damping parameter (default 100). ``'auto'`` derives it from the
+        prior data misfit.
+    ``lambda_factor``
+        Factor by which damping grows on rejection and shrinks on acceptance
+        (default 5).
+    ``lambda_max``, ``lambda_min``
+        Bounds on the damping parameter.
+    ``data_misfit_tol``
+        Relative misfit change treated as converged (default 0.01).
+
+    Examples
+    --------
+    >>> result = LMEnRML.assimilate(keys_da, keys_en, flow(keys_sim))
+    >>> result.message
+    'Maximum number of iterations reached'
+
+    ``success`` distinguishes the two ways a run can end: ``True`` when a
+    convergence criterion fired, ``False`` when ``max_iter`` was reached first.
+    Both are ordinary outcomes -- check ``prior_data_misfit`` against
+    ``data_misfit`` to judge whether the run achieved anything.
+
+    References
+    ----------
+    Chen and Oliver, *Levenberg-Marquardt forms of the iterative ensemble
+    smoother for efficient history matching and uncertainty quantification*
+    [`chen2013`][].
+
+    See Also
+    --------
+    GNEnRML : Gauss-Newton form, damped by a step length instead.
+    ESMDA : Fixed schedule rather than convergence-driven iteration.
     """
 
     def __init__(self, keys_da, keys_en, sim, analysis=None):
-        """
-        The class is initialized by passing the PIPT init. file upwards in the hierarchy to be read and parsed in
-        `pipt.input_output.pipt_init.ReadInitFile`.
+        """Build the ensemble from the config and bind the analysis strategy.
+
+        See the class docstring for the parameters.
         """
         # Build the collaborator, then hand it to the scheme base. Logging
         # stays on the ensemble's logger so log output is unchanged.
@@ -383,15 +467,89 @@ class lmenrml_subspace(LMEnRML):
 
 
 class GNEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
-    """
-    This is an implementation of EnRML using the Gauss-Newton approach. The update scheme is selected by a MixIn with multiple
-    update_methods_ns. This class must therefore facititate many different update schemes.
+    """Gauss-Newton Ensemble Randomized Maximum Likelihood (GN-EnRML).
+
+    Solves the same randomized maximum likelihood problem as :class:`LMEnRML`,
+    but takes undamped Gauss-Newton steps scaled by a step length
+    :math:`\\gamma \\in (0, 1]` rather than inflating the Hessian:
+
+    .. math::
+
+        m \\leftarrow m + \\gamma \\, C_{md} (C_d + C_{dd})^{-1}
+        (d_{obs} - g(m))
+
+    Steps are accepted or rejected on the mean data misfit as in LM-EnRML. On
+    acceptance :math:`\\gamma` is relaxed towards ``gamma_max``; on rejection it
+    is divided by ``gamma_factor`` and the iteration retried.
+
+    Parameters
+    ----------
+    keys_da : dict
+        Parsed ``dataassim`` configuration. Besides the keys every scheme
+        reads -- ``data``, ``datavar``, ``obsname``, ``truedataindex`` -- the
+        ones this scheme acts on are listed under Notes.
+    keys_en : dict
+        Parsed ``ensemble`` configuration: ensemble size ``ne``, the ``state``
+        variable names, and the ``prior_<name>`` blocks describing each.
+    sim : object
+        Forward simulator instance, e.g. ``simulator.opm.flow``.
+    analysis : {'approx', 'full', 'subspace'}, optional
+        Analysis flavour, i.e. how the ensemble-approximated sensitivity is
+        inverted. Defaults to the ``analysis`` key in ``keys_da``, falling back
+        to ``'approx'``. The flavours differ in cost and in how they handle a
+        rank-deficient ensemble; they solve the same update equation.
+
+    Attributes
+    ----------
+    ensemble : pipt.ensembles.AssimilationEnsemble
+        Collaborator holding the state realisations, observed data and
+        simulator. Attribute reads the scheme does not own fall through to it,
+        so ``scheme.enX`` and ``scheme.keys_da`` resolve as expected.
+    strategy : pipt.update_schemes.analysis.AnalysisStrategy
+        The bound analysis flavour.
+    iteration : int
+        Accepted iterations completed so far.
+    data_misfit, prior_data_misfit : float
+        Current and initial mean data misfit.
+
+    Notes
+    -----
+    Configured through the ``iteration`` block of ``keys_da``:
+
+    ``max_iter``
+        Maximum accepted iterations.
+    ``gamma``
+        Initial step length (default 0.2).
+    ``gamma_max``
+        Value the step length relaxes towards on success (default 0.5).
+    ``gamma_factor``
+        Divisor applied to the step length on rejection (default 2.5).
+    ``data_misfit_tol``
+        Relative misfit change treated as converged (default 0.01).
+
+    The ``margis`` flavour is backed by a private ``margIS_update`` package and
+    is registered only when that package is installed; an inert placeholder
+    stands in otherwise.
+
+    Examples
+    --------
+    >>> result = GNEnRML.assimilate(keys_da, keys_en, flow(keys_sim))
+
+    References
+    ----------
+    Chen and Oliver [`chen2013`][]; see also Raanes, Stordal and Evensen,
+    *Revising the stochastic iterative ensemble smoother* [`raanes2019`][], and
+    Evensen et al. [`evensen2019`][].
+
+    See Also
+    --------
+    LMEnRML : Levenberg-Marquardt form, damped via the Hessian.
     """
 
     def __init__(self, keys_da, keys_en, sim, analysis=None):
-        """
-        The class is initialized by passing the PIPT init. file upwards in the hierarchy to be read and parsed in
-        `pipt.input_output.pipt_init.ReadInitFile`.
+        """Build the ensemble from the config and bind the analysis strategy.
+
+        See the class docstring for the parameters.
         """
         # Build the collaborator, then hand it to the scheme base. Logging
         # stays on the ensemble's logger so log output is unchanged.
@@ -695,9 +853,9 @@ class co_lm_enrml(LMEnRML, approx_update):
     """
 
     def __init__(self, keys_da):
-        """
-        The class is initialized by passing the PIPT init. file upwards in the hierarchy to be read and parsed in
-        `pipt.input_output.pipt_init.ReadInitFile`.
+        """Build the ensemble from the config and bind the analysis strategy.
+
+        See the class docstring for the parameters.
         """
         # Call __init__ in parent class
         super().__init__(keys_da)
@@ -832,9 +990,9 @@ class gn_enrml(LMEnRML):
     """
 
     def __init__(self, keys_da):
-        """
-        The class is initialized by passing the PIPT init. file upwards in the hierarchy to be read and parsed in
-        `pipt.input_output.pipt_init.ReadInitFile`.
+        """Build the ensemble from the config and bind the analysis strategy.
+
+        See the class docstring for the parameters.
         """
         # Call __init__ in parent class
         super().__init__(keys_da)

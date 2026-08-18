@@ -141,9 +141,9 @@ class AssimilationSchemeBase(RestartMixin, ABC):
 
         #: Whether the most recent step was accepted. Schemes that can reject a
         #: step -- the Levenberg-Marquardt family backing off with a larger
-        #: damping parameter -- set this in their scoring pass, so both this
-        #: base's loop and the legacy :class:`~pipt.loop.assimilation.Assimilate`
-        #: loop can tell an accepted iteration from a retried one.
+        #: damping parameter -- set this in their scoring pass, so
+        #: :meth:`assimilation_loop` can tell an accepted iteration from a
+        #: retried one.
         self.step_accepted = True
 
     # ------------------------------------------------------------------
@@ -384,25 +384,58 @@ class AssimilationSchemeBase(RestartMixin, ABC):
     # Convenience entry point
     # ------------------------------------------------------------------
     @classmethod
-    def assimilate(cls, *args, **options) -> AssimilationResult:
+    def assimilate(cls, *args, **options) -> "AssimilationResult":
         """Construct the scheme and run it to completion.
 
-        The assimilation counterpart of ``Optimizer.minimize(...)``.
+        The assimilation counterpart of ``scipy.optimize.minimize``: one call
+        that builds the scheme, runs every iteration, and returns the outcome.
+        Use it when the scheme object itself is not needed afterwards; when it
+        is, construct the class and call :meth:`assimilation_loop` instead.
 
-        Every argument is forwarded verbatim to the constructor, so this takes
-        whatever the scheme itself takes rather than imposing a second, separate
-        signature. For the shipped PIPT schemes that is the parsed config::
+        Every argument is forwarded verbatim to the constructor, so this accepts
+        whatever the scheme accepts rather than imposing a second signature.
 
-            result = ESMDA.assimilate(cfg_da, cfg_en, sim, analysis="approx")
-
-        which is the same triple ``ESMDA(cfg_da, cfg_en, sim)`` accepts; the
-        scheme builds its own ensemble from it. A scheme defined directly
-        against the collaborator protocol is handed its ensemble instead::
-
-            result = MyScheme.assimilate(ensemble, maxiter=10)
+        Parameters
+        ----------
+        *args
+            Positional arguments for the constructor. For the shipped PIPT
+            schemes that is ``(keys_da, keys_en, sim)`` -- the parsed
+            data-assimilation config, the parsed ensemble config, and the
+            forward simulator -- from which the scheme builds its own ensemble.
+            A scheme written directly against the collaborator protocol is
+            handed its ensemble here instead.
+        **options
+            Keyword arguments for the constructor, such as ``analysis`` to
+            override the flavour named in the config.
 
         Returns
         -------
         AssimilationResult
+            Outcome of the run. ``x`` is the posterior state ensemble, ``nit``
+            the number of accepted iterations, ``data_misfit`` and
+            ``prior_data_misfit`` the final and initial mean misfits, and
+            ``message`` the reason the run stopped.
+
+        Examples
+        --------
+        >>> keys_da, keys_sim, keys_en = read_config.read("case.toml")
+        >>> result = ESMDA.assimilate(keys_da, keys_en, flow(keys_sim))
+        >>> result.prior_data_misfit, result.data_misfit
+        (539.2, 70.1)
+
+        Overriding the flavour named in the config:
+
+        >>> result = ESMDA.assimilate(keys_da, keys_en, sim, analysis="subspace")
+
+        Notes
+        -----
+        ``success`` reports whether the run stopped on a convergence criterion
+        rather than by exhausting ``maxiter``. Schemes with a fixed iteration
+        schedule -- ES-MDA in particular -- therefore finish normally with
+        ``success=False``, which is expected rather than a failure.
+
+        See Also
+        --------
+        assimilation_loop : Run an already-constructed scheme.
         """
         return cls(*args, **options).assimilation_loop()
