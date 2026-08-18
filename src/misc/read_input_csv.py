@@ -612,8 +612,8 @@ class DataReader:
         if ext == '.pkl':
             df = PETDataFrame.from_pickle(filepath)
         elif ext == '.csv':
-            df = PETDataFrame.from_csv(filepath, index_col=0)
-            df = df.astype(float, errors='ignore')
+            df = PETDataFrame.from_csv(filepath, index_col=0, parse_dates=True)
+            #df = df.astype(float, errors='ignore')
         elif ext == '.npz':
             data = dict(np.load(filepath, allow_pickle=True))
             df = self._read_from_dict(data)

@@ -10,11 +10,11 @@ import numpy as np
 RUNSPEC
 
 TITLE
- INVERTED 5 SPOT MODEL
+ TINY BOX MODEL
 
 --DIMENS
 -- NDIVIX NDIVIY NDIVIZ
---   60    60      5 /
+--   40    20      5 /
 
 --BLACKOIL
 OIL
@@ -64,7 +64,7 @@ GRID
 INIT
 
 INCLUDE
- '../Grid.grdecl' /
+'../grid/Grid.grdecl' /
 /
 
 PERMX
@@ -86,7 +86,7 @@ COPY
 PROPS    ===============================================================
 
 INCLUDE
- '../pvt.txt' /
+ '../grid/pvt.txt' /
 /
 
 REGIONS  ===============================================================
@@ -149,7 +149,7 @@ RPTRST
 ------------------- WELL SPECIFICATION DATA --------------------------
 
 INCLUDE
-'../Schdl.sch' /
+'../grid/Schdl.sch' /
 /
 
 
