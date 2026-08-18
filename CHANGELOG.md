@@ -49,6 +49,29 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `pipt_init.init_da(...)` still works and still returns the scheme; only the
   driver changed. `Scheme.assimilate(kd, ke, sim)` is the one-line form.
 
+- **Per-iteration result files renamed.** `debug_analysis_step_{i}.npz` is now
+  `assimilation_result_{i}.npz`, the assimilation counterpart of popt's
+  `optimize_result_{i}.npz`. The files were never a debugging aid — they are
+  the record of a run, one per iteration, with iteration 0 the prior — and the
+  old name said otherwise. **Post-processing that globs
+  `debug_analysis_step_*` must be updated**; nothing can alias a filename.
+
+  The config key that selects them follows: `analysisdebug` is now `savedata`,
+  again matching popt. The old spelling still works and warns, and
+  `pet migrate` rewrites it in place alongside `daalg`. There is no `saveit`
+  switch to go with it: listing variables turns saving on and omitting the key
+  turns it off, so a config cannot name variables that are silently discarded.
+
+  ```toml
+  # before                                   # after
+  [dataassim]                                [dataassim]
+  analysisdebug = ["state", "pred_data"]     savedata = ["state", "pred_data"]
+  ```
+
+  `analysis_tools.save_analysisdebug` is likewise deprecated in favour of
+  `save_assimilation_result`; the alias writes the new filename, not the old
+  one.
+
 - **Eighteen scheme classes collapsed into five.** `ESMDA`, `EnKF`, `ES`,
   `LMEnRML` and `GNEnRML` are classes taking `analysis` as an argument, and
   replace the factory functions of the same names. The per-flavour names remain
@@ -121,9 +144,9 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **`analysisdebug` could not record the prior.** Every scheme computed its
+- **`savedata` could not record the prior.** Every scheme computed its
   prior misfit inside the first `calc_analysis`, which runs *after* the
-  iteration-0 artifacts are written. So `debug_analysis_step_0.npz` never
+  iteration-0 artifacts are written. So the step-0 file never
   contained `ensemble_misfit`, `data_misfit` or `prior_data_misfit`; the run
   printed `Cannot save ensemble_misfit, because it is a local variable!` and
   carried on. Prior scoring moved to a new `score_prior()` hook that the loop

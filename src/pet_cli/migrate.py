@@ -1,14 +1,28 @@
 """Migrate legacy PET config files to the current schema.
 
-Currently handles one change: the two-element ``daalg`` key, which packed an
-assimilation family and an update method into a list, is replaced by a single
-``scheme`` key naming the algorithm::
+Two changes are handled.
+
+The two-element ``daalg`` key, which packed an assimilation family and an
+update method into a list, is replaced by a single ``scheme`` key naming the
+algorithm::
 
     daalg = ["esmda", "esmda"]   ->   scheme = "esmda"
 
 The second element was the one that actually selected the class, so that is
 what carries over. Where the two elements disagree the second still wins, and
 the migration reports it so the change is visible rather than silent.
+
+``analysisdebug`` is renamed to ``savedata``, matching popt and describing
+what the key does -- it names the variables recorded each iteration, which is
+a record of the run rather than a debugging aid::
+
+    analysisdebug = [...]   ->   savedata = [...]
+
+The old spelling still works at runtime, with a deprecation warning, so this
+one is a tidy-up rather than a required migration. The *output files* did
+change name, from ``debug_analysis_step_{i}.npz`` to
+``assimilation_result_{i}.npz``, which no config rewrite can paper over: any
+post-processing that globs the old pattern needs updating by hand.
 
 Formatting is preserved. The rewrite is a surgical edit of the ``daalg``
 assignment itself, not a parse-and-redump of the file, because a round trip
@@ -38,6 +52,9 @@ __all__ = ["migrate_config", "migrate_section", "MigrationReport"]
 
 _DA_SECTIONS = ("dataassim", "optim")
 
+#: Keys renamed with their value untouched, ``old -> new``.
+_RENAMED_KEYS = {"analysisdebug": "savedata"}
+
 
 class MigrationReport:
     """What a migration changed, or would change."""
@@ -58,6 +75,18 @@ class MigrationReport:
 
 def migrate_section(section: dict, report: MigrationReport) -> dict:
     """Migrate one config section in place, recording what changed."""
+    for old, new in _RENAMED_KEYS.items():
+        if old not in section:
+            continue
+        if new in section:
+            report.warnings.append(
+                f"Section already has '{new}'; left the deprecated '{old}' in "
+                f"place rather than guessing which one you meant."
+            )
+            continue
+        section[new] = section.pop(old)
+        report.changes.append(f"{old}  ->  {new}")
+
     if "daalg" not in section:
         return section
 
@@ -138,6 +167,32 @@ def _replace_daalg_in_text(text: str, fmt: str, scheme: str):
     return new_text, count
 
 
+def _rename_key_in_text(text: str, fmt: str, old: str, new: str):
+    """Rewrite an assignment's *key*, leaving its value and layout alone.
+
+    Simpler than :func:`_replace_daalg_in_text` because only the name on the
+    left of the separator moves; the value can be a multi-line list, an inline
+    table or anything else and never has to be understood.
+
+    Returns ``(new_text, count)``.
+    """
+    separator = "=" if fmt == "toml" else ":"
+    pattern = re.compile(
+        rf"^(?P<indent>[^\S\n]*){re.escape(old)}(?P<pre>[^\S\n]*){re.escape(separator)}",
+        re.MULTILINE,
+    )
+
+    def substitute(match):
+        # Keep a hand-aligned separator column: absorb the length difference
+        # into the padding when there is padding to absorb.
+        pre = match.group("pre")
+        if len(pre) > 1:
+            pre = pre[: max(1, len(pre) - (len(new) - len(old)))]
+        return f"{match.group('indent')}{new}{pre}{separator}"
+
+    return pattern.subn(substitute, text)
+
+
 def _load(path: Path):
     suffix = path.suffix.lower()
     if suffix == ".toml":
@@ -187,13 +242,23 @@ def migrate_config(path, *, dry_run: bool = False, backup: bool = True) -> Migra
     # Parse first: the parsed value is the reliable source for *what* the new
     # scheme should be, and for the ambiguity warnings.
     schemes = []
+    renames = []
     for name in _DA_SECTIONS:
         section = config.get(name)
-        if isinstance(section, dict) and "daalg" in section:
-            before = len(report.changes)
-            migrate_section(section, report)
-            if len(report.changes) > before:
-                schemes.append(section["scheme"])
+        if not isinstance(section, dict):
+            continue
+        had_daalg = "daalg" in section
+        present = [old for old in _RENAMED_KEYS if old in section]
+        if not had_daalg and not present:
+            continue
+
+        before = len(report.changes)
+        migrate_section(section, report)
+        if len(report.changes) == before:
+            continue
+        if had_daalg and "scheme" in section:
+            schemes.append(section["scheme"])
+        renames += [(old, _RENAMED_KEYS[old]) for old in present if _RENAMED_KEYS[old] in section]
 
     if not report.changed or dry_run:
         return report
@@ -201,20 +266,31 @@ def migrate_config(path, *, dry_run: bool = False, backup: bool = True) -> Migra
     # Write via a surgical text edit so comments, commented-out blocks,
     # indentation, inline tables and quote style all survive.
     original = path.read_text()
-    new_text, count = (original, 0)
-    if len(schemes) == 1:
-        new_text, count = _replace_daalg_in_text(original, fmt, schemes[0])
+    new_text = original
+    surgical = True
+
+    if schemes:
+        if len(schemes) == 1:
+            new_text, count = _replace_daalg_in_text(new_text, fmt, schemes[0])
+            surgical = surgical and count == 1
+        else:
+            # Several sections carry a daalg; one substitution cannot serve both.
+            surgical = False
+
+    for old, new in renames:
+        new_text, count = _rename_key_in_text(new_text, fmt, old, new)
+        surgical = surgical and count > 0
 
     if backup:
         shutil.copy2(path, path.with_suffix(path.suffix + ".bak"))
 
-    if count == len(schemes) == 1:
+    if surgical:
         path.write_text(new_text)
     else:
         # Unusual layout (or several sections): fall back to a full rewrite,
         # but say so -- this is the path that loses comments.
         report.warnings.append(
-            "Could not edit the 'daalg' line in place, so the file was "
+            "Could not edit every changed line in place, so the file was "
             "rewritten from its parsed contents. Comments, commented-out "
             "blocks and original formatting have been lost; the previous "
             "version is in the .bak file."

@@ -300,3 +300,76 @@ def test_yaml_inline_form_preserves_comments(tmp_path):
     text = path.read_text()
     assert "# which algorithm" in text
     assert "scheme:" in text and "daalg" not in text
+
+
+# ----------------------------------------------------------------------
+# analysisdebug -> savedata
+# ----------------------------------------------------------------------
+def test_analysisdebug_is_renamed_to_savedata(tmp_path):
+    path = _write(
+        tmp_path, "case.toml",
+        '[dataassim]\nscheme = "esmda"\nanalysisdebug = ["state", "pred_data"]\n',
+    )
+    report = migrate_config(path)
+
+    text = path.read_text()
+    assert 'savedata = ["state", "pred_data"]' in text
+    assert "analysisdebug" not in text
+    assert any("savedata" in change for change in report.changes)
+
+
+def test_renaming_the_key_preserves_a_multiline_value_and_comments(tmp_path):
+    """Only the name left of the separator moves, so the value is never parsed."""
+    path = _write(
+        tmp_path, "case.toml",
+        '[dataassim]\n'
+        'scheme = "esmda"\n'
+        '# what to record each iteration\n'
+        'analysisdebug = [\n'
+        '    "state",     # the ensemble\n'
+        '    "pred_data",\n'
+        ']\n',
+    )
+    migrate_config(path)
+    text = path.read_text()
+
+    assert "# what to record each iteration" in text
+    assert "# the ensemble" in text
+    assert text.count('"pred_data",\n') == 1
+    assert "savedata = [\n" in text
+
+
+def test_rename_and_daalg_migrate_together(tmp_path):
+    path = _write(
+        tmp_path, "case.toml",
+        '[dataassim]\ndaalg = ["esmda", "esmda"]\nanalysisdebug = ["state"]\n',
+    )
+    migrate_config(path)
+    text = path.read_text()
+
+    assert 'scheme = "esmda"' in text
+    assert 'savedata = ["state"]' in text
+    assert "daalg" not in text and "analysisdebug" not in text
+
+
+def test_both_spellings_present_is_reported_not_guessed(tmp_path):
+    path = _write(
+        tmp_path, "case.toml",
+        '[dataassim]\nscheme = "esmda"\nsavedata = ["state"]\nanalysisdebug = ["pred_data"]\n',
+    )
+    report = migrate_config(path)
+
+    assert any("savedata" in warning for warning in report.warnings)
+    assert "analysisdebug" in path.read_text()
+
+
+def test_yaml_rename_preserves_comments(tmp_path):
+    path = _write(
+        tmp_path, "case.yaml",
+        "dataassim:\n  scheme: esmda\n  # variables to keep\n  analysisdebug: [state]\n",
+    )
+    migrate_config(path)
+    text = path.read_text()
+
+    assert "# variables to keep" in text
+    assert "savedata: [state]" in text and "analysisdebug" not in text

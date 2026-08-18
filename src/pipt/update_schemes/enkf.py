@@ -146,7 +146,7 @@ class EnKF(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
         Was an ``if self.prior_data_misfit is None`` branch at the top of
         :meth:`calc_analysis`, which ran after the iteration-0 artifacts had
         already been written. ``ensemble_misfit`` is recorded here as well, so
-        the per-realisation misfits are available to ``analysisdebug`` for the
+        the per-realisation misfits are available to ``savedata`` for the
         prior as they are for every later iteration.
         """
         enPred = self.pred_data.to_matrix()

@@ -201,7 +201,7 @@ def assert_assimilation_quality(ensemble, misfit_threshold=60.0):
     )
 
 
-def assert_analysisdebug_files(scheme, expected):
+def assert_savedata_files(scheme, expected):
     """Every saved iteration file carries every requested variable.
 
     Iteration 0 is the interesting one. Its file is written from
@@ -211,8 +211,8 @@ def assert_analysisdebug_files(scheme, expected):
     "Cannot save ... because it is a local variable!" and no failure.
     """
     folder = Path(scheme.save_folder)
-    saved = sorted(folder.glob("debug_analysis_step_*.npz"))
-    assert saved, f"no analysisdebug files written to {folder}"
+    saved = sorted(folder.glob("assimilation_result_*.npz"))
+    assert saved, f"no savedata files written to {folder}"
 
     for path in saved:
         with np.load(path, allow_pickle=True) as archive:
@@ -251,13 +251,13 @@ def test_esmda_approx(tmp_path, num_cores):
         "data": "true_data.pkl",
         "datavar": "var.pkl",
         "save_folder": "results",
-        "analysisdebug": ["state", "pred_data", "ensemble_misfit"],
+        "savedata": ["state", "pred_data", "ensemble_misfit"],
     }
     create_config_file("config_esmda", da_cfg, num_cores)
 
     ensemble = run_assimilation("config_esmda.yaml")
     assert_assimilation_quality(ensemble)
-    assert_analysisdebug_files(ensemble, ["pred_data", "ensemble_misfit", "x1", "x2", "mu"])
+    assert_savedata_files(ensemble, ["pred_data", "ensemble_misfit", "x1", "x2", "mu"])
 
 
 def test_lm_enrml_approx(tmp_path, num_cores):
@@ -278,13 +278,13 @@ def test_lm_enrml_approx(tmp_path, num_cores):
         "data": "true_data.pkl",
         "datavar": "var.pkl",
         "save_folder": "results",
-        "analysisdebug": ["state", "pred_data", "ensemble_misfit"],
+        "savedata": ["state", "pred_data", "ensemble_misfit"],
     }
     create_config_file("config_lm_enrml", da_cfg, num_cores)
 
     ensemble = run_assimilation("config_lm_enrml.yaml")
     assert_assimilation_quality(ensemble)
-    assert_analysisdebug_files(ensemble, ["pred_data", "ensemble_misfit", "x1", "x2", "mu"])
+    assert_savedata_files(ensemble, ["pred_data", "ensemble_misfit", "x1", "x2", "mu"])
 
 
 def test_gn_enrml_approx(tmp_path, num_cores):
@@ -305,10 +305,10 @@ def test_gn_enrml_approx(tmp_path, num_cores):
         "data": "true_data.pkl",
         "datavar": "var.pkl",
         "save_folder": "results",
-        "analysisdebug": ["state", "pred_data", "ensemble_misfit"],
+        "savedata": ["state", "pred_data", "ensemble_misfit"],
     }
     create_config_file("config_gn_enrml", da_cfg, num_cores)
 
     ensemble = run_assimilation("config_gn_enrml.yaml")
     assert_assimilation_quality(ensemble)
-    assert_analysisdebug_files(ensemble, ["pred_data", "ensemble_misfit", "x1", "x2", "mu"])
+    assert_savedata_files(ensemble, ["pred_data", "ensemble_misfit", "x1", "x2", "mu"])

@@ -296,7 +296,7 @@ class AssimilationSchemeBase(RestartMixin, ABC):
         Schemes used to do this inside the first ``calc_analysis``, which runs
         *after* :meth:`after_prior_forecast`. The prior misfit therefore did
         not exist yet when the iteration-0 artifacts were written, so
-        ``savedata``/``analysisdebug`` could not capture it. It also meant a
+        ``savedata`` could not capture it. It also meant a
         scheme that rejects its first step -- the Levenberg-Marquardt family --
         recomputed ``prior_data_misfit`` from the *rejected* forecast on every
         retry.

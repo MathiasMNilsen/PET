@@ -29,6 +29,7 @@ Hook order over a run::
 
 import os
 import pickle
+import warnings
 from importlib import import_module
 from typing import Any
 
@@ -70,8 +71,8 @@ class AssimilationWorkflowMixin:
 
         self._run_prior_quality_assurance()
         self._save_prior_forecast()
-        if "analysisdebug" in self.keys_da:
-            self._save_analysis_debug()
+        if self._savedata_keys:
+            self._save_iteration_data()
         if "iterinfo" in self.keys_da:
             self._save_iteration_information()
         self._save_restart_snapshot()
@@ -93,8 +94,8 @@ class AssimilationWorkflowMixin:
         """Persist iteration artifacts and run QA/QC after an accepted update."""
         if "iterinfo" in self.keys_da:
             self._save_iteration_information()
-        if "analysisdebug" in self.keys_da:
-            self._save_analysis_debug()
+        if self._savedata_keys:
+            self._save_iteration_data()
 
         if self.qaqc is not None:
             if "qc" in self.keys_da:
@@ -226,11 +227,34 @@ class AssimilationWorkflowMixin:
             iter_info_func = import_module(module_name)
             iter_info_func.main(self)
 
-    def _save_analysis_debug(self) -> None:
-        """Save the scheme attributes named by ``analysisdebug``.
+    @property
+    def _savedata_keys(self) -> list[str]:
+        """Variable names to record each iteration, from ``savedata``.
 
-        One file per iteration, ``debug_analysis_step_{iteration}.npz``, with
-        iteration 0 describing the prior. ``state`` is special-cased: it
+        ``analysisdebug`` is the old spelling and is still honoured, with a
+        deprecation warning. The two are not merged: a config carrying both is
+        almost certainly mid-migration, and silently unioning them would hide
+        whichever one the user forgot to delete.
+        """
+        if "savedata" in self.keys_da:
+            return self._as_list(self.keys_da["savedata"])
+        if "analysisdebug" in self.keys_da:
+            warnings.warn(
+                "The 'analysisdebug' config key is deprecated; rename it to "
+                "'savedata'. Output files are now 'assimilation_result_{i}.npz' "
+                "rather than 'debug_analysis_step_{i}.npz'.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return self._as_list(self.keys_da["analysisdebug"])
+        return []
+
+    def _save_iteration_data(self) -> None:
+        """Save the scheme attributes named by ``savedata``.
+
+        One file per iteration, ``assimilation_result_{iteration}.npz``, with
+        iteration 0 describing the prior -- the assimilation counterpart of
+        popt's ``optimize_result_{i}.npz``. ``state`` is special-cased: it
         expands to one array per state variable rather than a single entry.
 
         A name the scheme does not carry is reported and skipped rather than
@@ -240,7 +264,7 @@ class AssimilationWorkflowMixin:
         """
         save_dict: dict[str, Any] = {}
 
-        for save_type in self._as_list(self.keys_da["analysisdebug"]):
+        for save_type in self._savedata_keys:
             if hasattr(self, save_type):
                 save_attr = getattr(self, save_type)
                 if isinstance(save_attr, (pd.DataFrame, PETDataFrame)):
@@ -257,7 +281,7 @@ class AssimilationWorkflowMixin:
                 )
 
         save_dict["savefolder"] = self.save_folder
-        at.save_analysisdebug(self.iteration, **save_dict)
+        at.save_assimilation_result(self.iteration, **save_dict)
 
     def _state_debug_dict(self) -> dict[str, Any]:
         if getattr(self.ensemble, "multilevel", None) is not None:

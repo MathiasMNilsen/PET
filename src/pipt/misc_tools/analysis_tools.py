@@ -20,6 +20,7 @@ from misc.system_tools.environ_var import OpenBlasSingleThread  # only single th
 import multiprocessing as mp  # parallel updates
 import pickle
 import logging
+import warnings
 from importlib import import_module  # To import packages
 
 from scipy.spatial import cKDTree
@@ -667,14 +668,17 @@ def update_datavar(cov_data, datavar, assim_index, list_data):
     return datavar
 
 
-def save_analysisdebug(ind_save, **kwargs):
+def save_assimilation_result(ind_save, **kwargs):
     """
-    Save variables in analysis step for debugging purpose
+    Save the requested variables for one assimilation iteration.
+
+    The PIPT counterpart to ``popt.misc_tools.optim_tools.save_optimize_results``,
+    which writes ``optimize_result_{i}.npz``.
 
     Parameters
     ----------
     ind_save : int
-        Index of analysis step
+        Iteration index. ``0`` is the prior.
     **kwargs : dict
         Variables that will be saved to npz file
 
@@ -686,10 +690,26 @@ def save_analysisdebug(ind_save, **kwargs):
     # Save input variables
     folder = kwargs.pop('savefolder')
     try:
-        np.savez(f'{folder}/debug_analysis_step_{ind_save}', **kwargs)
+        np.savez(f'{folder}/assimilation_result_{ind_save}', **kwargs)
     except Exception: # if npz save fails dump to a pickle file
-        with open(f'{folder}/debug_analysis_step_{ind_save}.p', 'wb') as file:
+        with open(f'{folder}/assimilation_result_{ind_save}.p', 'wb') as file:
             pickle.dump(kwargs, file)
+
+
+def save_analysisdebug(ind_save, **kwargs):
+    """Deprecated alias for :func:`save_assimilation_result`.
+
+    The files are not a debugging aid -- they are the per-iteration record of
+    a run -- so both the function and what it writes were renamed.
+    """
+    warnings.warn(
+        "save_analysisdebug is deprecated; use save_assimilation_result. "
+        "Note that it now writes 'assimilation_result_{i}.npz' rather than "
+        "'debug_analysis_step_{i}.npz'.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return save_assimilation_result(ind_save, **kwargs)
 
 
 def get_list_data_types(obs_data, assim_index):

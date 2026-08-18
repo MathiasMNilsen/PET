@@ -45,13 +45,15 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
             - obsvarsave: save the observations as a file (default false)
             - restart: restart optimization from a restart file (default false)
             - restartsave: save a restart file after each successful iteration (defalut false)
-            - analysisdebug: names of scheme attributes to write to one file per
-              iteration, ``debug_analysis_step_{i}.npz``. Iteration 0 is the
+            - savedata: names of scheme attributes to write to one file per
+              iteration, ``assimilation_result_{i}.npz``. Iteration 0 is the
               prior. ``"state"`` expands to one array per state variable;
               anything else is looked up on the scheme and then on the
               ensemble, so e.g. ``"ensemble_misfit"``, ``"pred_data"``,
               ``"data_misfit"`` and ``"lam"`` all resolve. A name that resolves
-              nowhere is reported and skipped.
+              nowhere is reported and skipped. Omitting the key disables the
+              saving, so there is no separate on/off switch.
+              (Was ``analysisdebug``, still honoured with a warning.)
             - savefolder (or save_folder): where run artifacts go
               (default ``Results``)
             - nosave: present in the config disables artifact saving entirely
