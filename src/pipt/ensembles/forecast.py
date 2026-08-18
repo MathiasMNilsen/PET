@@ -61,10 +61,15 @@ class ForecastMixin:
 
     @property
     def save_folder(self) -> str | None:
-        """Folder for run artifacts, created on first use, or ``None``."""
+        """Folder for run artifacts, created on first use, or ``None``.
+
+        Both ``savefolder`` and ``save_folder`` are accepted, as POPT's
+        optimizers do -- only the former used to be read, so a config written
+        with the underscored spelling silently wrote to ``Results`` instead.
+        """
         if not self._saving_enabled:
             return None
-        folder = self.keys_da.get("savefolder", "Results")
+        folder = self.keys_da.get("savefolder", self.keys_da.get("save_folder", "Results"))
         os.makedirs(folder, exist_ok=True)
         return folder
 

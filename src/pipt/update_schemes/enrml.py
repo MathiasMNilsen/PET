@@ -206,6 +206,29 @@ class LMEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
 
 
 
+    def score_prior(self):
+        """Score the prior forecast and size the initial damping parameter.
+
+        Runs once, before the loop, so the iteration-0 artifacts record the
+        prior misfit. Doing it here rather than behind an ``iteration == 0``
+        branch in :meth:`calc_analysis` also stops a rejected first step from
+        overwriting ``prior_data_misfit`` with the rejected forecast's misfit
+        on every retry.
+        """
+        self.enPred = self.pred_data.to_matrix()
+
+        data_misfit = at.calc_objectivefun(self.enObs, self.enPred, self.cov_data)
+
+        self.ensemble_misfit = data_misfit
+        self.data_misfit = np.mean(data_misfit)
+        self.prior_data_misfit = np.mean(data_misfit)
+        self.data_misfit_std = np.std(data_misfit)
+
+        if self.lam == 'auto':
+            self.lam = (0.5 * self.prior_data_misfit)/self.enPred.shape[0]
+
+        self.log_update(success=True, prior_run=True)
+
     def calc_analysis(self):
         """
         Calculate the update step in LM-EnRML, which is just the Levenberg-Marquardt update algorithm with
@@ -213,23 +236,6 @@ class LMEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
         """
         # Get Ensemble of predicted data
         self.enPred = self.pred_data.to_matrix()
-
-        if self.iteration == 0:  # first iteration
-
-            # Calculate the prior data misfit
-            data_misfit = at.calc_objectivefun(self.enObs, self.enPred, self.cov_data)
-
-            # Store the (mean) data misfit (also for conv. check)
-            self.ensemble_misfit = data_misfit
-            self.data_misfit = np.mean(data_misfit)
-            self.prior_data_misfit = np.mean(data_misfit)
-            self.data_misfit_std = np.std(data_misfit)
-
-            if self.lam == 'auto':
-                self.lam = (0.5 * self.prior_data_misfit)/self.enPred.shape[0]
-
-            # Log initial data misfit
-            self.log_update(success=True, prior_run=True)
 
         if 'localanalysis' in self.keys_da:
             self.ensemble.local_analysis_update()
@@ -601,6 +607,26 @@ class GNEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
             # ensure that the updates does not invoke the LM inflation of the Hessian.
             self.lam = 0
 
+    def score_prior(self):
+        """Score the prior forecast and fix the step length if left to 'auto'.
+
+        See :meth:`LMEnRML.score_prior`; the same reasoning applies, with
+        ``gamma`` in place of ``lam``.
+        """
+        self.enPred = self.pred_data.to_matrix()
+
+        data_misfit = at.calc_objectivefun(self.enObs, self.enPred, self.cov_data)
+
+        self.ensemble_misfit = data_misfit
+        self.data_misfit = np.mean(data_misfit)
+        self.prior_data_misfit = np.mean(data_misfit)
+        self.data_misfit_std = np.std(data_misfit)
+
+        if self.gamma == 'auto':
+            self.gamma = 0.1
+
+        self.log_update(success=True, prior_run=True)
+
     def calc_analysis(self):
         """
         Calculate the update step in LM-EnRML, which is just the Levenberg-Marquardt update algorithm with
@@ -609,20 +635,6 @@ class GNEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
         """
 
         self.enPred = self.pred_data.to_matrix()
-
-        if self.iteration == 0:  # first iteration
-            data_misfit = at.calc_objectivefun(self.enObs, self.enPred, self.cov_data)
-
-            # Store the (mean) data misfit (also for conv. check)
-            self.ensemble_misfit = data_misfit
-            self.data_misfit = np.mean(data_misfit)
-            self.prior_data_misfit = np.mean(data_misfit)
-            self.data_misfit_std = np.std(data_misfit)
-
-            if self.gamma == 'auto':
-                self.gamma = 0.1
-
-            self.log_update(success=True, prior_run=True)
 
         if 'localanalysis' in self.keys_da:
             self.ensemble.local_analysis_update()

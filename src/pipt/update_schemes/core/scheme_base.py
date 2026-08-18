@@ -227,6 +227,7 @@ class AssimilationSchemeBase(RestartMixin, ABC):
         elif not self.restart:
             self.clear_restart()
             self.run_prior_forecast()
+            self.score_prior()
             self.after_prior_forecast()
 
         converged = False
@@ -269,8 +270,13 @@ class AssimilationSchemeBase(RestartMixin, ABC):
         return self._finalize(converged)
 
     def run_prior_forecast(self) -> None:
-        """Run the iteration-zero forecast on the prior ensemble."""
-        self.ensemble.forecast()
+        """Run the iteration-zero forecast on the prior ensemble.
+
+        Goes through the same post-forecast hook as every later forecast, so
+        outlier replacement applies to the prior ensemble too rather than being
+        duplicated by the workflow mixin.
+        """
+        self.run_forecast()
 
     # ------------------------------------------------------------------
     # Workflow hooks
@@ -280,8 +286,27 @@ class AssimilationSchemeBase(RestartMixin, ABC):
     # no-ops here so the loop stays algorithm-only; PIPT supplies them through
     # :class:`pipt.update_schemes.core.AssimilationWorkflowMixin`.
 
+    def score_prior(self) -> None:
+        """Score the prior forecast, before any iteration.
+
+        Sets ``prior_data_misfit``, ``data_misfit`` and -- where the scheme
+        keeps it -- the per-realisation ``ensemble_misfit``, so the prior is
+        described by the same attributes as every later iteration.
+
+        Schemes used to do this inside the first ``calc_analysis``, which runs
+        *after* :meth:`after_prior_forecast`. The prior misfit therefore did
+        not exist yet when the iteration-0 artifacts were written, so
+        ``savedata``/``analysisdebug`` could not capture it. It also meant a
+        scheme that rejects its first step -- the Levenberg-Marquardt family --
+        recomputed ``prior_data_misfit`` from the *rejected* forecast on every
+        retry.
+
+        The default is a no-op: a scheme that has no prior misfit to report
+        simply does not override it.
+        """
+
     def after_prior_forecast(self) -> None:
-        """Called once, after the prior forecast and before any iteration."""
+        """Called once, after the prior forecast has been run and scored."""
 
     def after_analysis(self) -> None:
         """Called after the analysis, before the forecast it will be scored on."""

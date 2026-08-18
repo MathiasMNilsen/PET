@@ -208,6 +208,29 @@ class ESMDA(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
         """ES-MDA runs its full schedule of inflated steps; nothing stops early."""
         return False
 
+    def score_prior(self):
+        """Score the prior forecast.
+
+        Runs before any artifacts are written, so ``ensemble_misfit`` and the
+        two mean misfits are present in the iteration-0 output rather than
+        only from iteration 1 onwards.
+        """
+        self.enPred = self.pred_data.to_matrix()
+
+        data_misfit = at.calc_objectivefun(
+            self.enObs_conv,
+            self.enPred,
+            Cd=self.cov_data
+        )
+
+        self.ensemble_misfit = data_misfit
+        self.prior_data_misfit = np.mean(data_misfit)
+        self.prior_data_misfit_std = np.std(data_misfit)
+        self.data_misfit = np.mean(data_misfit)
+        self.data_misfit_std = np.std(data_misfit)
+
+        self.log_update(prior_run=True)
+
     def calc_analysis(self):
         r"""
         Analysis step of ES-MDA. The analysis algorithm is similar to EnKF analysis, only difference is that the data
@@ -236,44 +259,17 @@ class ESMDA(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
         # Get Ensemble matrix of predicted data
         self.enPred = self.pred_data.to_matrix()
 
-        if self.iteration == 0:  # first iteration
-
-            # Calculate the prior data misfit
-            data_misfit = at.calc_objectivefun(
-                self.enObs_conv,
-                self.enPred,
-                Cd=self.cov_data
-            )
-            #data_misfit = at.data_mismatch(self.vecObs, self.enPred, self.cov_data)
-
-            # Store the (mean) data misfit (also for conv. check)
-            self.prior_data_misfit = np.mean(data_misfit)
-            self.prior_data_misfit_std = np.std(data_misfit)
-            self.data_misfit = np.mean(data_misfit)
-            self.data_misfit_std = np.std(data_misfit)
-            self.ensemble_misfit = data_misfit
-
-            # Log initial data misfit
-            self.log_update(prior_run=True)
-            self.data_random_state = deepcopy(np.random.get_state())
-
-            self.enObs, self.scale_data = Cholesky().gen_real(
-                self.vecObs,
-                self.alpha[self.iteration] * self.cov_data,
-                self.ne,
-                return_chol=True
-            )
-            self.E = np.dot(self.enObs, self.proj)
-
-        else:
-            self.data_random_state = deepcopy(np.random.get_state())
-            self.enObs, self.scale_data = Cholesky().gen_real(
-                self.vecObs,
-                self.alpha[self.iteration] * self.cov_data,
-                self.ne,
-                return_chol=True
-            )
-            self.E = np.dot(self.enObs, self.proj)
+        # The prior misfit used to be computed here, behind an `iteration == 0`
+        # branch. It is `score_prior`'s job now, which runs early enough for the
+        # iteration-0 artifacts to record it.
+        self.data_random_state = deepcopy(np.random.get_state())
+        self.enObs, self.scale_data = Cholesky().gen_real(
+            self.vecObs,
+            self.alpha[self.iteration] * self.cov_data,
+            self.ne,
+            return_chol=True
+        )
+        self.E = np.dot(self.enObs, self.proj)
 
         if 'localanalysis' in self.keys_da:
             self.ensemble.local_analysis_update()

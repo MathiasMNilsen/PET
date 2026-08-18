@@ -107,6 +107,7 @@ class ES(EnKF):
         if self.iteration + 1 == len(self.keys_da['assimindex']):
             enPred = self.pred_data.to_matrix()
             data_misfit = at.calc_objectivefun(self.enObs, enPred, self.scale_data)
+            self.ensemble_misfit = data_misfit
             self.data_misfit = np.mean(data_misfit)
             self.data_misfit_std = np.std(data_misfit)
 

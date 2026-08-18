@@ -140,27 +140,32 @@ class EnKF(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
             self.enObs_conv = deepcopy(self.enObs)
             self.ensemble._ext_scaling()
 
+    def score_prior(self):
+        """Score the prior forecast.
+
+        Was an ``if self.prior_data_misfit is None`` branch at the top of
+        :meth:`calc_analysis`, which ran after the iteration-0 artifacts had
+        already been written. ``ensemble_misfit`` is recorded here as well, so
+        the per-realisation misfits are available to ``analysisdebug`` for the
+        prior as they are for every later iteration.
+        """
+        enPred = self.pred_data.to_matrix()
+
+        data_misfit = at.calc_objectivefun(self.enObs, enPred, self.scale_data)
+
+        self.ensemble_misfit = data_misfit
+        self.data_misfit = np.mean(data_misfit)
+        self.prior_data_misfit = np.mean(data_misfit)
+        self.data_misfit_std = np.std(data_misfit)
+
+        self.logger.info(
+            f'Prior run complete with data misfit: {self.prior_data_misfit:0.1f}.')
+
     def calc_analysis(self):
         """
         Calculate the analysis step of the EnKF procedure. The updating is done using the Kalman filter equations, using
         svd for numerical stability. Localization is available.
         """
-        # If this is initial analysis we calculate the objective function for all data. In the final convergence check
-        # we calculate the posterior objective function for all data
-        if self.prior_data_misfit is None:
-            enPred = self.pred_data.to_matrix()
-
-            # Calc. misfit for the initial iteration
-            data_misfit = at.calc_objectivefun(self.enObs, enPred, self.scale_data)
-
-            # Store the (mean) data misfit (also for conv. check)
-            self.data_misfit = np.mean(data_misfit)
-            self.prior_data_misfit = np.mean(data_misfit)
-            self.data_misfit_std = np.std(data_misfit)
-
-            self.logger.info(
-                f'Prior run complete with data misfit: {self.prior_data_misfit:0.1f}.')
-
         # Augment observed and predicted data
         if extract.is_enabled(self.keys_da.get('emp_cov', False)):
             self.enPred = self.pred_data.to_matrix()
@@ -244,6 +249,7 @@ class EnKF(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
         if self.iteration + 1 == len(self.keys_da['assimindex']):
             enPred = self.pred_data.to_matrix()
             data_misfit = at.calc_objectivefun(self.enObs, enPred, self.scale_data)
+            self.ensemble_misfit = data_misfit
             self.data_misfit = np.mean(data_misfit)
             self.data_misfit_std = np.std(data_misfit)
 

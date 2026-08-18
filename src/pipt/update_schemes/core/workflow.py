@@ -14,7 +14,9 @@ does not mix it in.
 Hook order over a run::
 
     prior forecast
-    after_prior_forecast()          QA on the prior, save prior forecast
+    after_forecast()                replace outliers in the prior
+    score_prior()                   prior misfit (the scheme's, not this mixin's)
+    after_prior_forecast()          QA on the prior, save prior artifacts
     for each iteration:
         calc_analysis()
         after_analysis()            refresh screened QAQC variance
@@ -55,11 +57,17 @@ class AssimilationWorkflowMixin:
     # Hooks
     # ------------------------------------------------------------------
     def after_prior_forecast(self) -> None:
-        """Handle the prior forecast: outliers, prior QA, saved artifacts."""
+        """Handle the prior forecast: prior QA, saved artifacts.
+
+        Outlier replacement is not done here: ``run_prior_forecast`` now routes
+        the prior through :meth:`after_forecast` like every other forecast, so
+        it has already happened by the time this runs -- and before
+        :meth:`~pipt.update_schemes.core.AssimilationSchemeBase.score_prior`
+        computes the misfit, which is the order the previous duplicate call
+        produced.
+        """
         self.qaqc = self._build_qaqc()
 
-        if "remove_outliers" in self.keys_da:
-            self.ensemble.remove_outliers()
         self._run_prior_quality_assurance()
         self._save_prior_forecast()
         if "analysisdebug" in self.keys_da:
@@ -219,7 +227,17 @@ class AssimilationWorkflowMixin:
             iter_info_func.main(self)
 
     def _save_analysis_debug(self) -> None:
-        """Save requested analysis-debug variables."""
+        """Save the scheme attributes named by ``analysisdebug``.
+
+        One file per iteration, ``debug_analysis_step_{iteration}.npz``, with
+        iteration 0 describing the prior. ``state`` is special-cased: it
+        expands to one array per state variable rather than a single entry.
+
+        A name the scheme does not carry is reported and skipped rather than
+        failing the run, since a variable can legitimately be absent for a
+        given scheme -- ``lam`` exists for the Levenberg-Marquardt family and
+        not for ES-MDA.
+        """
         save_dict: dict[str, Any] = {}
 
         for save_type in self._as_list(self.keys_da["analysisdebug"]):
@@ -232,7 +250,11 @@ class AssimilationWorkflowMixin:
             elif save_type == "state":
                 save_dict.update(self._state_debug_dict())
             else:
-                print(f"Cannot save {save_type}, because it is a local variable!\n\n")
+                print(
+                    f"Cannot save '{save_type}' at iteration {self.iteration}: "
+                    f"neither {type(self).__name__} nor its ensemble has an "
+                    f"attribute by that name.\n"
+                )
 
         save_dict["savefolder"] = self.save_folder
         at.save_analysisdebug(self.iteration, **save_dict)

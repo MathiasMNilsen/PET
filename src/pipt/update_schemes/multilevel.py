@@ -156,6 +156,30 @@ class esmda_hybrid(hybrid_update, ESMDA):
         """ES-MDA runs its full schedule of inflated steps; nothing stops early."""
         return False
 
+    def score_prior(self):
+        """Score the prior forecast across all fidelity levels.
+
+        Same move as :meth:`pipt.update_schemes.esmda.ESMDA.score_prior`: out
+        of the ``iteration == 0`` branch of :meth:`calc_analysis` and into a
+        hook that runs before the iteration-0 artifacts are written.
+        """
+        self.enPred = [self.pred_data[l].to_matrix() for l in range(self.tot_level)]
+
+        # Note, evaluate for high fidelity model
+        data_misfit = at.calc_objectivefun(
+            self.enObs_conv,
+            np.concatenate(self.enPred, axis=1),  # Is this correct, given the comment above??????
+            self.cov_data
+        )
+
+        self.ensemble_misfit = data_misfit
+        self.prior_data_misfit = np.mean(data_misfit)
+        self.prior_data_misfit_std = np.std(data_misfit)
+        self.data_misfit = np.mean(data_misfit)
+        self.data_misfit_std = np.std(data_misfit)
+
+        self.log_update(prior_run=True)
+
     def calc_analysis(self):
 
         # Get ensemble predictions at all levels
@@ -169,24 +193,7 @@ class esmda_hybrid(hybrid_update, ESMDA):
 
         if self.iteration == 0:  # first iteration
 
-            # Note, evaluate for high fidelity model
-            data_misfit = at.calc_objectivefun(
-                self.enObs_conv,
-                np.concatenate(self.enPred,axis=1), # Is this correct, given the comment above??????
-                self.cov_data
-            )
-
-            # Store the (mean) data misfit (also for conv. check)
-            self.data_misfit = np.mean(data_misfit)
-            self.prior_data_misfit = np.mean(data_misfit)
-            self.prior_data_misfit_std = np.std(data_misfit)
-            self.data_misfit = np.mean(data_misfit)
-            self.data_misfit_std = np.std(data_misfit)
-
-            # Log initial data misfit
-            self.log_update(prior_run=True)
             self.data_random_state = deepcopy(np.random.get_state())
-
 
             self.ml_enObs = []
             self.scale_data = []
@@ -266,6 +273,7 @@ class esmda_hybrid(hybrid_update, ESMDA):
             np.concatenate(enPred,axis=1),
             self.cov_data
         )
+        self.ensemble_misfit = data_misfit
         self.data_misfit = np.mean(data_misfit)
         self.data_misfit_std = np.std(data_misfit)
 

@@ -201,6 +201,26 @@ def assert_assimilation_quality(ensemble, misfit_threshold=60.0):
     )
 
 
+def assert_analysisdebug_files(scheme, expected):
+    """Every saved iteration file carries every requested variable.
+
+    Iteration 0 is the interesting one. Its file is written from
+    ``after_prior_forecast``, and the schemes used to compute the prior misfit
+    inside their first ``calc_analysis`` -- which runs later -- so
+    ``ensemble_misfit`` was silently dropped from step 0 with a printed
+    "Cannot save ... because it is a local variable!" and no failure.
+    """
+    folder = Path(scheme.save_folder)
+    saved = sorted(folder.glob("debug_analysis_step_*.npz"))
+    assert saved, f"no analysisdebug files written to {folder}"
+
+    for path in saved:
+        with np.load(path, allow_pickle=True) as archive:
+            keys = set(archive.files)
+        missing = [name for name in expected if name not in keys]
+        assert not missing, f"{path.name} is missing {missing}; has {sorted(keys)}"
+
+
 def prepare_test_environment(tmp_path: Path, folder_name: str):
     """
     Create isolated test directory and initialize synthetic data.
@@ -237,6 +257,7 @@ def test_esmda_approx(tmp_path, num_cores):
 
     ensemble = run_assimilation("config_esmda.yaml")
     assert_assimilation_quality(ensemble)
+    assert_analysisdebug_files(ensemble, ["pred_data", "ensemble_misfit", "x1", "x2", "mu"])
 
 
 def test_lm_enrml_approx(tmp_path, num_cores):
@@ -263,6 +284,7 @@ def test_lm_enrml_approx(tmp_path, num_cores):
 
     ensemble = run_assimilation("config_lm_enrml.yaml")
     assert_assimilation_quality(ensemble)
+    assert_analysisdebug_files(ensemble, ["pred_data", "ensemble_misfit", "x1", "x2", "mu"])
 
 
 def test_gn_enrml_approx(tmp_path, num_cores):
@@ -289,3 +311,4 @@ def test_gn_enrml_approx(tmp_path, num_cores):
 
     ensemble = run_assimilation("config_gn_enrml.yaml")
     assert_assimilation_quality(ensemble)
+    assert_analysisdebug_files(ensemble, ["pred_data", "ensemble_misfit", "x1", "x2", "mu"])

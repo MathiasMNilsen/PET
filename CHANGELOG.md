@@ -121,6 +121,29 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`analysisdebug` could not record the prior.** Every scheme computed its
+  prior misfit inside the first `calc_analysis`, which runs *after* the
+  iteration-0 artifacts are written. So `debug_analysis_step_0.npz` never
+  contained `ensemble_misfit`, `data_misfit` or `prior_data_misfit`; the run
+  printed `Cannot save ensemble_misfit, because it is a local variable!` and
+  carried on. Prior scoring moved to a new `score_prior()` hook that the loop
+  calls between the prior forecast and `after_prior_forecast`, so step 0 is
+  described by the same attributes as every later step. Numbers are unchanged
+  — the characterisation suite pins all nine scheme/flavour combinations.
+
+  Two consequences beyond the saved files:
+
+  - LM-EnRML and GN-EnRML no longer recompute `prior_data_misfit` from the
+    *rejected* forecast each time they reject their first step. The old
+    `iteration == 0` branch also re-clobbered `data_misfit` right after
+    `score_and_commit` had restored it.
+  - `ensemble_misfit` is now set by EnKF, ES and the multilevel hybrid too;
+    only ES-MDA and the EnRML pair kept it before.
+
+- **`save_folder` in a `dataassim` block was silently ignored.** Only the
+  unspaced `savefolder` was read, so a config using the underscored spelling —
+  which popt's optimizers accept — wrote to the default `Results` folder
+  instead. Both spellings are now accepted.
 - **ES discarded its own update.** The posterior came back bit-identical to the
   prior: the analysis ran, the forecast ran, the log reported a reduced misfit,
   but the state promotion sat inside an equal-misfit branch that is essentially
