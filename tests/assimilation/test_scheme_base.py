@@ -9,7 +9,7 @@ import os
 import numpy as np
 import pytest
 
-from pipt.update_schemes.scheme_base import AssimilationResult, AssimilationSchemeBase
+from pipt.update_schemes.core.scheme_base import AssimilationResult, AssimilationSchemeBase
 
 
 class FakeEnsemble:

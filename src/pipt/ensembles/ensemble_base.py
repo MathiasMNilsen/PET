@@ -4,8 +4,7 @@ The PIPT counterpart to :mod:`popt.ensembles.ensemble_base`: holds the state
 realisations, observed data, localization and forward simulator for an
 assimilation run.
 
-Previously ``pipt.loop.ensemble.Ensemble``. That module remains as a
-compatibility shim.
+Previously ``pipt.loop.ensemble.Ensemble``; that module has been removed.
 """
 
 import os.path

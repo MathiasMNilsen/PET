@@ -10,9 +10,9 @@ from geostat.decomp import Cholesky
 
 # Internal imports
 from pipt.ensembles import AssimilationEnsemble as Ensemble
-from pipt.update_schemes.scheme_base import AssimilationSchemeBase
-from pipt.update_schemes.workflow import AssimilationWorkflowMixin
-from pipt.update_schemes.strategy import StrategyMixin
+from pipt.update_schemes.core.scheme_base import AssimilationSchemeBase
+from pipt.update_schemes.core.workflow import AssimilationWorkflowMixin
+from pipt.update_schemes.core.strategy import StrategyMixin
 import pipt.misc_tools.analysis_tools as at
 
 # Flavours are resolved through the strategy registry now, not mixed in.

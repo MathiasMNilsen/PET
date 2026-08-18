@@ -109,7 +109,7 @@ def test_state_is_partitioned_by_level(ml_scheme):
 
 def test_hybrid_flavour_is_mixed_in_not_bound(ml_scheme):
     """``hybrid`` is not a registered strategy, so nothing should be bound."""
-    from pipt.update_schemes.update_methods_ns.hybrid_update import hybrid_update
+    from pipt.update_schemes.analysis.hybrid import hybrid_update
 
     assert ml_scheme.strategy is None
     assert type(ml_scheme).update is hybrid_update.update

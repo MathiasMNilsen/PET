@@ -71,7 +71,7 @@ class AnalysisStrategy(ABC):
     which is what lets the flavour become a *parameter* of one scheme class
     rather than picking which class you get. Context reads then fall through to
     the bound scheme via :meth:`__getattr__`, the same delegation
-    :class:`~pipt.update_schemes.scheme_base.AssimilationSchemeBase` uses to
+    :class:`~pipt.update_schemes.core.AssimilationSchemeBase` uses to
     reach its ensemble.
 
     An unbound strategy resolves nothing and raises ``AttributeError``, which is

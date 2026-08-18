@@ -10,9 +10,9 @@ import numpy as np
 import pytest
 
 from pipt.update_schemes.analysis import AnalysisStrategy
-from pipt.update_schemes.update_methods_ns.approx_update import approx_update
-from pipt.update_schemes.update_methods_ns.full_update import full_update
-from pipt.update_schemes.update_methods_ns.subspace_update import subspace_update
+from pipt.update_schemes.analysis.approx import approx_update
+from pipt.update_schemes.analysis.full import full_update
+from pipt.update_schemes.analysis.subspace import subspace_update
 
 FLAVOURS = [approx_update, full_update, subspace_update]
 

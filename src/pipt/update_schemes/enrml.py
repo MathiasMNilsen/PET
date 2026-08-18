@@ -7,35 +7,25 @@ import pipt.misc_tools.extract_tools as extract
 
 from geostat.decomp import Cholesky
 from pipt.ensembles import AssimilationEnsemble as Ensemble
-from pipt.update_schemes.scheme_base import AssimilationSchemeBase
-from pipt.update_schemes.workflow import AssimilationWorkflowMixin
-from pipt.update_schemes.strategy import StrategyMixin
-from pipt.update_schemes.update_methods_ns.approx_update import approx_update
-import pkgutil
-import inspect
+from pipt.update_schemes.core.scheme_base import AssimilationSchemeBase
+from pipt.update_schemes.core.workflow import AssimilationWorkflowMixin
+from pipt.update_schemes.core.strategy import StrategyMixin
+from pipt.update_schemes.analysis.approx import approx_update
 import numpy as np
 import copy as cp
 from scipy.linalg import cholesky, solve, inv, lu_solve, lu_factor
 
-import importlib.util
-
-# List all available packages in the namespace package
-# Import those that are present
-import pipt.update_schemes.update_methods_ns as ns_pkg
-tot_ns_pkg = []
-# extract all class methods from namespace
-for finder, name, ispkg in pkgutil.walk_packages(ns_pkg.__path__):
-    spec = finder.find_spec(name)
-    _module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(_module)
-    tot_ns_pkg.extend(inspect.getmembers(_module, inspect.isclass))
-
-# import standard libraries
-
-# Check and import (if present) from other namespace packages
-if 'margIS_update' in [el[0] for el in tot_ns_pkg]:  # only compare package name
-    from pipt.update_schemes.update_methods_ns.margIS_update import margIS_update
-else:
+# The `margis` flavour is backed by a private implementation. Only an inert
+# placeholder ships here, so the import is guarded.
+#
+# NOTE: this used to walk `update_methods_ns` with pkgutil so a private
+# namespace package could drop a module in alongside it. That package is now
+# `pipt.update_schemes.analysis`, so a private overlay must target the new
+# name; the walk itself is gone, since executing every module in the package to
+# discover one class is a costly way to express an optional import.
+try:
+    from pipt.update_schemes.analysis.margis import margIS_update
+except ImportError:  # pragma: no cover - depends on a package outside this repo
     class margIS_update:
         pass
 

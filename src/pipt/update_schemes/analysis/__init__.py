@@ -1,15 +1,54 @@
-"""Analysis-step strategies for the assimilation schemes.
+"""Analysis-step strategies.
 
-Currently exposes the shared strategy base. The concrete flavours
-(``approx_update``, ``full_update``, ``subspace_update``) still live in
-``pipt.update_schemes.update_methods_ns`` and are imported from there; they are
-deliberately *not* re-exported here, because those modules import
-``analysis.base`` and re-exporting them would make this package import itself.
+An *analysis strategy* computes the state update for one assimilation
+iteration. The flavours differ only in how the ensemble-approximated
+sensitivity is inverted; they share a calling convention and their
+linear-algebra helpers.
 
-They move into this package -- and become importable from here -- once the
-schemes stop consuming them as mixins.
+The strategy is a *parameter* of a scheme, not part of its identity::
+
+    ESMDA(keys_da, keys_en, sim, analysis="subspace")
+
+Layout
+------
+``base``
+    :class:`AnalysisStrategy` -- the shared contract and helpers.
+``approx``, ``full``, ``subspace``
+    The three registered flavours.
+``hybrid``, ``margis``
+    Flavours consumed as mixins rather than through the registry: ``hybrid``
+    belongs to the multilevel scheme and ``margis`` is backed by a private
+    package when installed.
+``registry``
+    Name-to-class lookup, plus :func:`register_strategy` for out-of-tree
+    flavours.
+
+These previously lived in ``update_schemes.update_methods_ns`` while this
+package held only the base class, because the flavours were consumed as mixins
+and re-exporting them here would have formed an import cycle. Now that schemes
+hold a strategy rather than inheriting one, they live together.
 """
 
 from .base import AnalysisStrategy
+from .approx import approx_update
+from .full import full_update
+from .hybrid import hybrid_update
+from .subspace import subspace_update
+from .registry import (
+    STRATEGIES,
+    available_strategies,
+    get_strategy,
+    register_strategy,
+)
 
-__all__ = ["AnalysisStrategy"]
+__all__ = [
+    "AnalysisStrategy",
+    "approx_update",
+    "full_update",
+    "subspace_update",
+    "hybrid_update",
+    "STRATEGIES",
+    "available_strategies",
+    "get_strategy",
+    "register_strategy",
+]

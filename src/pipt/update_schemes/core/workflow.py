@@ -7,7 +7,7 @@ the schemes took ownership of their own loop the loop went away and this
 stayed, as a mixin the schemes compose with.
 
 It is expressed entirely through the hooks
-:class:`~pipt.update_schemes.scheme_base.AssimilationSchemeBase` calls, so the
+:class:`~pipt.update_schemes.core.AssimilationSchemeBase` calls, so the
 base loop remains algorithm-only and a scheme that wants none of this simply
 does not mix it in.
 

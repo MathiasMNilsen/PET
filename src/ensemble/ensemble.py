@@ -22,7 +22,7 @@ from misc.structures.structures import PETDataFrame, PETStateArray
 # `ensemble` is the foundation package that both pipt and popt build on, so a
 # module-level `import pipt...` here inverts the layering and creates a cycle:
 #   ensemble/__init__ -> ensemble.ensemble -> pipt.misc_tools
-#     -> pipt.loop.ensemble -> `from ensemble import BaseEnsemble`  (partial!)
+#     -> pipt.ensembles -> `from ensemble import BaseEnsemble`  (partial!)
 # That made `import ensemble` fail as a first import, and made single-file test
 # runs such as `pytest tests/optimization/test_ensembles.py` fail on collection
 # while the full suite passed by accident of import order.

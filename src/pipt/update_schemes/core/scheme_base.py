@@ -152,7 +152,7 @@ class AssimilationSchemeBase(RestartMixin, ABC):
     def __getattr__(self, name):
         """Fall back to the ensemble for attributes the scheme does not own.
 
-        The analysis strategies in :mod:`pipt.update_schemes.update_methods_ns`
+        The analysis strategies in :mod:`pipt.update_schemes.analysis`
         read their context off ``self`` -- ``keys_da``, ``proj``, ``cov_data``,
         ``localization`` and friends -- which resolved by inheritance while a
         scheme *was* an ensemble. Under composition they would not, so reads
@@ -278,7 +278,7 @@ class AssimilationSchemeBase(RestartMixin, ABC):
     # Extension points for work that surrounds the algorithm rather than being
     # part of it -- diagnostics, artifact saving, outlier handling. They are
     # no-ops here so the loop stays algorithm-only; PIPT supplies them through
-    # :class:`pipt.update_schemes.workflow.AssimilationWorkflowMixin`.
+    # :class:`pipt.update_schemes.core.AssimilationWorkflowMixin`.
 
     def after_prior_forecast(self) -> None:
         """Called once, after the prior forecast and before any iteration."""

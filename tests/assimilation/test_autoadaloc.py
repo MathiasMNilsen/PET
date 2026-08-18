@@ -2,7 +2,7 @@
 
 import numpy as np
 from  pipt.misc_tools.analysis_tools import truncSVD
-from pipt.update_schemes.update_methods_ns import approx_update
+from pipt.update_schemes.analysis import approx_update
 from pipt.localization import (
     AutoAdaptiveLocalization,
     build_localization_instance,

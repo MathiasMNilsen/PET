@@ -20,7 +20,7 @@ from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.esmda import ESMDA
 from pipt.misc_tools import analysis_tools as at
 from geostat.decomp import Cholesky
-from pipt.update_schemes.update_methods_ns.hybrid_update import hybrid_update
+from pipt.update_schemes.analysis.hybrid import hybrid_update
 
 import numpy as np
 from copy import deepcopy
@@ -116,7 +116,7 @@ class esmda_hybrid(hybrid_update, ESMDA):
     Composes a :class:`MultilevelEnsemble` and mixes in ``hybrid_update``, which
     supplies ``update()`` for the per-level gain. ``hybrid`` is not a registered
     analysis flavour, so no strategy is bound and the mixed-in implementation is
-    used -- see :class:`pipt.update_schemes.strategy.StrategyMixin`.
+    used -- see :class:`pipt.update_schemes.core.StrategyMixin`.
 
     Notes
     -----

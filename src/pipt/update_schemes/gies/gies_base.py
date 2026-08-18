@@ -20,7 +20,7 @@ class GIESMixIn(Ensemble):
                     ensemble smoother." Computational Geosciences 26.3 (2022): 571-594.
     """
 
-    def __init__(self, keys_da, keys_fwd, sim):
+    def __init__(self, keys_da, keys_en, sim):
         """
         The class is initialized by passing the PIPT init. file upwards in the hierarchy to be read and parsed in
         `pipt.input_output.pipt_init.ReadInitFile`.
@@ -31,7 +31,7 @@ class GIESMixIn(Ensemble):
             PIPT init. file containing info. to run the inversion algorithm
         """
         # Pass the init_file upwards in the hierarchy
-        super().__init__(keys_da, keys_fwd, sim)
+        super().__init__(keys_da, keys_en, sim)
 
         if self.restart is False:
             # Save prior state in separate variable

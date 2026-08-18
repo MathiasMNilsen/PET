@@ -22,8 +22,8 @@ from pipt.update_schemes.analysis.registry import (
     get_strategy,
     register_strategy,
 )
-from pipt.update_schemes.update_methods_ns.approx_update import approx_update
-from pipt.update_schemes.update_methods_ns.subspace_update import subspace_update
+from pipt.update_schemes.analysis.approx import approx_update
+from pipt.update_schemes.analysis.subspace import subspace_update
 
 
 class FakeLocalization:

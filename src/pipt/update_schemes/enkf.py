@@ -8,9 +8,9 @@ from geostat.decomp import Cholesky                     # Making realizations
 
 # Internal imports
 from pipt.ensembles import AssimilationEnsemble as Ensemble
-from pipt.update_schemes.scheme_base import AssimilationSchemeBase
-from pipt.update_schemes.workflow import AssimilationWorkflowMixin
-from pipt.update_schemes.strategy import StrategyMixin
+from pipt.update_schemes.core.scheme_base import AssimilationSchemeBase
+from pipt.update_schemes.core.workflow import AssimilationWorkflowMixin
+from pipt.update_schemes.core.strategy import StrategyMixin
 # Misc. tools used in analysis schemes
 from pipt.misc_tools import analysis_tools as at
 import pipt.misc_tools.ensemble_tools as entools

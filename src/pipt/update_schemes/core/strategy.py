@@ -4,7 +4,7 @@ Lets a scheme take its analysis flavour as an argument, so one class covers
 ``approx``/``full``/``subspace`` instead of one class per combination.
 
 Why this is a mixin and not part of
-:class:`~pipt.update_schemes.scheme_base.AssimilationSchemeBase`: in the legacy
+:class:`~pipt.update_schemes.core.AssimilationSchemeBase`: in the legacy
 class layout the base *precedes* the strategy in the MRO::
 
     esmda_approx -> esmdaMixIn -> ... -> AssimilationSchemeBase -> approx_update
