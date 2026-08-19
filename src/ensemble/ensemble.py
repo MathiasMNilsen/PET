@@ -79,13 +79,7 @@ class BaseEnsemble:
         self.aux_input = None
 
         # Check if folder contains any En_ files, and remove them!
-        for folder in glob('En_*'):
-            try:
-                if len(folder.split('_')) == 2:
-                    int(folder.split('_')[1])
-                    rmtree(folder)
-            except Exception:
-                pass
+        self._clear_member_run_folders()
 
         # Save name for (potential) pickle dump/load
         self.pickle_restart_file = 'emergency_dump'
@@ -174,6 +168,21 @@ class BaseEnsemble:
             self.tot_level = len(self.multilevel['levels'])
 
 
+    @staticmethod
+    def _clear_member_run_folders():
+        """Remove the per-realisation `En_<member>` simulator scratch folders.
+
+        Only folders named exactly `En_<integer>` are touched, so a user's
+        `En_something` directory in the run folder is left alone.
+        """
+        for folder in glob('En_*'):
+            try:
+                if len(folder.split('_')) == 2:
+                    int(folder.split('_')[1])
+                    rmtree(folder)
+            except Exception:
+                pass
+
     def calc_prediction(self, enX, save_prediction=None):
         """
         Function for running the simulator over several levels. We assume that it is sufficient to provide the level
@@ -188,6 +197,16 @@ class BaseEnsemble:
 
         nparallel = int(self.sim.input_dict.get('parallel', 1))
         self.sim_data = []
+
+        # Simulators run each realisation in its own `En_<member>` folder and
+        # create it with `os.mkdir`, which fails rather than reuses if the
+        # folder is already there. Nothing else removes them between calls, so
+        # a second prediction collides with the first: an optimizer evaluating
+        # the mean control (member 0 alone) and then the perturbation ensemble
+        # (members 0..ne-1) hit `FileExistsError: 'En_0'` on its very first
+        # iteration. Clearing here rather than only in `__init__` makes each
+        # prediction independent of what the previous one left behind.
+        self._clear_member_run_folders()
 
         if hasattr(self, 'multilevel') and (self.multilevel is not None):
             is_multilevel = True
