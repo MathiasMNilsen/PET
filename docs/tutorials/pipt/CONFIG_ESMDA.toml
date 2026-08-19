@@ -18,6 +18,7 @@
     obsname    = "dates"
     data       = "data.csv"
     datavar    = "var.csv"
+    savedata   = ["ensemble_misfit"]
 
     # ESMDA settings
     [dataassim.mda]
