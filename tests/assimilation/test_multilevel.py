@@ -132,7 +132,7 @@ def test_multilevel_run_completes_and_updates_the_state(ml_scheme):
     """
     prior = [np.array(level, dtype=float) for level in ml_scheme.ensemble.prior_enX]
 
-    result = ml_scheme.assimilation_loop()
+    result = ml_scheme.run_assimilation()
 
     assert result.nit == 2
     assert isinstance(ml_scheme.ensemble.enX, list)
@@ -147,7 +147,7 @@ def test_multilevel_run_completes_and_updates_the_state(ml_scheme):
 
 
 def test_multilevel_run_reduces_the_data_misfit(ml_scheme):
-    result = ml_scheme.assimilation_loop()
+    result = ml_scheme.run_assimilation()
 
     assert result.data_misfit < result.prior_data_misfit, (
         f"misfit did not improve: {result.prior_data_misfit} -> {result.data_misfit}"

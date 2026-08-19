@@ -189,7 +189,7 @@ class EnOpt(OptimizerBase):
             callback=callback,
             **options,
         )
-        optimizer.optimization_loop()
+        optimizer.run_optimization()
         return optimizer.optimize_results
 
     def update_step(self) -> bool:

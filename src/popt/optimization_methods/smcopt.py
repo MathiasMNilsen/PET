@@ -114,7 +114,7 @@ class SmcOpt(OptimizerBase):
             ot.save_optimize_results(self.optimize_results, folder=self.savefolder)
 
         if options.get("autorun", True):
-            self.optimization_loop()
+            self.run_optimization()
             self.optimize_results = self._update_optimize_result()
 
     @classmethod
@@ -129,7 +129,7 @@ class SmcOpt(OptimizerBase):
             callback=callback,
             **{**options, "autorun": False},
         )
-        optimizer.optimization_loop()
+        optimizer.run_optimization()
         return optimizer.optimize_results
 
     def update_step(self) -> bool:

@@ -152,7 +152,7 @@ SCHEME_CLASSES = {
 }
 
 
-def run_assimilation(config_file: str):
+def run_case(config_file: str):
     """Initialize and run assimilation given a config file.
 
     Constructs the scheme class directly, as a user would. The scheme itself is
@@ -168,7 +168,7 @@ def run_assimilation(config_file: str):
         VanDerPolOscillator(cfg_sim),
     )
 
-    scheme.assimilation_loop()
+    scheme.run_assimilation()
     return scheme
 
 
@@ -255,7 +255,7 @@ def test_esmda_approx(tmp_path, num_cores):
     }
     create_config_file("config_esmda", da_cfg, num_cores)
 
-    ensemble = run_assimilation("config_esmda.yaml")
+    ensemble = run_case("config_esmda.yaml")
     assert_assimilation_quality(ensemble)
     assert_savedata_files(ensemble, ["pred_data", "ensemble_misfit", "x1", "x2", "mu"])
 
@@ -282,7 +282,7 @@ def test_lm_enrml_approx(tmp_path, num_cores):
     }
     create_config_file("config_lm_enrml", da_cfg, num_cores)
 
-    ensemble = run_assimilation("config_lm_enrml.yaml")
+    ensemble = run_case("config_lm_enrml.yaml")
     assert_assimilation_quality(ensemble)
     assert_savedata_files(ensemble, ["pred_data", "ensemble_misfit", "x1", "x2", "mu"])
 
@@ -309,6 +309,6 @@ def test_gn_enrml_approx(tmp_path, num_cores):
     }
     create_config_file("config_gn_enrml", da_cfg, num_cores)
 
-    ensemble = run_assimilation("config_gn_enrml.yaml")
+    ensemble = run_case("config_gn_enrml.yaml")
     assert_assimilation_quality(ensemble)
     assert_savedata_files(ensemble, ["pred_data", "ensemble_misfit", "x1", "x2", "mu"])

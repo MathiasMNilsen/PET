@@ -43,11 +43,27 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   # before                                  # after
   from pipt.loop.assimilation import Assimilate
   scheme = pipt_init.init_da(kd, ke, sim)   scheme = ESMDA(kd, ke, sim)
-  Assimilate(scheme).run()                  result = scheme.assimilation_loop()
+  Assimilate(scheme).run()                  result = scheme.run_assimilation()
   ```
 
   `pipt_init.init_da(...)` still works and still returns the scheme; only the
   driver changed. `Scheme.assimilate(kd, ke, sim)` is the one-line form.
+
+- **`optimization_loop()` and `assimilation_loop()` are renamed** to
+  `run_optimization()` and `run_assimilation()`, with no aliases. `_loop` named
+  the mechanism rather than the job — nobody calls it because they want a loop
+  — and `assimilation_loop` sat awkwardly beside the `run_forecast` /
+  `run_prior_forecast` already on the same class. The rename affects both
+  packages so they keep the same shape.
+
+  ```python
+  # before                       # after
+  enopt.optimization_loop()      enopt.run_optimization()
+  esmda.assimilation_loop()      esmda.run_assimilation()
+  ```
+
+  The class-level shortcuts are unchanged: `EnOpt.minimize(...)` and
+  `ESMDA.assimilate(...)` still construct and run in one call.
 
 - **Per-iteration result files renamed.** `debug_analysis_step_{i}.npz` is now
   `assimilation_result_{i}.npz`, the assimilation counterpart of popt's
@@ -126,7 +142,7 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **`AssimilationSchemeBase`** (`pipt.update_schemes.core`) — the PIPT
   counterpart to popt's `OptimizerBase`, with a matching contract
-  (`update_step`/`assimilation_loop`/`check_*_convergence`/`assimilate`). The
+  (`update_step`/`run_assimilation`/`check_*_convergence`/`assimilate`). The
   ensemble is a collaborator rather than a superclass. Every scheme is now
   migrated onto it.
 

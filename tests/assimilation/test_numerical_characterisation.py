@@ -283,7 +283,7 @@ def regenerate():
 
 @pytest.mark.parametrize("scheme,analysis", [("esmda", "approx")])
 def test_config_driven_entry_point_matches_reference(scheme, analysis, tmp_path, reference):
-    """``init_da(...)`` then ``assimilation_loop()`` agrees with ``assimilate()``.
+    """``init_da(...)`` then ``run_assimilation()`` agrees with ``assimilate()``.
 
     The cases above all run through ``Scheme.assimilate(...)``, so this pins the
     other supported path -- config-driven construction through the registry --
@@ -300,7 +300,7 @@ def test_config_driven_entry_point_matches_reference(scheme, analysis, tmp_path,
     cfg_da, cfg_sim, cfg_ens = read_config.read(config_file)
 
     scheme_obj = pipt_init.init_da(cfg_da, cfg_ens, VanDerPolOscillator(cfg_sim))
-    result = scheme_obj.assimilation_loop()
+    result = scheme_obj.run_assimilation()
 
     # Both spellings must work: AssimilationResult subclasses scipy's
     # OptimizeResult so PIPT and POPT results are handled alike.
@@ -311,7 +311,7 @@ def test_config_driven_entry_point_matches_reference(scheme, analysis, tmp_path,
         np.asarray(result.x, dtype=float),
         reference[_key(scheme, analysis, "enX")],
         rtol=RTOL, atol=ATOL,
-        err_msg="init_da + assimilation_loop does not reproduce the reference posterior.",
+        err_msg="init_da + run_assimilation does not reproduce the reference posterior.",
     )
 
 

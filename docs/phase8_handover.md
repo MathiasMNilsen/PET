@@ -52,7 +52,7 @@ tests: `src/pipt/update_schemes/scheme_base.py`.
 | `OptimizerBase` (popt, existing) | `AssimilationSchemeBase` (pipt, ready) |
 | --- | --- |
 | `update_step() -> bool` (abstract) | `update_step() -> bool` (abstract) |
-| `optimization_loop()` | `assimilation_loop()` |
+| `run_optimization()` | `run_assimilation()` |
 | `check_function_convergence()` | `check_misfit_convergence()` |
 | `check_state_convergence()` | `check_state_convergence()` |
 | `check_convergence()` (subclass hook) | `check_convergence()` (subclass hook) |

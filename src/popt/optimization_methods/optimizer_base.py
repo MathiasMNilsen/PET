@@ -301,8 +301,11 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
         """
         pass
 
-    def optimization_loop(self):
-        """Run the main optimization loop.
+    def run_optimization(self):
+        """Run this optimizer to completion.
+
+        Named for the job rather than the mechanism; the counterpart in pipt is
+        ``AssimilationSchemeBase.run_assimilation``.
 
         The loop handles restart restoration, optional EPF outer iterations,
         repeated calls to ``update_step()``, and shared convergence checks.

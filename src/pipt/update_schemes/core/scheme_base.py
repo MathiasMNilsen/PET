@@ -142,7 +142,7 @@ class AssimilationSchemeBase(RestartMixin, ABC):
         #: Whether the most recent step was accepted. Schemes that can reject a
         #: step -- the Levenberg-Marquardt family backing off with a larger
         #: damping parameter -- set this in their scoring pass, so
-        #: :meth:`assimilation_loop` can tell an accepted iteration from a
+        #: :meth:`run_assimilation` can tell an accepted iteration from a
         #: retried one.
         self.step_accepted = True
 
@@ -207,8 +207,12 @@ class AssimilationSchemeBase(RestartMixin, ABC):
     # ------------------------------------------------------------------
     # Main loop
     # ------------------------------------------------------------------
-    def assimilation_loop(self) -> AssimilationResult:
-        """Run the iterative assimilation loop.
+    def run_assimilation(self) -> AssimilationResult:
+        """Run this scheme's assimilation to completion.
+
+        Named for the job rather than the mechanism, and matching the
+        ``run_forecast``/``run_prior_forecast`` already on this class. The
+        counterpart in popt is ``OptimizerBase.run_optimization``.
 
         Restores a checkpoint if configured, runs the prior forecast, then
         repeatedly calls :meth:`update_step` until a convergence criterion
@@ -415,7 +419,7 @@ class AssimilationSchemeBase(RestartMixin, ABC):
         The assimilation counterpart of ``scipy.optimize.minimize``: one call
         that builds the scheme, runs every iteration, and returns the outcome.
         Use it when the scheme object itself is not needed afterwards; when it
-        is, construct the class and call :meth:`assimilation_loop` instead.
+        is, construct the class and call :meth:`run_assimilation` instead.
 
         Every argument is forwarded verbatim to the constructor, so this accepts
         whatever the scheme accepts rather than imposing a second signature.
@@ -461,6 +465,6 @@ class AssimilationSchemeBase(RestartMixin, ABC):
 
         See Also
         --------
-        assimilation_loop : Run an already-constructed scheme.
+        run_assimilation : Run an already-constructed scheme.
         """
-        return cls(*args, **options).assimilation_loop()
+        return cls(*args, **options).run_assimilation()

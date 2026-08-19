@@ -100,7 +100,7 @@ algorithm now takes the flavour as an argument:
 from pipt import ESMDA, available_schemes
 
 scheme = ESMDA(cfg_da, cfg_en, sim)   # flavour comes from the config's `analysis`
-result = scheme.assimilation_loop()   # the scheme owns its iteration loop
+result = scheme.run_assimilation()    # the scheme owns its iteration loop
 
 available_schemes()   # every valid (scheme, analysis) pair
 ```
