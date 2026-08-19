@@ -28,7 +28,8 @@ restartsave = true
 restart = false
 hessian = false
 inflation_factor = 10
-savedata = ["alpha","obj_func_values"]
+saveit = true
+savefolder = "Results"
 
 [fwdsim]
 npv_const = [
