@@ -49,6 +49,14 @@ def _accepts_arguments(func, x, args, kwargs) -> bool:
     return True
 
 
+def _describe_signature(func) -> str:
+    """``func``'s signature for an error message, or '' if unavailable."""
+    try:
+        return str(inspect.signature(func))
+    except (TypeError, ValueError):
+        return ""
+
+
 class OptimizerRestartMixin(RestartMixin):
     """Checkpoint/restart behaviour for optimizers.
 
@@ -548,8 +556,16 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
             # FileExistsError and hiding the real error completely.
             if _accepts_arguments(func, x, args, kwargs):
                 result = func(x, *args, **kwargs)
-            else:
+            elif _accepts_arguments(func, x, (), {}):
                 result = func(x)
+            else:
+                raise TypeError(
+                    f"The {name} {getattr(func, '__name__', func)!r} "
+                    f"{_describe_signature(func)} accepts neither "
+                    f"(x, *args, **kwargs) nor (x). It must take either the "
+                    f"control vector alone, or the control vector plus the "
+                    f"optimizer's args and keywords."
+                )
 
             if (transform_result is not None) and self.transform:
                 result = transform_result(result)

@@ -248,3 +248,21 @@ def test_objective_taking_only_x_is_still_supported():
     )
 
     np.testing.assert_array_almost_equal(res.x, [0.5], decimal=2)
+
+
+def test_objective_accepting_neither_shape_is_reported_clearly():
+    """Neither (x, *args, **kwargs) nor (x) -> say so, naming the signature.
+
+    Previously this fell through to `func(x)` and failed with whatever
+    TypeError that produced, which described the fallback rather than the
+    mismatch the user has to fix.
+    """
+    def wrong(x, y, z):
+        return 0.0
+
+    with pytest.raises(TypeError, match=r"accepts neither"):
+        EnOpt.minimize(
+            x0=np.array([2.0]), fun=wrong, jac=lambda x: np.zeros_like(x),
+            args=(np.eye(1) * 1e-3,), bounds=[(-5, 5)],
+            transform=True, maxiter=1, saveit=False,
+        )
