@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+import pytest
 from scipy.optimize import rosen
 
 from popt.ensembles import GaussianEnsemble
@@ -191,3 +192,59 @@ def test_rosenbrock_linesearch(tmp_path):
         f">= {tolerance:.3f}"
     )
 
+
+
+# ----------------------------------------------------------------------
+# Objective-call dispatch
+# ----------------------------------------------------------------------
+
+def test_typeerror_inside_the_objective_is_not_swallowed(tmp_path):
+    """An error from within the objective must surface, not trigger a retry.
+
+    The optimizers support objectives that take only `x` as well as ones taking
+    the covariance and extras. That used to be decided by calling the rich form
+    and catching TypeError -- which cannot tell "rejected the arguments" from
+    "raised TypeError halfway through". The whole evaluation was then repeated,
+    and with a real simulator the repeat died on the scratch folders the first
+    attempt had created, reporting FileExistsError and hiding the real error.
+    """
+    prepare_test_environment(tmp_path, seed=1)
+
+    calls = []
+
+    def raises_inside(x, **kwargs):
+        calls.append(x)
+        raise TypeError("deep inside the objective")
+
+    data = create_ensemble(ENSEMBLE_CONFIG, raises_inside)
+
+    with pytest.raises(TypeError, match="deep inside the objective"):
+        EnOpt.minimize(
+            x0=data["x0"],
+            fun=data["ensemble"].function,
+            jac=data["ensemble"].gradient,
+            args=(data["cov"],),
+            bounds=data["bounds"],
+            **OPT_CONFIG,
+        )
+
+    assert len(calls) == 1, (
+        f"objective evaluated {len(calls)} times for one evaluation; "
+        f"the retry-on-TypeError path is back"
+    )
+
+
+def test_objective_taking_only_x_is_still_supported():
+    """The case the fallback exists for: no covariance, no extras."""
+    def fun(x):
+        return float(np.sum((np.asarray(x) - 0.5) ** 2))
+
+    def jac(x):
+        return 2.0 * (np.asarray(x, dtype=float) - 0.5)
+
+    res = EnOpt.minimize(
+        x0=np.array([2.0]), fun=fun, jac=jac, args=(np.eye(1) * 1e-3,),
+        bounds=[(-5, 5)], transform=True, maxiter=15, alpha=0.3, saveit=False,
+    )
+
+    np.testing.assert_array_almost_equal(res.x, [0.5], decimal=2)

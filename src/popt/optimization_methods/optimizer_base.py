@@ -1,4 +1,6 @@
 '''Shared OptimizerBase for iterative optimization algorithms.'''
+import inspect
+
 import numpy as np
 from scipy.optimize import OptimizeResult
 from abc import ABC, abstractmethod
@@ -15,6 +17,37 @@ __all__ = [
     'BoundTransformHandler',
     'OptimizerRestartMixin'
 ]
+
+
+def _accepts_arguments(func, x, args, kwargs) -> bool:
+    """Whether ``func`` can be called as ``func(x, *args, **kwargs)``.
+
+    Answered from the signature, without calling. The optimizers support two
+    kinds of objective -- a rich one taking the covariance and extras, and a
+    plain one taking only the control vector -- and this is what tells them
+    apart.
+
+    Deciding it by calling and catching ``TypeError`` cannot: an objective that
+    runs an ensemble of simulations and then raises ``TypeError`` internally is
+    indistinguishable from one that rejected the arguments, so the error is
+    swallowed and the entire evaluation repeated. The repeat then trips over
+    the simulator scratch folders the first attempt created and reports
+    ``FileExistsError``, with the real error nowhere to be seen.
+
+    A callable whose signature cannot be inspected -- some builtins and C
+    extensions -- is assumed to accept them, so the full call is attempted and
+    any error propagates rather than being hidden.
+    """
+    try:
+        signature = inspect.signature(func)
+    except (TypeError, ValueError):
+        return True
+    try:
+        signature.bind(x, *args, **kwargs)
+    except TypeError:
+        return False
+    return True
+
 
 class OptimizerRestartMixin(RestartMixin):
     """Checkpoint/restart behaviour for optimizers.
@@ -501,17 +534,21 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
             x = self.bound_handler.project_to_bounds(x)
             x = self.bound_handler.unit_cube_to_state(x)
 
-            try:
-                # check if args empty, if so, don't pass them to func
-                if not args:
-                    args = self.args
-                kwargs["epf"] = self.epf
-                result = func(
-                    x,
-                    *args,
-                    **kwargs,
-                )
-            except TypeError:
+            # check if args empty, if so, don't pass them to func
+            if not args:
+                args = self.args
+            kwargs["epf"] = self.epf
+
+            # A plain objective may accept only `x`. Decide that from the
+            # signature rather than by calling and catching TypeError: the
+            # objective runs a full ensemble of simulations, and a TypeError
+            # raised *inside* it would otherwise be swallowed and the whole
+            # evaluation silently repeated. The repeat then failed on the
+            # scratch folders the first attempt had already created, reporting
+            # FileExistsError and hiding the real error completely.
+            if _accepts_arguments(func, x, args, kwargs):
+                result = func(x, *args, **kwargs)
+            else:
                 result = func(x)
 
             if (transform_result is not None) and self.transform:
