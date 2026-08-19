@@ -64,13 +64,16 @@ np.random.seed(101122)
 
 # ----------------------------------------------------------------------
 cells.append(md("""\
-<font size=4em>Remove results from any previous run, so the plots below show this run only:
+<font size=4em>Each simulator call runs in its own <span style="font-family:Courier;">En_&lt;member&gt;</span> folder, which it creates with <span style="font-family:Courier;">os.mkdir</span> &mdash; so a folder left behind by an interrupted run makes the next one fail with <span style="font-family:Courier;">FileExistsError</span>. PET clears them when an ensemble is constructed, but not between runs, so we define a helper and call it before each optimization. That keeps the run cells safe to re-execute on their own.
 """))
 
 cells.append(code("""\
-for folder in glob('En_*'):
-    shutil.rmtree(folder)
-shutil.rmtree('Results', ignore_errors=True)
+def clean_run_folders(*result_folders):
+    \"\"\"Remove simulator scratch folders, and any results being replaced.\"\"\"
+    for folder in glob('En_*'):
+        shutil.rmtree(folder, ignore_errors=True)
+    for folder in result_folders:
+        shutil.rmtree(folder, ignore_errors=True)
 """))
 
 # ----------------------------------------------------------------------
@@ -163,6 +166,8 @@ cells.append(md("""\
 """))
 
 cells.append(code("""\
+clean_run_folders(ko.get('savefolder', 'Iteration_Results'))
+
 # There are two ways to run the optimization:
 
 # Option 1: the class-level shortcut, when the optimizer object is not needed afterwards
@@ -232,6 +237,8 @@ from copy import deepcopy
 
 ko_smc = deepcopy(ko)
 ko_smc['savefolder'] = 'Results_smc'   # keep EnOpt's files for the comparison below
+
+clean_run_folders(ko_smc['savefolder'])
 
 res_smc = SmcOpt.minimize(
     x0=x0,
