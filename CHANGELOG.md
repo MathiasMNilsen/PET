@@ -31,9 +31,7 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pet convert my_case.pipt && pet migrate my_case.toml   # legacy text configs
   ```
 
-  Existing `.pipt`/`.popt` files are unaffected until converted, and the
-  concrete scheme classes (`esmda_approx`, `lmenrml_full`, ...) remain
-  importable under their existing names.
+  Existing `.pipt`/`.popt` files are unaffected until converted.
 
 - **`pipt.loop.assimilation.Assimilate` is removed, with no shim.** Schemes own
   their iteration loop now, as popt's optimizers do. The whole `pipt.loop`
@@ -88,16 +86,67 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `save_assimilation_result`; the alias writes the new filename, not the old
   one.
 
-- **Eighteen scheme classes collapsed into five.** `ESMDA`, `EnKF`, `ES`,
-  `LMEnRML` and `GNEnRML` are classes taking `analysis` as an argument, and
-  replace the factory functions of the same names. The per-flavour names remain
-  importable as thin subclasses pinning their flavour.
+- **Eighteen scheme classes collapsed into five, and the per-flavour names
+  removed.** `ESMDA`, `EnKF`, `ES`, `LMEnRML` and `GNEnRML` are classes taking
+  `analysis` as an argument, and replace both the factory functions of the
+  same names and the per-flavour classes (`esmda_approx`, `lmenrml_full`,
+  ...): each was one line pinning a flavour the constructor argument already
+  expresses. Use `ESMDA(..., analysis="approx")` and friends instead --
+  `registry.get_scheme(scheme, analysis)` still resolves a `(scheme,
+  analysis)` pair for config-driven code, now to the algorithm class with
+  `analysis` pre-bound rather than to a stored class per combination.
 
-  One consequence is not source-compatible: those classes used to *inherit*
-  their strategy, so `issubclass(esmda_approx, approx_update)` held. They now
-  *hold* one, so it is `False`. Behaviour and numbers are unchanged; only the
-  type relationship goes. A class cannot both be one of five and be-a
-  per-flavour strategy.
+  Two combinations are not aliases and keep their own classes: `esmda_hybrid`
+  (multilevel ES-MDA) and `gnenrml_margis` (a private, externally-implemented
+  strategy) are algorithms in their own right that happen to share a name,
+  reachable via `registry.get_scheme("esmda", "hybrid")` /
+  `("gnenrml", "margis")`. `esmda_geo` is gone outright: its `__init__` took
+  the wrong arguments and referenced an attribute the class never set, so it
+  could not have been constructed successfully; nothing exercised it.
+
+  Not source-compatible: the removed classes used to *inherit* their
+  strategy, so `issubclass(esmda_approx, approx_update)` held. The replacement
+  *holds* one instead. Behaviour and numbers are unchanged -- pinned by the
+  characterisation suite -- only the type relationship goes.
+
+  Each algorithm class now declares, right on the class, which flavours it
+  supports and which class handles each -- `ESMDA.COMPATIBLE_ANALYSES = {
+  "approx": approx_update, "full": full_update, "subspace": subspace_update}`
+  -- so reading one scheme's source shows everything it supports, with no
+  registry lookup needed to find out. `EnKF`/`ES` requesting `analysis="full"`
+  used to resolve to the `approx` strategy only through the per-flavour
+  classes; requesting it directly on `EnKF`/`ES` ran the (numerically
+  identical, more expensive) `full` strategy. `EnKF.COMPATIBLE_ANALYSES`
+  now points `"full"` at the same class as `"approx"`, which is what the
+  removed classes' docstrings already claimed ("EnKF/ES take a single step,
+  so full and approx coincide") but did not, in fact, apply to direct
+  construction. `ES` inherits the dict unchanged, so the fact lives in one
+  place and applies regardless of entry point.
+
+  `register_strategy` (`pipt.update_schemes.analysis.registry`) no longer
+  makes a newly registered flavour automatically selectable on an existing
+  scheme -- each scheme's `COMPATIBLE_ANALYSES` is what a config's `analysis`
+  key is actually checked against. Add the flavour to a scheme's dict
+  directly, or register a whole `(scheme, analysis)` combination via
+  `pipt.update_schemes.registry.register_scheme`.
+
+  `esmda_hybrid` (multilevel ES-MDA) moved off the mixed-in path onto this
+  same bound-strategy pattern: `hybrid_update` now inherits `AnalysisStrategy`
+  and `esmda_hybrid.COMPATIBLE_ANALYSES = {"hybrid": hybrid_update}`, in place
+  of `class esmda_hybrid(hybrid_update, ESMDA)`. Its calling convention
+  (`update(enX, enY, enE, **kwargs)`) already matched the bound shape; only
+  the values are lists of per-level matrices rather than single ones, which
+  the attribute-forwarding that binding relies on does not care about. One
+  consequence: `esmda_hybrid.COMPATIBLE_ANALYSES` deliberately does *not*
+  include `approx`/`full`/`subspace` -- those strategies expect a single
+  `enX`/`proj` matrix, which this scheme's per-level state never gives them;
+  requesting one now raises a clear error instead of the previous, unrelated
+  behaviour of silently running the hybrid update regardless of what
+  `analysis` was asked for. Verified bit-for-bit unchanged against the
+  pre-conversion code (no committed reference existed to pin, so this was
+  checked directly rather than through the characterisation suite).
+  `gnenrml_margis` remains the one scheme still wired up the old way -- see
+  below.
 
 - **The config's `analysis` key is no longer overridden by a default.**
   `build_scheme`/`ESMDA(...)` took `analysis="approx"` as a parameter default
@@ -112,9 +161,82 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
   This affects code outside this repository: `enrml.py` walked
   `update_methods_ns` with `pkgutil` so a private namespace package could supply
-  `margIS_update` alongside the shipped placeholder. A private overlay must now
-  target `pipt.update_schemes.analysis`, or the inert placeholder is used
-  instead — silently.
+  `margIS_update` alongside what shipped here. A private overlay must now
+  target `pipt.update_schemes.analysis`, or the module below is used instead —
+  silently.
+
+  `analysis/margis.py` itself is no longer an inert placeholder: it now
+  carries a real port of the margIS math from an older layout, with attribute
+  names (`self.ne`, `self.proj`, `self.lam`, `self.scale_data`) matching this
+  codebase's current conventions, plus fixes against Stordal, Lorentzen &
+  Fossum (2023), *Marginalized iterative ensemble smoothers for data
+  assimilation*:
+
+  - **`GNEnRML.calc_analysis` was missing a branch.** `margIS_update`
+    delivers its result via `self.W_step` (capital W) -- the ensemble
+    *matrix* update ("following e.g. Raanes et al. 2019" in the code this
+    was ported from), reconstructed as
+    `enX = mean(prior_enX) + prior_enX @ proj * sqrt(ne-1) @ W`. Only the
+    lowercase `w_step` *vector* update ("following e.g. Evensen et al. 2019",
+    a different reconstruction for a differently-initialised `W`) had
+    survived in this codebase's `GNEnRML.calc_analysis`. The first attempt
+    at a fix renamed `self.W_step` to `self.w_step` to match what existed --
+    which was wrong, and confirmed wrong by running it: routed through the
+    vector-update branch, the assimilation made the misfit *worse* by five
+    orders of magnitude, unchanged however small the step length shrank --
+    the signature of the wrong formula entirely, not a scale problem. Fixed
+    properly by restoring the missing `hasattr(self, 'W_step')` branch to
+    `GNEnRML.calc_analysis`, gamma-scaled to match the existing `w_step`
+    branch's convention, and reverting this file to deliver `self.W_step` as
+    it always did.
+  - **The first-call check used the wrong iteration convention.** `if
+    self.iteration == 1` guarded initialising `current_W`/`current_w`/`D`.
+    This codebase's schemes count from `self.iteration = 0` (confirmed
+    against `GNEnRML.__init__` and against `subspace_update`, which checks
+    `if self.iteration == 0` for the same reason), so initialisation never
+    ran and the first real call failed outright with `AttributeError:
+    'AssimilationEnsemble' object has no attribute 'current_W'`. Fixed to
+    check `== 0`.
+  - **The update loop was hardcoded to 70 individual data points**, each its
+    own "type" of one (`M = 1`), instead of the paper's Eq. 8/9 sum over
+    actual data types with each type's real count as `M`. Now groups rows by
+    data type (`self.data_df`'s columns) instead.
+  - **It carried its own `scale()`**, duplicating `AnalysisStrategy.solve` --
+    the same duplication `approx`/`full`/`subspace` had before they were
+    consolidated onto the shared base. Now inherits `AnalysisStrategy` and
+    calls `self.solve` directly, picking up the same robustness fix
+    consolidation made (`np.ndim` instead of `scaling.shape`, so a covariance
+    passed as a plain list or scalar works).
+
+  That inheritance change surfaced a fifth, pre-existing bug, unrelated to
+  any of the above: the old `gnenrml_margis(GNEnRML, margIS_update)` listed
+  `GNEnRML` first, so `StrategyMixin.update` -- reachable through `GNEnRML`'s
+  own MRO chain -- was what plain attribute lookup actually found, not
+  `margIS_update.update`, regardless of what `bind_strategy` decided about
+  `self.strategy`. That `update` raises immediately for a mixed-in flavour,
+  so the scheme could not run at all, independent of anything above.
+
+  **`gnenrml_margis` is gone.** Once `margIS_update` took the same
+  `(enX, enY, enE, **kwargs)` shape as every other strategy, mixing it into a
+  separate class was no longer the only way to wire it up -- and, as the bug
+  above shows, was actively worse than the alternative. `GNEnRML.
+  COMPATIBLE_ANALYSES` now has a `"margis"` entry like `"approx"` and friends;
+  `GNEnRML(..., analysis="margis")` binds `margIS_update` by ordinary
+  composition, the same way `ESMDA(..., analysis="approx")` binds
+  `approx_update`, with no MRO shadowing possible because binding never
+  touches the class hierarchy. `("gnenrml", "margis")` resolves through the
+  generic `ALGORITHMS` + `COMPATIBLE_ANALYSES` path now, not
+  `SPECIAL_SCHEMES` -- unlike `("esmda", "hybrid")`, which stays special
+  because `esmda_hybrid` really is a distinct class (multilevel ES-MDA), not
+  an alias for an existing one.
+
+  Run against real data for the first time (PIPT's own `TinyBox` tutorial
+  case, 9 data types across 6 wells): misfit prior 1.96e10, after one
+  iteration 1.18e8, a 99.4% reduction -- a large, sensible improvement, not
+  just an absence of errors. Still not a golden reference, though: one run,
+  one case, no committed values pinning today's numbers the way
+  `test_numerical_characterisation` does for the other flavours -- see
+  `pipt.update_schemes.analysis.margis`.
 
 - **`iterinfo` hooks receive the scheme**, not the removed `Assimilate` object.
   Custom `main(self)` hooks reading loop attributes need adjusting.

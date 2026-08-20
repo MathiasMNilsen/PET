@@ -12,9 +12,13 @@ behaviour baked into the scheme's class name.
 Historically these flavours were mixins combined into the scheme at class
 definition time, producing a combinatorial explosion of names
 (``esmda_approx``, ``esmda_full``, ``esmda_subspace``, ``lmenrml_approx``, ...).
-They remain usable as mixins -- every existing scheme still works unchanged --
-but they now share this base rather than each carrying a private copy of the
-same helpers.
+Every algorithm class now takes ``analysis`` as a constructor argument and
+binds the matching strategy instead (see ``StrategyMixin``). Mixing in still
+works, for a strategy that genuinely cannot take this shape -- nothing shipped
+here needs it any more, now that ``margis`` binds like the rest -- but doing
+so is riskier than it looks: see ``StrategyMixin``'s module docstring for why
+the scheme base usually has to be listed first, and what that can do to
+method resolution.
 
 Strategy contract
 -----------------
@@ -56,23 +60,27 @@ class AnalysisStrategy(ABC):
 
     Two usages
     ----------
-    **Mixed in** (what every shipped scheme still does)::
-
-        class esmda_approx(esmdaMixIn, approx_update): ...
-
-    ``self`` is the scheme, so ``self.lam`` and friends resolve by inheritance
-    and nothing here is involved.
-
-    **Bound** -- constructed against a scheme it holds a reference to::
+    **Bound** (what every algorithm class does, for every flavour in its
+    ``COMPATIBLE_ANALYSES``) -- constructed against a scheme it holds a
+    reference to::
 
         strategy = approx_update(scheme)
         step = strategy.update(enX, enY, enE)
 
-    which is what lets the flavour become a *parameter* of one scheme class
-    rather than picking which class you get. Context reads then fall through to
-    the bound scheme via :meth:`__getattr__`, the same delegation
-    :class:`~pipt.update_schemes.core.AssimilationSchemeBase` uses to
-    reach its ensemble.
+    which is what lets ``analysis`` be a constructor argument of one scheme
+    class rather than picking which of several classes you get. Context
+    reads fall through to the bound scheme via :meth:`__getattr__`, the same
+    delegation :class:`~pipt.update_schemes.core.AssimilationSchemeBase`
+    uses to reach its ensemble.
+
+    **Mixed in** -- nothing shipped here still needs this (``margis`` binds
+    like the rest now); it remains supported for a strategy whose calling
+    convention genuinely does not fit the bound shape above::
+
+        class some_scheme(SomeAlgorithm, some_strategy): ...
+
+    ``self`` is the scheme, so ``self.lam`` and friends resolve by
+    inheritance and nothing here is involved.
 
     An unbound strategy resolves nothing and raises ``AttributeError``, which is
     deliberate: the optional context reads below are written as

@@ -5,77 +5,72 @@ PIPT historically resolved a scheme by string surgery on the config::
     getattr(import_module('pipt.update_schemes.' + daalg[0]),
             f'{daalg[1]}_{analysis}')
 
-That works, but it fails badly: a typo in ``daalg`` surfaces as a bare
+That failed badly: a typo in ``daalg`` surfaced as a bare
 ``ModuleNotFoundError`` or ``AttributeError`` naming a symbol the user never
-wrote, there is no way to ask what the valid combinations are, and any tool
-wanting to list the available schemes has to guess at module contents.
+wrote, there was no way to ask what the valid combinations are, and any tool
+wanting to list the available schemes had to guess at module contents.
 
-This module replaces that with an explicit table built from real imports, in
-the same spirit as ``pipt.localization.factory``. Lookup failures name the
-offending key and list what is actually available.
+A later refactor replaced the string surgery with an explicit table, but built
+it from eighteen hand-written classes -- one per ``(scheme, analysis)``
+combination -- because the analysis flavour used to be baked into the class
+through mixin composition. It no longer is: every algorithm class declares its
+own ``COMPATIBLE_ANALYSES`` (flavour name -> strategy class) and takes
+``analysis`` as a constructor argument that picks from it (see
+``StrategyMixin`` for how). The per-combination classes had become pure
+duplication -- ``esmda_approx`` was nothing but ``class esmda_approx(ESMDA):
+FLAVOUR = "approx"`` -- so this module now derives the regular combinations
+from two small tables instead of storing eighteen classes:
+
+``ALGORITHMS``
+    One entry per algorithm, e.g. ``"esmda" -> ESMDA``.
+``SPECIAL_SCHEMES``
+    Combinations backed by a real, distinct implementation rather than a
+    registered analysis flavour -- ``esmda_hybrid`` (multilevel ES-MDA) is
+    an algorithm in its own right that happens to share the ``esmda`` name,
+    not an alias.
 
 Extending the registry
 ----------------------
-Schemes living outside this repository -- for instance the private
-``margIS_update`` implementation -- can register themselves without editing
-this file::
+Schemes living outside this repository can register themselves without
+editing this file::
 
     from pipt.update_schemes.registry import register_scheme
-    register_scheme("myscheme", "approx", MySchemeApprox)
+    register_scheme("myscheme", "approx", MyScheme)
 """
 
-from pipt.update_schemes.enkf import enkf_approx, enkf_full, enkf_subspace
-from pipt.update_schemes.enrml import (
-    gnenrml_approx,
-    gnenrml_full,
-    gnenrml_margis,
-    gnenrml_subspace,
-    lmenrml_approx,
-    lmenrml_full,
-    lmenrml_subspace,
-)
-from pipt.update_schemes.es import es_approx, es_full, es_subspace
-from pipt.update_schemes.esmda import (
-    esmda_approx,
-    esmda_full,
-    esmda_geo,
-    esmda_subspace,
-)
+from functools import partial
+
+from pipt.update_schemes.enkf import EnKF
+from pipt.update_schemes.enrml import GNEnRML, LMEnRML
+from pipt.update_schemes.es import ES
+from pipt.update_schemes.esmda import ESMDA
 # esmda_hybrid is a multilevel variant and lives with the multilevel machinery.
 from pipt.update_schemes.multilevel import esmda_hybrid
 
 __all__ = [
-    "SCHEMES",
+    "ALGORITHMS",
+    "SPECIAL_SCHEMES",
     "available_schemes",
     "get_scheme",
     "register_scheme",
 ]
 
 
-#: Maps ``(scheme, analysis)`` to the class implementing that combination.
-#: The keys are exactly the two values a config supplies as ``scheme`` and
-#: ``analysis``; the class names are unchanged and remain importable directly.
-SCHEMES: dict[tuple[str, str], type] = {
-    ("enkf", "approx"): enkf_approx,
-    ("enkf", "full"): enkf_full,
-    ("enkf", "subspace"): enkf_subspace,
-    ("es", "approx"): es_approx,
-    ("es", "full"): es_full,
-    ("es", "subspace"): es_subspace,
-    ("esmda", "approx"): esmda_approx,
-    ("esmda", "full"): esmda_full,
-    ("esmda", "subspace"): esmda_subspace,
-    ("esmda", "geo"): esmda_geo,
+#: One class per algorithm. The analysis flavour is a constructor argument,
+#: not part of this mapping.
+ALGORITHMS: dict[str, type] = {
+    "enkf": EnKF,
+    "es": ES,
+    "esmda": ESMDA,
+    "lmenrml": LMEnRML,
+    "gnenrml": GNEnRML,
+}
+
+#: Combinations backed by a distinct implementation rather than a registered
+#: analysis flavour. Checked before the generic algorithm+flavour resolution,
+#: so also the way to override or add a genuinely different scheme.
+SPECIAL_SCHEMES: dict[tuple[str, str], type] = {
     ("esmda", "hybrid"): esmda_hybrid,
-    ("lmenrml", "approx"): lmenrml_approx,
-    ("lmenrml", "full"): lmenrml_full,
-    ("lmenrml", "subspace"): lmenrml_subspace,
-    ("gnenrml", "approx"): gnenrml_approx,
-    ("gnenrml", "full"): gnenrml_full,
-    ("gnenrml", "subspace"): gnenrml_subspace,
-    # Backed by a private implementation when that package is installed, and by
-    # an inert placeholder otherwise -- see enrml.py.
-    ("gnenrml", "margis"): gnenrml_margis,
 }
 
 
@@ -96,21 +91,55 @@ def register_scheme(scheme: str, analysis: str, cls: type, *, overwrite: bool = 
         load-order lottery.
     """
     key = (str(scheme).lower(), str(analysis).lower())
-    if key in SCHEMES and not overwrite:
-        raise ValueError(
-            f"Scheme {key} is already registered to "
-            f"{SCHEMES[key].__name__}; pass overwrite=True to replace it."
-        )
-    SCHEMES[key] = cls
+    if not overwrite:
+        existing = _resolve(key)
+        if existing is not None:
+            name = getattr(existing, "func", existing).__name__
+            raise ValueError(
+                f"Scheme {key} is already registered to {name}; "
+                f"pass overwrite=True to replace it."
+            )
+    SPECIAL_SCHEMES[key] = cls
 
 
 def available_schemes() -> list[tuple[str, str]]:
     """Return the registered ``(scheme, analysis)`` combinations, sorted."""
-    return sorted(SCHEMES)
+    combos = {
+        (name, flavour)
+        for name, cls in ALGORITHMS.items()
+        for flavour in cls.COMPATIBLE_ANALYSES
+    }
+    combos |= set(SPECIAL_SCHEMES)
+    return sorted(combos)
 
 
-def get_scheme(scheme: str, analysis: str) -> type:
-    """Look up the class implementing a ``(scheme, analysis)`` combination.
+#: Generic algorithm+flavour combinations, built lazily and cached so that
+#: repeated lookups of the same combination return the same object -- as they
+#: did when this was a flat dict of classes.
+_generic_cache: dict[tuple[str, str], partial] = {}
+
+
+def _resolve(key: tuple[str, str]):
+    """Look up ``key`` without raising. ``None`` if it is not registered."""
+    if key in SPECIAL_SCHEMES:
+        return SPECIAL_SCHEMES[key]
+    algo, flavour = key
+    if algo in ALGORITHMS and flavour in ALGORITHMS[algo].COMPATIBLE_ANALYSES:
+        if key not in _generic_cache:
+            _generic_cache[key] = partial(ALGORITHMS[algo], analysis=flavour)
+        return _generic_cache[key]
+    return None
+
+
+def get_scheme(scheme: str, analysis: str):
+    """Look up the constructor for a ``(scheme, analysis)`` combination.
+
+    Returns
+    -------
+    callable
+        Either the class directly (for a :data:`SPECIAL_SCHEMES` entry) or the
+        algorithm class with ``analysis`` pre-bound via :func:`functools.partial`.
+        Either way, call it as ``result(da_input, en_input, sim)``.
 
     Raises
     ------
@@ -120,17 +149,17 @@ def get_scheme(scheme: str, analysis: str) -> type:
         flavour, and lists the valid options in both cases.
     """
     key = (str(scheme).lower(), str(analysis).lower())
-    if key in SCHEMES:
-        return SCHEMES[key]
+    resolved = _resolve(key)
+    if resolved is not None:
+        return resolved
 
-    known = {name for name, _ in SCHEMES}
-    if key[0] not in known:
+    if key[0] not in ALGORITHMS:
         raise KeyError(
             f"Unknown assimilation scheme '{scheme}'. "
-            f"Available schemes: {', '.join(sorted(known))}."
+            f"Available schemes: {', '.join(sorted(ALGORITHMS))}."
         )
 
-    flavours = sorted(flavour for name, flavour in SCHEMES if name == key[0])
+    flavours = sorted(flavour for name, flavour in available_schemes() if name == key[0])
     raise KeyError(
         f"Scheme '{scheme}' has no '{analysis}' analysis flavour. "
         f"Available flavours for '{scheme}': {', '.join(flavours)}."

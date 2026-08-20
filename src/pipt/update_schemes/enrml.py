@@ -11,12 +11,16 @@ from pipt.update_schemes.core.scheme_base import AssimilationSchemeBase
 from pipt.update_schemes.core.workflow import AssimilationWorkflowMixin
 from pipt.update_schemes.core.strategy import StrategyMixin
 from pipt.update_schemes.analysis.approx import approx_update
+from pipt.update_schemes.analysis.full import full_update
+from pipt.update_schemes.analysis.subspace import subspace_update
 import numpy as np
 import copy as cp
 from scipy.linalg import cholesky, solve, inv, lu_solve, lu_factor
 
-# The `margis` flavour is backed by a private implementation. Only an inert
-# placeholder ships here, so the import is guarded.
+# `analysis/margis.py` ships a real (if unfinished -- see its module
+# docstring) port of the margIS math, not an inert placeholder. The import is
+# still guarded in case a private overlay replaces the module with a complete
+# implementation.
 #
 # NOTE: this used to walk `update_methods_ns` with pkgutil so a private
 # namespace package could drop a module in alongside it. That package is now
@@ -31,13 +35,8 @@ except ImportError:  # pragma: no cover - depends on a package outside this repo
 
 
 __all__ = [
-    'lmenrml_approx',
-    'lmenrml_full',
-    'lmenrml_subspace',
-    'gnenrml_approx',
-    'gnenrml_full',
-    'gnenrml_subspace',
-    'gnenrml_margis',
+    'LMEnRML',
+    'GNEnRML',
 ]
 
 
@@ -130,6 +129,12 @@ class LMEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     GNEnRML : Gauss-Newton form, damped by a step length instead.
     ESMDA : Fixed schedule rather than convergence-driven iteration.
     """
+
+    COMPATIBLE_ANALYSES = {
+        "approx": approx_update,
+        "full": full_update,
+        "subspace": subspace_update,
+    }
 
     def __init__(self, keys_da, keys_en, sim, analysis=None):
         """Build the ensemble from the config and bind the analysis strategy.
@@ -444,24 +449,6 @@ class LMEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
 lmenrmlMixIn = LMEnRML
 
 
-class lmenrml_approx(LMEnRML):
-    """Deprecated alias: prefer ``LMEnRML(..., analysis="approx")``."""
-
-    FLAVOUR = "approx"
-
-
-class lmenrml_full(LMEnRML):
-    """Deprecated alias: prefer ``LMEnRML(..., analysis="full")``."""
-
-    FLAVOUR = "full"
-
-
-class lmenrml_subspace(LMEnRML):
-    """Deprecated alias: prefer ``LMEnRML(..., analysis="subspace")``."""
-
-    FLAVOUR = "subspace"
-
-
 class GNEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     """Gauss-Newton Ensemble Randomized Maximum Likelihood (GN-EnRML).
 
@@ -523,9 +510,15 @@ class GNEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     ``data_misfit_tol``
         Relative misfit change treated as converged (default 0.01).
 
-    The ``margis`` flavour is backed by a private ``margIS_update`` package and
-    is registered only when that package is installed; an inert placeholder
-    stands in otherwise.
+    The ``margis`` flavour is backed by ``margIS_update``, ported from an
+    older layout. It delivers its result via ``self.W_step`` (capital W) --
+    the matrix-form ensemble update, distinct from the ``w_step`` most other
+    flavours use -- which this method's own ``calc_analysis`` (below) handles
+    with its own reconstruction branch. Run against real data it produces a
+    large, sensible misfit reduction, but is still one run on one case with
+    no committed reference pinning it -- see its module docstring
+    (:mod:`pipt.update_schemes.analysis.margis`) for what was fixed in the
+    port and what remains a modelling choice rather than a bug.
 
     Examples
     --------
@@ -541,6 +534,13 @@ class GNEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     --------
     LMEnRML : Levenberg-Marquardt form, damped via the Hessian.
     """
+
+    COMPATIBLE_ANALYSES = {
+        "approx": approx_update,
+        "full": full_update,
+        "subspace": subspace_update,
+        "margis": margIS_update,
+    }
 
     def __init__(self, keys_da, keys_en, sim, analysis=None):
         """Build the ensemble from the config and bind the analysis strategy.
@@ -655,9 +655,18 @@ class GNEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
 
             if self.step is not None:
                 self.ensemble.enX_temp = self.enX + self.gamma * self.step
+            # Vector update following e.g. Evensen et al. 2019, for the
+            # additive-anomaly flavours (subspace_update and friends).
             if hasattr(self, 'w_step'):
                 self.W = self.current_W + self.gamma * self.w_step
                 self.ensemble.enX_temp = np.dot(self.prior_enX, (np.eye(self.ne) + self.W / np.sqrt(self.ne - 1)))
+            # Matrix update following e.g. Raanes et al. 2019, for flavours
+            # that deliver a multiplicative ensemble-transform matrix instead
+            # (margIS_update: W_0 = I, not the w_step branch's W_0 = 0).
+            if hasattr(self, 'W_step'):
+                self.W = self.current_W + self.gamma * self.W_step
+                X_p = self.prior_enX @ self.proj * np.sqrt(self.ne - 1)
+                self.ensemble.enX_temp = np.mean(self.prior_enX, axis=1, keepdims=True) + np.dot(X_p, self.W)
 
             limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
             self.ensemble.enX_temp.clip_matrix(limits)
@@ -816,32 +825,6 @@ class GNEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
 
 #: Historical names.
 gnenrmlMixIn = GNEnRML
-
-
-class gnenrml_approx(GNEnRML):
-    """Deprecated alias: prefer ``GNEnRML(..., analysis="approx")``."""
-
-    FLAVOUR = "approx"
-
-
-class gnenrml_full(GNEnRML):
-    """Deprecated alias: prefer ``GNEnRML(..., analysis="full")``."""
-
-    FLAVOUR = "full"
-
-
-class gnenrml_subspace(GNEnRML):
-    """Deprecated alias: prefer ``GNEnRML(..., analysis="subspace")``."""
-
-    FLAVOUR = "subspace"
-
-
-class gnenrml_margis(GNEnRML, margIS_update):
-    '''
-    The marg-IS scheme is currently not available in this version of PIPT. To utilize the scheme you have to import the
-    *margIS_update* class from a standalone repository.
-    '''
-    pass
 
 
 class co_lm_enrml(LMEnRML, approx_update):

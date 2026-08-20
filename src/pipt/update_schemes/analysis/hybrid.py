@@ -6,15 +6,17 @@ import numpy as np
 from scipy.linalg import solve
 from pipt.misc_tools import analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
+from pipt.update_schemes.analysis.base import AnalysisStrategy
 
-class hybrid_update:
+class hybrid_update(AnalysisStrategy):
     '''
     Class for hybrid update schemes as described in: Fossum, K., Mannseth, T., & Stordal, A. S. (2020). Assessment of
     multilevel ensemble-based data assimilation for reservoir history matching. Computational Geosciences, 24(1),
     217–239. https://doi.org/10.1007/s10596-019-09911-x
 
     Note that the scheme is slightly modified to be inline with the standard (I)ES approximate update scheme. This
-    enables the scheme to efficiently be coupled with multiple updating strategies via class MixIn
+    is what lets it be bound as a strategy like ``approx_update`` and friends, despite working on *lists* of
+    per-level matrices rather than single ones -- see ``esmda_hybrid.COMPATIBLE_ANALYSES``.
     '''
 
     def scale(self, data, scaling):

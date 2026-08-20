@@ -184,7 +184,7 @@ def test_init_da_accepts_new_scheme_key():
         obj = pipt_init.init_da({"scheme": "spy", "analysis": "approx"}, {}, None)
         assert obj.ok
     finally:
-        registry.SCHEMES.pop(("spy", "approx"), None)
+        registry.SPECIAL_SCHEMES.pop(("spy", "approx"), None)
 
 
 def test_init_da_rejects_non_string_scheme():

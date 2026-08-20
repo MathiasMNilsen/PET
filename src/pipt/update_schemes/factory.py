@@ -1,13 +1,8 @@
 """Friendly constructors for the assimilation schemes.
 
-PIPT names a scheme by concatenating the algorithm with its analysis flavour,
-which produces one class per combination: ``esmda_approx``, ``esmda_full``,
-``esmda_subspace``, ``esmda_geo``, ``esmda_hybrid``, ``lmenrml_approx``, and so
-on -- eighteen names for five algorithms.
-
-The flavour is a *parameter* of the algorithm, not a different algorithm, so
-this module exposes one constructor per algorithm and takes the flavour as an
-argument::
+The analysis flavour is a *parameter* of the algorithm, not a different
+algorithm, so this module exposes one constructor per algorithm and takes the
+flavour as an argument::
 
     from pipt import ESMDA
     scheme = ESMDA(cfg_da, cfg_en, sim, analysis="approx")

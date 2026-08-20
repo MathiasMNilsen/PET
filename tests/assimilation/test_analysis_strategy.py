@@ -78,28 +78,31 @@ def test_sqrtm_dense_squares_back():
 
 
 # ----------------------------------------------------------------------
-# The mixin products must keep working unchanged
+# Scheme + flavour combinations resolve to the right strategy
 # ----------------------------------------------------------------------
 
-def test_historical_names_still_select_their_flavour():
-    """The per-flavour names keep their meaning, by holding rather than being.
+def test_scheme_registry_selects_the_right_strategy():
+    """Each ``(scheme, analysis)`` combination binds the matching strategy.
 
-    BREAKING: these classes used to *inherit* their strategy, so
-    ``issubclass(esmda_approx, approx_update)`` held. Collapsing the eighteen
-    classes into five made the flavour a parameter, so the alias now binds an
-    approx_update *instance*. What matters -- which strategy it uses -- is
-    unchanged, and that is what this asserts.
+    The eighteen per-flavour classes (``esmda_approx``, ``lmenrml_full``, ...)
+    used to *inherit* their strategy, so ``issubclass(esmda_approx,
+    approx_update)`` held. They are gone now: ``ESMDA``/``LMEnRML``/``GNEnRML``
+    take ``analysis`` as a constructor argument and *hold* a strategy
+    instance instead. What matters -- which strategy a given combination
+    uses -- is what this asserts.
     """
-    from pipt.update_schemes import esmda_approx, gnenrml_subspace, lmenrml_full
-    from pipt.update_schemes.analysis.registry import get_strategy
+    from pipt.update_schemes.esmda import ESMDA
+    from pipt.update_schemes.enrml import GNEnRML, LMEnRML
+    from pipt.update_schemes.registry import get_scheme
 
-    for scheme, flavour_name, flavour_cls in [
-        (esmda_approx, "approx", approx_update),
-        (lmenrml_full, "full", full_update),
-        (gnenrml_subspace, "subspace", subspace_update),
+    for scheme_name, flavour_name, algorithm, flavour_cls in [
+        ("esmda", "approx", ESMDA, approx_update),
+        ("lmenrml", "full", LMEnRML, full_update),
+        ("gnenrml", "subspace", GNEnRML, subspace_update),
     ]:
-        assert scheme.FLAVOUR == flavour_name
-        assert get_strategy(scheme.FLAVOUR) is flavour_cls
-        assert not issubclass(scheme, AnalysisStrategy), (
-            f"{scheme.__name__} should hold a strategy, not inherit one"
+        ctor = get_scheme(scheme_name, flavour_name)
+        assert ctor.func is algorithm
+        assert ctor.keywords == {"analysis": flavour_name}
+        assert not issubclass(algorithm, AnalysisStrategy), (
+            f"{algorithm.__name__} should hold a strategy, not inherit one"
         )

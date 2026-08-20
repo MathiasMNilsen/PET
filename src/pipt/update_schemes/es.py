@@ -57,8 +57,8 @@ class ES(EnKF):
 
     Because there is only one step, the ``full`` flavour coincides with
     ``approx`` -- the prior-increment term they differ over is only reached
-    when iterating -- and ``es_full`` accordingly resolves to the approx
-    strategy.
+    when iterating -- so :attr:`EnKF.COMPATIBLE_ANALYSES`, inherited
+    unchanged here, points ``"full"`` at the cheaper ``approx`` strategy.
 
     Examples
     --------
@@ -151,25 +151,3 @@ class ES(EnKF):
 
 #: Historical name.
 esMixIn = ES
-
-
-class es_approx(ES):
-    """Deprecated alias: prefer ``ES(..., analysis="approx")``."""
-
-    FLAVOUR = "approx"
-
-
-class es_full(ES):
-    """Deprecated alias: prefer ``ES(..., analysis="approx")``.
-
-    ES takes a single step, so full and approx coincide -- as the original
-    docstring noted.
-    """
-
-    FLAVOUR = "approx"
-
-
-class es_subspace(ES):
-    """Deprecated alias: prefer ``ES(..., analysis="subspace")``."""
-
-    FLAVOUR = "subspace"

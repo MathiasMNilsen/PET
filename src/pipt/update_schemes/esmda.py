@@ -3,7 +3,6 @@ ES-MDA type schemes
 """
 
 # External imports
-import scipy.linalg as scilinalg
 from copy import deepcopy
 import numpy as np
 from geostat.decomp import Cholesky
@@ -13,17 +12,12 @@ from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.core.scheme_base import AssimilationSchemeBase
 from pipt.update_schemes.core.workflow import AssimilationWorkflowMixin
 from pipt.update_schemes.core.strategy import StrategyMixin
+from pipt.update_schemes.analysis.approx import approx_update
+from pipt.update_schemes.analysis.full import full_update
+from pipt.update_schemes.analysis.subspace import subspace_update
 import pipt.misc_tools.analysis_tools as at
 
-# Flavours are resolved through the strategy registry now, not mixed in.
-
-__all__ = [
-    'ESMDA',
-    'esmda_approx',
-    'esmda_full',
-    'esmda_subspace',
-    'esmda_geo'
-]
+__all__ = ['ESMDA']
 
 class ESMDA(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     """Ensemble Smoother with Multiple Data Assimilation (ES-MDA).
@@ -94,8 +88,7 @@ class ESMDA(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     References
     ----------
     Emerick and Reynolds, *Ensemble smoother with multiple data assimilation*
-    [`emerick2013a`][]. For the geometric inflation schedule used by
-    :class:`esmda_geo`, see Rafiee and Reynolds [`rafiee2017`][].
+    [`emerick2013a`][].
 
     See Also
     --------
@@ -107,6 +100,12 @@ class ESMDA(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     #: collaborator -- the multilevel variant, for instance -- override it
     #: rather than duplicating the constructor.
     ENSEMBLE_CLASS = Ensemble
+
+    COMPATIBLE_ANALYSES = {
+        "approx": approx_update,
+        "full": full_update,
+        "subspace": subspace_update,
+    }
 
     def __init__(self, keys_da, keys_en, sim, analysis=None):
         """Build the ensemble from the config and bind the analysis strategy.
@@ -456,110 +455,3 @@ class ESMDA(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
 
 #: Historical name. ``multilevel.esmda_hybrid`` still subclasses it.
 esmdaMixIn = ESMDA
-
-
-class esmda_approx(ESMDA):
-    """Deprecated alias: prefer ``ESMDA(..., analysis="approx")``."""
-
-    FLAVOUR = "approx"
-
-
-class esmda_full(ESMDA):
-    """Deprecated alias: prefer ``ESMDA(..., analysis="full")``."""
-
-    FLAVOUR = "full"
-
-
-class esmda_subspace(ESMDA):
-    """Deprecated alias: prefer ``ESMDA(..., analysis="subspace")``."""
-
-    FLAVOUR = "subspace"
-
-
-class esmda_geo(esmda_approx):
-    """
-    This is the implementation of the ES-MDA-GEO algorithm from [1]. The main analysis step in this algorithm is the
-    same as the standard ES-MDA algorithm (implemented in the `es_mda` class). The difference between this and the
-    standard algorithm is the calculation of the inflation factor. Also see [`rafiee2017`][].
-    """
-
-    def __init__(self, keys_da):
-        """Build the ensemble from the config and bind the analysis strategy.
-
-        See the class docstring for the parameters.
-        """
-        # Pass the init_file upwards in the hierarchy
-        super().__init__(keys_da)
-
-        # Within
-        self.alpha = [None] * self.tot_assim
-
-    def _calc_inflation_factor(self, pert_preddata, cov_data, energy=99):
-        """
-        We calculate the inflation factor, follow the procedure laid out in Algorithm 1 in [1].
-
-        Parameters
-        ----------
-        pert_preddata : ndarray
-            Predicted data (fwd. run) ensemble matrix perturbed with its mean
-        cov_data : ndarray
-            Data covariance matrix
-        energy : float, optional
-            Percentage of energy kept in (T)SVD decompostion of 'sensitivity' matrix (default is 99%)
-
-        Returns
-        -------
-        alpha : float
-            Inflation factor
-        beta : float
-            Geometric factor
-        """
-        # Need the square-root of the data covariance matrix
-        if np.count_nonzero(cov_data - np.diagonal(cov_data)) == 0:
-            l = np.sqrt(cov_data)  # only variance (diagonal) term
-        else:
-            # Cholesky decomposition
-            l = scilinalg.cholesky(cov_data)  # cov. matrix has off-diag. terms
-
-        # Calculate the 'sensitivity' matrix:
-        sens = (1 / np.sqrt(self.ne - 1)) * np.dot(l, pert_preddata)
-
-        # Perform SVD on sensitivtiy matrix
-        _, s_d, _ = np.linalg.svd(sens, full_matrices=False)
-
-        # If no. measurements is more than ne - 1, we only keep ne - 1 sing. val.
-        if sens.shape[0] >= self.ne:
-            s_d = s_d[:-1].copy()
-
-        # If energy is less than 100 we truncate the SVD matrices
-        if energy < 100:
-            ti = (np.cumsum(s_d) / sum(s_d)) * 100 <= energy
-            s_d = s_d[ti].copy()
-
-        # Calc average singular value
-        avg_s_d = s_d.mean()
-
-        # The inflation factor is chosen as the maximum of the average singular value (squared) and max. no. of
-        # iterations
-        alpha = np.max((avg_s_d ** 2, self.tot_assim))
-
-        # We calculate the geometric (reduction) factor (called 'common ratio' in the article). The formula is given
-        # as (1 - beta**-n) / (1 - beta**-1) = alpha (it is actually incorrect in the article, and should be as
-        # written here), with n=tot. assim. steps. Rewritten:
-        #
-        # (1-alpha)*beta**n + alpha*beta**(n-1) - 1 = 0
-        #
-        # This is of course a nasty polynomial root problem, but we use Numpy.roots, extract the real
-        # root less than 1, and hope for the best :p
-        root_coeff = np.zeros(self.tot_assim + 1)
-        root_coeff[0] = 1 - alpha  # first coeff. in polynomial
-        root_coeff[1] = alpha  # sec. coeff in polynomial
-        root_coeff[-1] = -1
-        roots = np.roots(root_coeff)
-
-        # Most likely the first root will be 1, and the second one will be the one we want. Due to numerical
-        # imprecision, the first root will not be exactly one, so we us Numpy.min to get the second root.
-        beta = np.min([x.real for x in roots if x.imag == 0 and x.real < 1])
-
-        # Return inflation and geometric factor
-        return alpha, beta

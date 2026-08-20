@@ -109,8 +109,10 @@ available_schemes()   # every valid (scheme, analysis) pair
 sim)` is the one-line form for when the scheme object is not needed afterwards;
 it returns the same `AssimilationResult`, whose `x` is the posterior ensemble.
 
-The concrete classes (`esmda_approx`, `lmenrml_full`, ...) remain importable as
-subclasses pinning their flavour.
+The eighteen per-flavour classes this used to produce (`esmda_approx`,
+`lmenrml_full`, ...) are gone: each was a one-line subclass pinning the
+flavour a constructor argument already expresses. Use `ESMDA(..., analysis=
+"approx")` and friends instead.
 
 Running a data-assimilation or optimization job itself is still done from a
 Python driver script that wires up your forward simulator/cost function -- see

@@ -107,12 +107,16 @@ def test_state_is_partitioned_by_level(ml_scheme):
         assert ml_scheme.ensemble.enX[level].shape[1] == size
 
 
-def test_hybrid_flavour_is_mixed_in_not_bound(ml_scheme):
-    """``hybrid`` is not a registered strategy, so nothing should be bound."""
+def test_hybrid_flavour_is_bound_like_any_other(ml_scheme):
+    """``hybrid`` is listed in esmda_hybrid's own COMPATIBLE_ANALYSES, so it
+    binds a strategy instance the same way approx/full/subspace do -- it is
+    no longer a mixed-in special case."""
     from pipt.update_schemes.analysis.hybrid import hybrid_update
+    from pipt.update_schemes.core.strategy import StrategyMixin
 
-    assert ml_scheme.strategy is None
-    assert type(ml_scheme).update is hybrid_update.update
+    assert isinstance(ml_scheme.strategy, hybrid_update)
+    assert ml_scheme.strategy is not ml_scheme
+    assert type(ml_scheme).update is StrategyMixin.update
 
 
 def test_multilevel_alias_points_at_the_ensemble():

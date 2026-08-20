@@ -109,14 +109,18 @@ class MultilevelEnsemble(Ensemble):
 multilevel = MultilevelEnsemble
 
 
-class esmda_hybrid(hybrid_update, ESMDA):
+class esmda_hybrid(ESMDA):
     '''
     A multilevel implementation of the ES-MDA algorithm with the hybrid gain.
 
-    Composes a :class:`MultilevelEnsemble` and mixes in ``hybrid_update``, which
-    supplies ``update()`` for the per-level gain. ``hybrid`` is not a registered
-    analysis flavour, so no strategy is bound and the mixed-in implementation is
-    used -- see :class:`pipt.update_schemes.core.StrategyMixin`.
+    Composes a :class:`MultilevelEnsemble` and binds ``hybrid_update`` for the
+    per-level gain, the same way :class:`~pipt.update_schemes.esmda.ESMDA`
+    binds ``approx_update`` and friends. It is not just ``ESMDA`` with an
+    extra flavour, though: its own ``COMPATIBLE_ANALYSES`` offers only
+    ``"hybrid"``, deliberately narrower than ``ESMDA``'s -- ``approx_update``
+    et al. expect a single ``enX``/``proj`` matrix, and this scheme's state is
+    partitioned into one such matrix *per level*, which those strategies were
+    never written to handle.
 
     Notes
     -----
@@ -125,6 +129,7 @@ class esmda_hybrid(hybrid_update, ESMDA):
     '''
 
     ENSEMBLE_CLASS = MultilevelEnsemble
+    COMPATIBLE_ANALYSES = {"hybrid": hybrid_update}
 
     def __init__(self, keys_da, keys_en, sim, analysis=None):
         super().__init__(keys_da, keys_en, sim, analysis=analysis)

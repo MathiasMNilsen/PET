@@ -11,6 +11,8 @@ from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.core.scheme_base import AssimilationSchemeBase
 from pipt.update_schemes.core.workflow import AssimilationWorkflowMixin
 from pipt.update_schemes.core.strategy import StrategyMixin
+from pipt.update_schemes.analysis.approx import approx_update
+from pipt.update_schemes.analysis.subspace import subspace_update
 # Misc. tools used in analysis schemes
 from pipt.misc_tools import analysis_tools as at
 import pipt.misc_tools.ensemble_tools as entools
@@ -71,6 +73,11 @@ class EnKF(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     ``energy`` sets the fraction of singular values retained in the truncated
     SVD (default 0.98); values above 1 are read as percentages.
 
+    Every data group is assimilated exactly once, so the prior-increment term
+    that distinguishes ``full`` from ``approx`` is never reached: ``"full"``
+    is pointed at the same class as ``"approx"`` in
+    :attr:`COMPATIBLE_ANALYSES`. :class:`ES` inherits this.
+
     Examples
     --------
     >>> result = EnKF.assimilate(keys_da, keys_en, flow(keys_sim))
@@ -83,6 +90,17 @@ class EnKF(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     --------
     ES : All-data-at-once form of the same update.
     """
+
+    # Neither this class nor ES revisit a data group, so the prior-increment
+    # term "full" adds over "approx" never applies -- the two produce
+    # identical output (pinned by the characterisation suite), just through
+    # more expensive machinery for "full". Rather than special-case that in
+    # code, "full" is simply pointed at the same class as "approx" here.
+    COMPATIBLE_ANALYSES = {
+        "approx": approx_update,
+        "full": approx_update,
+        "subspace": subspace_update,
+    }
 
     def __init__(self, keys_da, keys_en, sim, analysis=None):
         """Build the ensemble from the config and bind the analysis strategy.
@@ -281,25 +299,3 @@ class EnKF(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
 
 #: Historical name, kept for subclasses outside this module.
 enkfMixIn = EnKF
-
-
-class enkf_approx(EnKF):
-    """Deprecated alias: prefer ``EnKF(..., analysis="approx")``."""
-
-    FLAVOUR = "approx"
-
-
-class enkf_full(EnKF):
-    """Deprecated alias: prefer ``EnKF(..., analysis="approx")``.
-
-    The EnKF does not iterate, so the standard scheme is always applied; this
-    name resolves to the same "approx" strategy it always did.
-    """
-
-    FLAVOUR = "approx"
-
-
-class enkf_subspace(EnKF):
-    """Deprecated alias: prefer ``EnKF(..., analysis="subspace")``."""
-
-    FLAVOUR = "subspace"

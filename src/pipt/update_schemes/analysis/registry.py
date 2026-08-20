@@ -1,10 +1,18 @@
-"""Lookup of analysis strategies by flavour name.
+"""Canonical name-to-class lookup for the shipped analysis flavours.
 
-The scheme registry maps ``(scheme, analysis)`` to one class per combination,
-because the flavour is currently baked into the class through mixin
-composition. This maps the flavour *alone* to the strategy implementing it,
-which is what a scheme needs once it takes ``analysis`` as a parameter and
-holds the strategy rather than inheriting it.
+A convenience for introspection (``available_strategies()``) and for anyone
+building a scheme's own ``COMPATIBLE_ANALYSES`` dict (see
+:class:`~pipt.update_schemes.core.strategy.StrategyMixin`) without importing
+``approx_update``/``full_update``/``subspace_update`` individually.
+
+Registering a flavour here (:func:`register_strategy`) does **not** by itself
+make it selectable on any existing scheme: each algorithm class (``ESMDA``,
+``EnKF``, ...) declares its own ``COMPATIBLE_ANALYSES``, read directly off the
+class rather than computed from this registry, so that reading one scheme's
+source tells you everything it supports. Wiring a newly registered flavour
+into a scheme means adding it to that scheme's ``COMPATIBLE_ANALYSES`` --
+or, for a wholly out-of-tree scheme, registering the combination directly via
+:func:`pipt.update_schemes.registry.register_scheme`.
 
 Kept in its own module rather than in :mod:`pipt.update_schemes.analysis.base`:
 the concrete flavours import the base, so a registry living there would import
@@ -27,12 +35,15 @@ STRATEGIES: dict[str, type] = {
 
 
 def register_strategy(analysis: str, cls: type, *, overwrite: bool = False) -> None:
-    """Add a strategy, so out-of-tree flavours need not edit this file.
+    """Add a strategy under a flavour name, for later lookup by that name.
+
+    This alone does not make ``cls`` selectable on any existing scheme -- see
+    the module docstring for how to actually wire a new flavour in.
 
     Parameters
     ----------
     analysis : str
-        Flavour name, as it appears in the config's ``analysis`` key.
+        Flavour name to register it under.
     cls : type
         Strategy class implementing it.
     overwrite : bool, optional

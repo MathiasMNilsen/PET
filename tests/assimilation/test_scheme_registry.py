@@ -1,8 +1,4 @@
-"""Tests for the explicit scheme registry and init_da dispatch.
-
-Also pins the public scheme class names, which are imported directly by user
-code and must therefore keep working.
-"""
+"""Tests for the explicit scheme registry and init_da dispatch."""
 
 import pytest
 
@@ -11,56 +7,96 @@ from pipt.update_schemes import registry
 
 
 # ----------------------------------------------------------------------
-# Public class names are API
-# ----------------------------------------------------------------------
-
-PUBLIC_SCHEME_NAMES = [
-    "enkf_approx", "enkf_full", "enkf_subspace",
-    "es_approx", "es_full", "es_subspace",
-    "esmda_approx", "esmda_full", "esmda_subspace", "esmda_geo", "esmda_hybrid",
-    "lmenrml_approx", "lmenrml_full", "lmenrml_subspace",
-    "gnenrml_approx", "gnenrml_full", "gnenrml_subspace", "gnenrml_margis",
-]
-
-
-@pytest.mark.parametrize("name", PUBLIC_SCHEME_NAMES)
-def test_scheme_name_importable_from_package(name):
-    """User code does `from pipt.update_schemes import lmenrml_approx`."""
-    import pipt.update_schemes as us
-
-    assert hasattr(us, name), f"{name} is public API and must stay importable"
-
-
-def test_co_lm_enrml_kept_but_inactive():
-    """Retained in the source and importable, but not star-exported or selectable."""
-    import pipt.update_schemes as us
-    from pipt.update_schemes.enrml import co_lm_enrml
-
-    assert co_lm_enrml is not None
-    assert not hasattr(us, "co_lm_enrml"), "co_lm_enrml should stay out of the star-export"
-    assert not any(cls is co_lm_enrml for cls in registry.SCHEMES.values())
-
-
-# ----------------------------------------------------------------------
 # Registry
 # ----------------------------------------------------------------------
 
-def test_registry_covers_every_public_name():
-    registered = {cls.__name__ for cls in registry.SCHEMES.values()}
-    assert registered == set(PUBLIC_SCHEME_NAMES)
+def test_algorithms_cover_the_five_public_classes():
+    from pipt.update_schemes.enkf import EnKF
+    from pipt.update_schemes.enrml import GNEnRML, LMEnRML
+    from pipt.update_schemes.es import ES
+    from pipt.update_schemes.esmda import ESMDA
+
+    assert set(registry.ALGORITHMS.values()) == {EnKF, ES, ESMDA, LMEnRML, GNEnRML}
 
 
-def test_get_scheme_resolves_and_is_case_insensitive():
-    from pipt.update_schemes import esmda_approx
+def test_hybrid_is_a_special_scheme_not_a_registered_flavour():
+    """``hybrid`` is not a globally registered analysis flavour.
 
-    assert registry.get_scheme("esmda", "approx") is esmda_approx
-    assert registry.get_scheme("ESMDA", "Approx") is esmda_approx
+    ``esmda_hybrid`` is a real, distinct implementation (multilevel ES-MDA)
+    that happens to share the ``esmda`` name, not an alias -- so it resolves
+    only through ``SPECIAL_SCHEMES``, never through ``ALGORITHMS`` + a bound
+    strategy.
+    """
+    from pipt.update_schemes.analysis.registry import available_strategies
+
+    assert "hybrid" not in available_strategies()
+    assert ("esmda", "hybrid") in registry.SPECIAL_SCHEMES
 
 
-def test_available_schemes_is_sorted_pairs():
+def test_margis_is_a_gnenrml_specific_flavour_not_a_special_scheme():
+    """``margis`` binds normally on ``GNEnRML``, unlike ``hybrid``.
+
+    It is not a *globally* registered flavour (only ``GNEnRML`` offers it,
+    not every algorithm), but it is an ordinary ``COMPATIBLE_ANALYSES`` entry
+    on that one class -- resolved through ``ALGORITHMS`` + a bound strategy,
+    not through ``SPECIAL_SCHEMES`` the way ``hybrid`` is.
+    """
+    from pipt.update_schemes.analysis.registry import available_strategies
+    from pipt.update_schemes.analysis.margis import margIS_update
+    from pipt.update_schemes.enrml import GNEnRML
+
+    assert "margis" not in available_strategies()
+    assert ("gnenrml", "margis") not in registry.SPECIAL_SCHEMES
+    assert GNEnRML.COMPATIBLE_ANALYSES["margis"] is margIS_update
+    ctor = registry.get_scheme("gnenrml", "margis")
+    assert ctor.func is GNEnRML
+    assert ctor.keywords == {"analysis": "margis"}
+
+
+def test_co_lm_enrml_kept_but_inactive():
+    """Retained in the source and importable, but not selectable."""
+    from pipt.update_schemes.enrml import co_lm_enrml
+
+    assert co_lm_enrml is not None
+    assert co_lm_enrml not in registry.ALGORITHMS.values()
+    assert co_lm_enrml not in registry.SPECIAL_SCHEMES.values()
+
+
+def test_get_scheme_binds_the_algorithm_and_flavour():
+    from pipt.update_schemes.esmda import ESMDA
+
+    ctor = registry.get_scheme("esmda", "approx")
+    assert ctor.func is ESMDA
+    assert ctor.keywords == {"analysis": "approx"}
+
+
+def test_get_scheme_is_case_insensitive():
+    from pipt.update_schemes.esmda import ESMDA
+
+    assert registry.get_scheme("ESMDA", "Approx").func is ESMDA
+
+
+def test_get_scheme_resolves_special_schemes_directly():
+    from pipt.update_schemes.multilevel import esmda_hybrid
+
+    assert registry.get_scheme("esmda", "hybrid") is esmda_hybrid
+
+
+def test_available_schemes_is_sorted_and_covers_specials():
     combos = registry.available_schemes()
     assert combos == sorted(combos)
-    assert ("esmda", "geo") in combos
+    assert ("esmda", "hybrid") in combos
+    assert ("gnenrml", "margis") in combos
+    assert ("esmda", "geo") not in combos, "esmda_geo was dead code and has been removed"
+
+
+def test_every_algorithm_gets_every_registered_flavour():
+    from pipt.update_schemes.analysis.registry import available_strategies
+
+    combos = set(registry.available_schemes())
+    for algo in registry.ALGORITHMS:
+        for flavour in available_strategies():
+            assert (algo, flavour) in combos
 
 
 def test_unknown_scheme_error_lists_alternatives():
@@ -73,7 +109,7 @@ def test_unknown_flavour_error_is_distinct_and_lists_flavours():
     with pytest.raises(KeyError, match="no 'banana' analysis flavour") as err:
         registry.get_scheme("esmda", "banana")
     message = str(err.value)
-    assert "geo" in message and "approx" in message
+    assert "hybrid" in message and "approx" in message
 
 
 def test_register_scheme_roundtrip():
@@ -87,7 +123,16 @@ def test_register_scheme_roundtrip():
             registry.register_scheme("dummy", "approx", Dummy)
         registry.register_scheme("dummy", "approx", Dummy, overwrite=True)
     finally:
-        registry.SCHEMES.pop(("dummy", "approx"), None)
+        registry.SPECIAL_SCHEMES.pop(("dummy", "approx"), None)
+
+
+def test_register_scheme_rejects_clashing_with_a_generic_combo():
+    """A generic algorithm+flavour combo counts as "already registered" too."""
+    class Dummy:
+        pass
+
+    with pytest.raises(ValueError, match="already registered"):
+        registry.register_scheme("esmda", "approx", Dummy)
 
 
 # ----------------------------------------------------------------------
