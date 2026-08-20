@@ -124,8 +124,8 @@ PET needs to be set up with a configuration file. See the example [repository](h
 
 ## Tutorials
 
-- A PIPT tutorial is found [here](https://python-ensemble-toolbox.github.io/PET/tutorials/pipt/tutorial_pipt)
-- A POPT tutorial is found [here](https://python-ensemble-toolbox.github.io/PET/tutorials/popt/tutorial_popt)
+- A PIPT tutorial is found [here](https://python-ensemble-toolbox.github.io/PET/tutorials/pipt/TinyBox/tutorial_pipt)
+- A POPT tutorial is found [here](https://python-ensemble-toolbox.github.io/PET/tutorials/popt/5Spot/tutorial_popt)
 
 ## Suggested readings:
 

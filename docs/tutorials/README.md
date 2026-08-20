@@ -2,5 +2,5 @@
 
 Here are some tutorials.
 
-- [`tutorial_pipt.ipynb`](pipt/tutorial_pipt): Tutorial for running PIPT
-- [`tutorial_pipt.ipynb`](popt/tutorial_popt): Tutorial for running POPT
+- [`tutorial_pipt.ipynb`](pipt/TinyBox/tutorial_pipt): Tutorial for running PIPT
+- [`tutorial_popt.ipynb`](popt/5Spot/tutorial_popt): Tutorial for running POPT
