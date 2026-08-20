@@ -219,7 +219,11 @@ class AssimilationSchemeBase(RestartMixin, ABC):
         fires or ``maxiter`` accepted iterations have been taken. Rejected
         steps do not advance the iteration counter, but they do count against
         ``max_rejected`` so a scheme cannot loop forever refusing its own
-        updates.
+        updates. Convergence is checked after every attempt, accepted or not
+        -- a scheme's :meth:`check_convergence` can legitimately fire on a
+        step it is about to reject (a stalled misfit that did not actually
+        improve), and that verdict has to end the loop rather than being
+        silently discarded because the step failed.
 
         Returns
         -------
@@ -241,19 +245,22 @@ class AssimilationSchemeBase(RestartMixin, ABC):
         while self.iteration < self.maxiter:
             accepted = self.update_step()
 
-            if not accepted:
+            if accepted:
+                rejected = 0
+                self.iteration += 1
+                self.after_accepted_iteration()
+            else:
                 rejected += 1
-                if rejected >= max_rejected:
-                    self.conv_msg = (
-                        f"Stopped after {rejected} consecutive rejected steps"
-                    )
-                    break
-                continue
 
-            rejected = 0
-            self.iteration += 1
-            self.after_accepted_iteration()
-
+            # Checked after every attempt, not only accepted ones: a scheme's
+            # own check_convergence() can fire on a step it is about to
+            # reject (e.g. the misfit has stalled close to the previous
+            # value without actually improving on it). Gating this behind
+            # `accepted` used to let that verdict through score_and_commit's
+            # bookkeeping and printed log line, then silently discard it here
+            # -- the loop kept retrying at shrinking step lengths, printing a
+            # fresh "converged" message on every attempt that landed near
+            # tolerance again without ever actually stopping.
             if self.check_misfit_convergence():
                 converged = True
             elif self.check_state_convergence():
@@ -261,10 +268,16 @@ class AssimilationSchemeBase(RestartMixin, ABC):
             elif self.check_convergence():
                 converged = True
 
-            if self.restartsave:
+            if accepted and self.restartsave:
                 self.save_restart()
 
             if converged:
+                break
+
+            if not accepted and rejected >= max_rejected:
+                self.conv_msg = (
+                    f"Stopped after {rejected} consecutive rejected steps"
+                )
                 break
 
         if self.iteration >= self.maxiter and not converged:
