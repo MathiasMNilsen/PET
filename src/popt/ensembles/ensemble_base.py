@@ -71,6 +71,7 @@ class EnsembleOptimizationBase(BaseEnsemble):
             self.lb = np.append(self.lb, lb * np.ones(mean.size))
             self.ub = np.append(self.ub, ub * np.ones(mean.size))
             self.bounds += mean.size * [(lb, ub)]
+            self.idX[name] = (self.stateX.size - mean.size, self.stateX.size)
 
         self.covX = np.diag(self.varX)  # Covariance matrix, (nx, nx)
         self.dimX = self.stateX.size    # Dimension of state vector
