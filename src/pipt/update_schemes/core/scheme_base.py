@@ -197,11 +197,11 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
         self.why_stop = {}
         self.results = AssimilationResult()
 
-        #: Whether the most recent step was accepted. Schemes that can reject a
-        #: step -- the Levenberg-Marquardt family backing off with a larger
-        #: damping parameter -- set this in their scoring pass, so
-        #: :meth:`run_assimilation` can tell an accepted iteration from a
-        #: retried one.
+        #: Whether the most recent step was accepted. Assigned by
+        #: :meth:`run_assimilation` from what :meth:`update_step` returns, so
+        #: it is always in step with the loop's own view. The
+        #: Levenberg-Marquardt family also sets it in its scoring pass, and
+        #: returns the same value.
         self.step_accepted = True
 
     # ------------------------------------------------------------------
@@ -325,12 +325,9 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
             if self.step_tol > 0:
                 self.enX_old = deepcopy(self.ensemble.enX)
 
-            accepted = self.update_step()
-            # Only the EnRML family maintains this itself (returning exactly
-            # this value); elsewhere it would otherwise just stay True.
-            self.step_accepted = accepted
+            self.step_accepted = self.update_step()
 
-            if accepted:
+            if self.step_accepted:
                 rejected = 0
                 self.iteration += 1
                 self.after_accepted_iteration()
@@ -347,13 +344,13 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
             elif self.check_convergence():
                 converged = True
 
-            if accepted and self.restartsave:
+            if self.step_accepted and self.restartsave:
                 self.save_restart()
 
             if converged:
                 break
 
-            if not accepted and rejected >= max_rejected:
+            if not self.step_accepted and rejected >= max_rejected:
                 self.conv_msg = (
                     f"Stopped after {rejected} consecutive rejected steps"
                 )
