@@ -18,6 +18,7 @@ dependence entirely.
 #──────────────────────────────────────────────────────────────────────────────────────
 from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.esmda import ESMDA
+from pipt.update_schemes.core.scheme_base import StepReport
 from pipt.misc_tools import analysis_tools as at
 from geostat.decomp import Cholesky
 from pipt.update_schemes.analysis.hybrid import hybrid_update
@@ -143,7 +144,7 @@ class esmda_hybrid(ESMDA):
     # ------------------------------------------------------------------
     # AssimilationSchemeBase contract
     # ------------------------------------------------------------------
-    def update_step(self) -> bool:
+    def update_step(self) -> StepReport:
         """Run one multilevel ES-MDA step.
 
         Returns
@@ -155,7 +156,7 @@ class esmda_hybrid(ESMDA):
         self.after_analysis()
         self.run_forecast()
         self.score_and_commit()
-        return True
+        return StepReport(accepted=True, misfit=self.ensemble_misfit)
 
     def check_convergence(self) -> bool:
         """ES-MDA runs its full schedule of inflated steps; nothing stops early."""

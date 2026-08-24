@@ -9,7 +9,11 @@ import os
 import numpy as np
 import pytest
 
-from pipt.update_schemes.core.scheme_base import AssimilationResult, AssimilationSchemeBase
+from pipt.update_schemes.core.scheme_base import (
+    AssimilationResult,
+    AssimilationSchemeBase,
+    StepReport,
+)
 
 
 class FakeEnsemble:
@@ -30,16 +34,17 @@ class DecreasingMisfitScheme(AssimilationSchemeBase):
     """Scheme whose misfit halves each step, converging on misfit_tol."""
 
     def update_step(self):
+        # The loop derives data_misfit from the reported array, so the shift
+        # of current -> previous happens here, before the new value is sent.
         self.prev_data_misfit = self.data_misfit
-        if self.data_misfit is None:
-            self.data_misfit = 100.0
-            self.prior_data_misfit = 100.0
-        else:
-            self.data_misfit = self.data_misfit / 2.0
+        value = 100.0 if self.data_misfit is None else self.data_misfit / 2.0
+        if self.prior_data_misfit is None:
+            self.prior_data_misfit = value
         self.enX_old = self.ensemble.enX.copy()
         self.ensemble.enX = self.ensemble.enX + 1.0
         self.ensemble.forecast()
-        return True
+        return StepReport(accepted=True,
+                          misfit=np.full(self.ensemble.enX.shape[1], value))
 
 
 class NeverConvergingScheme(AssimilationSchemeBase):
@@ -47,10 +52,13 @@ class NeverConvergingScheme(AssimilationSchemeBase):
 
     def update_step(self):
         self.prev_data_misfit = self.data_misfit
-        self.data_misfit = 100.0 if self.data_misfit is None else self.data_misfit * 2.0
+        value = 100.0 if self.data_misfit is None else self.data_misfit * 2.0
+        if self.prior_data_misfit is None:
+            self.prior_data_misfit = value
         self.enX_old = self.ensemble.enX.copy()
         self.ensemble.enX = self.ensemble.enX + 10.0
-        return True
+        return StepReport(accepted=True,
+                          misfit=np.full(self.ensemble.enX.shape[1], value))
 
 
 class StallingScheme(AssimilationSchemeBase):
@@ -62,10 +70,13 @@ class StallingScheme(AssimilationSchemeBase):
 
     def update_step(self):
         self.prev_data_misfit = self.data_misfit
-        self.data_misfit = 100.0 if self.data_misfit is None else self.data_misfit * 0.999
+        value = 100.0 if self.data_misfit is None else self.data_misfit * 0.999
+        if self.prior_data_misfit is None:
+            self.prior_data_misfit = value
         self.ensemble.enX = self.ensemble.enX + 1e-12
         self.ensemble.forecast()
-        return True
+        return StepReport(accepted=True,
+                          misfit=np.full(self.ensemble.enX.shape[1], value))
 
 
 class AlwaysRejectingScheme(AssimilationSchemeBase):
@@ -77,7 +88,12 @@ class AlwaysRejectingScheme(AssimilationSchemeBase):
 
     def update_step(self):
         self.attempts += 1
-        return False
+        # Rejected: nothing moved, so report the misfit as it stands.
+        value = 100.0 if self.data_misfit is None else self.data_misfit
+        if self.prior_data_misfit is None:
+            self.prior_data_misfit = value
+        return StepReport(accepted=False,
+                          misfit=np.full(self.ensemble.enX.shape[1], value))
 
 
 @pytest.fixture

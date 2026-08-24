@@ -57,6 +57,7 @@ Here the ensemble is a *collaborator* rather than a superclass, matching how
 
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from dataclasses import dataclass
 
 import numpy as np
 from scipy.optimize import OptimizeResult
@@ -64,7 +65,7 @@ from scipy.optimize import OptimizeResult
 from ensemble.checkpoint import RestartMixin
 from pipt.update_schemes.core.analysis_binding import AnalysisBindingMixin
 
-__all__ = ["AssimilationSchemeBase", "AssimilationResult"]
+__all__ = ["AssimilationSchemeBase", "AssimilationResult", "StepReport"]
 
 
 def _ensemble_attr(name):
@@ -104,6 +105,34 @@ def _own_or_ensemble_attr(name):
         setter,
         doc=f"``{name}``: the scheme's own if it computed one, else the ensemble's.",
     )
+
+
+@dataclass(slots=True)
+class StepReport:
+    """What one attempt produced. Returned by :meth:`update_step`.
+
+    The base does not dictate how a scheme takes its step; this is what it
+    needs back afterwards, to score convergence, log, and build the result.
+    Required fields are positional, so forgetting one is a ``TypeError`` at
+    construction rather than a ``None`` surfacing several iterations later.
+    """
+
+    accepted: bool
+    """Keep this step? ``False`` makes the loop retry at the same iteration
+    number instead of advancing -- how the Levenberg-Marquardt family backs
+    off."""
+
+    misfit: "np.ndarray"
+    """Per-realisation data misfit **as of now**. The loop derives
+    ``data_misfit`` and ``data_misfit_std`` from it, so the three can no
+    longer drift apart the way separately-assigned attributes could.
+
+    "As of now" matters for a scheme that rejects: LM-EnRML restores the last
+    accepted misfit when it backs off, and returns *that*, so the value the
+    loop records is the one the next comparison is against."""
+
+    why_stop: dict | None = None
+    """Criterion record, merged into ``result.why_stop``."""
 
 
 class AssimilationResult(OptimizeResult):
@@ -254,19 +283,21 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
     # Subclass contract
     # ------------------------------------------------------------------
     @abstractmethod
-    def update_step(self) -> bool:
+    def update_step(self) -> "StepReport":
         """Perform one scheme-specific analysis step.
 
         Implementations compute the analysis update, apply it to the ensemble
-        state, run the resulting forecast, and refresh ``self.data_misfit``.
+        state, run the resulting forecast, and score the result. How they do
+        that is entirely theirs -- the base calls this and nothing inside it.
 
         Returns
         -------
-        bool
-            ``True`` if the step was accepted. ``False`` marks a rejected step:
-            the iteration counter is not advanced and the scheme is given
-            another attempt, which is how the Levenberg-Marquardt schemes back
-            off by increasing their damping parameter.
+        StepReport
+            ``accepted`` decides whether the loop advances or gives the scheme
+            another attempt at the same iteration number, which is how the
+            Levenberg-Marquardt schemes back off by increasing their damping
+            parameter. ``misfit`` is the per-realisation data misfit as of now;
+            the loop derives ``data_misfit`` and ``data_misfit_std`` from it.
         """
 
     def check_convergence(self) -> bool:
@@ -325,7 +356,17 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
             if self.step_tol > 0:
                 self.enX_old = deepcopy(self.ensemble.enX)
 
-            self.step_accepted = self.update_step()
+            report = self.update_step()
+            self.step_accepted = report.accepted
+
+            # Derived here, from one array, rather than assigned separately by
+            # each scheme -- which is what let them drift out of step.
+            misfit = np.asarray(report.misfit, dtype=float)
+            self.ensemble_misfit = misfit
+            self.data_misfit = float(misfit.mean())
+            self.data_misfit_std = float(misfit.std())
+            if report.why_stop:
+                self.why_stop.update(report.why_stop)
 
             if self.step_accepted:
                 rejected = 0

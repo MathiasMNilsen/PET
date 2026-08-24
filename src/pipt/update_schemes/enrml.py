@@ -8,6 +8,7 @@ import pipt.misc_tools.extract_tools as extract
 from geostat.decomp import Cholesky
 from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.core.workflow import AssimilationScheme
+from pipt.update_schemes.core.scheme_base import StepReport
 from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.full import full_update
 from pipt.update_schemes.analysis.subspace import subspace_update
@@ -276,7 +277,7 @@ class LMEnRML(AssimilationScheme):
     # ------------------------------------------------------------------
     # AssimilationSchemeBase contract
     # ------------------------------------------------------------------
-    def update_step(self) -> bool:
+    def update_step(self) -> StepReport:
         """Run one LM-EnRML step: analysis, forecast, then score and commit.
 
         Returns
@@ -290,7 +291,7 @@ class LMEnRML(AssimilationScheme):
         self.after_analysis()
         self.run_forecast()
         self.score_and_commit()
-        return self.step_accepted
+        return StepReport(accepted=self.step_accepted, misfit=self.ensemble_misfit)
 
     def check_convergence(self) -> bool:
         """Report the verdict reached by the preceding :meth:`score_and_commit`."""
@@ -318,6 +319,7 @@ class LMEnRML(AssimilationScheme):
         # if inital conv. check, there are no prev_data_misfit
         self.prev_data_misfit = self.data_misfit
         self.prev_data_misfit_std = self.data_misfit_std
+        self.prev_ensemble_misfit = getattr(self, "ensemble_misfit", None)
 
         # Calc. std dev of data misfit (used to update lamda)
         # mat_obs = np.dot(obs_data_vector.reshape((len(obs_data_vector),1)), np.ones((1, self.ne))) # use the perturbed
@@ -425,9 +427,16 @@ class LMEnRML(AssimilationScheme):
                 self.logger(f'Data misfit increased! λ increased: {self.lam / self.gamma} ──> {self.lam}')
 
             if not success:
-                # Reset the objective function after report
+                # Reset the objective function after report, so the next
+                # comparison is against the last *accepted* misfit. The
+                # per-realisation array is restored with it: update_step
+                # reports that array, and the loop derives the scalars from
+                # it, so leaving it holding the rejected attempt would put
+                # them back out of step.
                 self.data_misfit = self.prev_data_misfit
                 self.data_misfit_std = self.prev_data_misfit_std
+                if self.prev_ensemble_misfit is not None:
+                    self.ensemble_misfit = self.prev_ensemble_misfit
 
             self._converged = False
             self.step_accepted = success
@@ -684,7 +693,7 @@ class GNEnRML(AssimilationScheme):
     # ------------------------------------------------------------------
     # AssimilationSchemeBase contract
     # ------------------------------------------------------------------
-    def update_step(self) -> bool:
+    def update_step(self) -> StepReport:
         """Run one GN-EnRML step: analysis, forecast, then score and commit.
 
         Returns
@@ -698,7 +707,7 @@ class GNEnRML(AssimilationScheme):
         self.after_analysis()
         self.run_forecast()
         self.score_and_commit()
-        return self.step_accepted
+        return StepReport(accepted=self.step_accepted, misfit=self.ensemble_misfit)
 
     def check_convergence(self) -> bool:
         """Report the verdict reached by the preceding :meth:`score_and_commit`."""
@@ -724,6 +733,7 @@ class GNEnRML(AssimilationScheme):
 
         self.prev_data_misfit = self.data_misfit
         self.prev_data_misfit_std = self.data_misfit_std
+        self.prev_ensemble_misfit = getattr(self, "ensemble_misfit", None)
 
         data_misfit = at.calc_objectivefun(self.enObs, enPred, self.cov_data)
         self.ensemble_misfit = data_misfit
@@ -814,8 +824,13 @@ class GNEnRML(AssimilationScheme):
                 )
 
             if not success:
+                # Restore the last accepted misfit, per-realisation array
+                # included -- update_step reports that array and the loop
+                # derives the scalars from it.
                 self.data_misfit = self.prev_data_misfit
                 self.data_misfit_std = self.prev_data_misfit_std
+                if self.prev_ensemble_misfit is not None:
+                    self.ensemble_misfit = self.prev_ensemble_misfit
 
             self._converged = False
             self.step_accepted = success

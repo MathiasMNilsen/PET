@@ -9,6 +9,7 @@ from geostat.decomp import Cholesky                     # Making realizations
 # Internal imports
 from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.core.workflow import AssimilationScheme
+from pipt.update_schemes.core.scheme_base import StepReport
 from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.subspace import subspace_update
 # Misc. tools used in analysis schemes
@@ -238,7 +239,7 @@ class EnKF(AssimilationScheme):
     # ------------------------------------------------------------------
     # AssimilationSchemeBase contract
     # ------------------------------------------------------------------
-    def update_step(self) -> bool:
+    def update_step(self) -> StepReport:
         """Run one EnKF step: analysis, forecast, then score and commit.
 
         Returns
@@ -251,7 +252,7 @@ class EnKF(AssimilationScheme):
         self.after_analysis()
         self.run_forecast()
         self.score_and_commit()
-        return True
+        return StepReport(accepted=True, misfit=self.ensemble_misfit)
 
     def check_convergence(self) -> bool:
         """The EnKF runs its full sweep of data groups; nothing stops early."""

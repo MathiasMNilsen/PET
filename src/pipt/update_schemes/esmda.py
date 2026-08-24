@@ -10,6 +10,7 @@ from geostat.decomp import Cholesky
 # Internal imports
 from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.core.workflow import AssimilationScheme
+from pipt.update_schemes.core.scheme_base import StepReport
 from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.full import full_update
 from pipt.update_schemes.analysis.subspace import subspace_update
@@ -181,7 +182,7 @@ class ESMDA(AssimilationScheme):
     # ------------------------------------------------------------------
     # AssimilationSchemeBase contract
     # ------------------------------------------------------------------
-    def update_step(self) -> bool:
+    def update_step(self) -> StepReport:
         """Run one ES-MDA assimilation step.
 
         Computes the inflated analysis, forecasts the trial state, then scores
@@ -201,7 +202,7 @@ class ESMDA(AssimilationScheme):
         self.after_analysis()
         self.run_forecast()
         self.score_and_commit()
-        return True
+        return StepReport(accepted=True, misfit=self.ensemble_misfit)
 
     def check_convergence(self) -> bool:
         """ES-MDA runs its full schedule of inflated steps; nothing stops early."""

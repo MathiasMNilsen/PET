@@ -246,6 +246,23 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   — so `pipt.update_schemes` lists algorithms rather than mixing them with the
   scaffolding they stand on.
 
+- **`update_step()` returns a `StepReport`, not a `bool`.** The loop needed
+  four things back from a step but could only see one of them in the
+  signature; the rest were attribute side effects a scheme could silently
+  forget, leaving `data_misfit` as `None` and convergence permanently
+  unreachable. A scheme now returns
+
+  ```python
+  StepReport(accepted=..., misfit=...)      # why_stop optional
+  ```
+
+  where `misfit` is the *per-realisation* array. The loop derives
+  `data_misfit` and `data_misfit_std` from it, so those three can no longer
+  disagree — as they previously could after a rejected LM-EnRML step, which
+  restored the scalar but left `ensemble_misfit` holding the rejected attempt.
+  Schemes no longer set `step_accepted`, `data_misfit`, `data_misfit_std` or
+  `ensemble_misfit` at all.
+
 - **One name for the analysis concept.** The code called the same thing an
   "analysis" (the config key, `COMPATIBLE_ANALYSES`) and a "strategy" (the
   base class, the registry, the bound attribute). It is now "analysis"
