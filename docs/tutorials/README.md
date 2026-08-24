@@ -2,5 +2,17 @@
 
 Here are some tutorials.
 
+## Running PIPT and POPT
+
 - [`tutorial_pipt.ipynb`](pipt/TinyBox/tutorial_pipt): Tutorial for running PIPT
 - [`tutorial_popt.ipynb`](popt/5Spot/tutorial_popt): Tutorial for running POPT
+
+## Localization
+
+- [`tutorial_auto_adaptive_localization.ipynb`](pipt/localization/5SPOT_PORO/tutorial_auto_adaptive_localization): Adaptive correlation-based tapering
+- [`tutorial_distance_localization.ipynb`](pipt/localization/5SPOT_PORO/tutorial_distance_localization): Distance-based tapering around wells
+
+## Extending PIPT
+
+- [`adding_an_analysis.ipynb`](extending/adding_an_analysis): Write a new analysis flavour and bind it to a scheme
+- [`adding_a_scheme.ipynb`](extending/adding_a_scheme): Write a new scheme and register it for config-driven use
