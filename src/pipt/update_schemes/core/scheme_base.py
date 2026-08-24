@@ -401,8 +401,11 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
     def after_prior_forecast(self) -> None:
         """Called once, after the prior forecast has been run and scored."""
 
-    def after_analysis(self) -> None:
-        """Called after the analysis, before the forecast it will be scored on."""
+    # Note: there is deliberately no `after_analysis` hook here. It marks a
+    # point *inside* update_step(), and how a scheme performs its step is the
+    # scheme's business, not the base's -- the base only calls update_step().
+    # AssimilationWorkflowMixin declares and implements it for the schemes
+    # that opt into that workflow.
 
     def after_forecast(self) -> None:
         """Called after each in-iteration forecast, before the misfit is scored."""

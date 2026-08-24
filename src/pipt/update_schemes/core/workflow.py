@@ -79,7 +79,12 @@ class AssimilationWorkflowMixin:
         self._save_restart_snapshot()
 
     def after_analysis(self) -> None:
-        """Between analysis and forecast: refresh screened QAQC variance."""
+        """Between analysis and forecast: refresh screened QAQC variance.
+
+        Declared here rather than on the scheme base: it marks a point inside
+        ``update_step()``, which the base does not dictate the shape of. A
+        scheme calls this itself, from its own step.
+        """
         self._refresh_screened_qaqc_datavar()
 
     def after_forecast(self) -> None:
@@ -318,7 +323,7 @@ class AssimilationScheme(AssimilationWorkflowMixin, AssimilationSchemeBase):
     that works.
 
     That order is load-bearing: the workflow mixin *overrides* hooks
-    (``after_analysis``, ``after_forecast``, ``after_loop``,
+(``after_forecast``, ``after_loop``,
     ``after_accepted_iteration``, ``after_prior_forecast``) that the base
     defines as no-op defaults, so it has to come first in the MRO. Listed the
     other way round the base's empty versions would win and every run would
