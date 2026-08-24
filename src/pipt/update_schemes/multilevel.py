@@ -156,7 +156,8 @@ class esmda_hybrid(ESMDA):
         self.after_analysis()
         self.run_forecast()
         self.score_and_commit()
-        return StepReport(accepted=True, misfit=self.ensemble_misfit)
+        return StepReport(accepted=True, misfit=self.ensemble_misfit,
+                          state=self.enX_temp)
 
     def check_convergence(self) -> bool:
         """ES-MDA runs its full schedule of inflated steps; nothing stops early."""
@@ -293,8 +294,6 @@ class esmda_hybrid(ESMDA):
         success = self.data_misfit_mean < self.prev_data_misfit_mean
         self.log_update(success=success)
 
-        self.ensemble.enX = deepcopy(self.enX_temp)
-        self.ensemble.enX_temp = None
 
         if hasattr(self, 'W'):
             self.current_W = deepcopy(self.W)

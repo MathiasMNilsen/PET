@@ -291,7 +291,8 @@ class LMEnRML(AssimilationScheme):
         self.after_analysis()
         self.run_forecast()
         self.score_and_commit()
-        return StepReport(accepted=self.step_accepted, misfit=self.ensemble_misfit)
+        return StepReport(accepted=self.step_accepted, misfit=self.ensemble_misfit,
+                          state=self.enX_temp)
 
     def check_convergence(self) -> bool:
         """Report the verdict reached by the preceding :meth:`score_and_commit`."""
@@ -396,10 +397,6 @@ class LMEnRML(AssimilationScheme):
                     self.lam = self.lam / self.gamma
                     self.logger(f'λ reduced: {self.lam * self.gamma} ──> {self.lam}')
 
-                # Update state ensemble
-                self.ensemble.enX = cp.deepcopy(self.enX_temp)
-                self.ensemble.enX_temp = None
-
                 # Update ensemble weights
                 if hasattr(self, 'W'):
                     self.current_W = cp.deepcopy(self.W)
@@ -410,10 +407,6 @@ class LMEnRML(AssimilationScheme):
                 # accept itaration, but keep lam the same
                 success = True
                 self.log_update(success=success)
-
-                # Update state ensemble
-                self.ensemble.enX = cp.deepcopy(self.enX_temp)
-                self.ensemble.enX_temp = None
 
                 # Update ensemble weights
                 if hasattr(self, 'W'):
@@ -707,7 +700,8 @@ class GNEnRML(AssimilationScheme):
         self.after_analysis()
         self.run_forecast()
         self.score_and_commit()
-        return StepReport(accepted=self.step_accepted, misfit=self.ensemble_misfit)
+        return StepReport(accepted=self.step_accepted, misfit=self.ensemble_misfit,
+                          state=self.enX_temp)
 
     def check_convergence(self) -> bool:
         """Report the verdict reached by the preceding :meth:`score_and_commit`."""
@@ -797,8 +791,6 @@ class GNEnRML(AssimilationScheme):
                         -(self.iteration + 1) / (self.gamma_factor - 1)
                     )
 
-                self.ensemble.enX = cp.deepcopy(self.enX_temp)
-                self.ensemble.enX_temp = None
                 if hasattr(self, 'W'):
                     self.current_W = cp.deepcopy(self.W)
 
@@ -807,8 +799,6 @@ class GNEnRML(AssimilationScheme):
                 success = True
                 self.log_update(success=success)
 
-                self.ensemble.enX = cp.deepcopy(self.enX_temp)
-                self.ensemble.enX_temp = None
                 if hasattr(self, 'W'):
                     self.current_W = cp.deepcopy(self.W)
 

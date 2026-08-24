@@ -202,7 +202,8 @@ class ESMDA(AssimilationScheme):
         self.after_analysis()
         self.run_forecast()
         self.score_and_commit()
-        return StepReport(accepted=True, misfit=self.ensemble_misfit)
+        return StepReport(accepted=True, misfit=self.ensemble_misfit,
+                          state=self.enX_temp)
 
     def check_convergence(self) -> bool:
         """ES-MDA runs its full schedule of inflated steps; nothing stops early."""
@@ -342,8 +343,6 @@ class ESMDA(AssimilationScheme):
 
         # Promote the trial state. Written through the ensemble so the next
         # forecast and any external reader see it.
-        self.ensemble.enX = deepcopy(self.enX_temp)
-        self.ensemble.enX_temp = None
         if hasattr(self, 'W'):
             self.current_W = deepcopy(self.W)
 

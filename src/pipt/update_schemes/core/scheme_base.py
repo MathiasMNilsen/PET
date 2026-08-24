@@ -58,10 +58,11 @@ Here the ensemble is a *collaborator* rather than a superclass, matching how
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 from scipy.optimize import OptimizeResult
-
+from pipt.ensembles import AssimilationEnsemble
 from ensemble.checkpoint import RestartMixin
 from pipt.update_schemes.core.analysis_binding import AnalysisBindingMixin
 
@@ -122,6 +123,14 @@ class StepReport:
     number instead of advancing -- how the Levenberg-Marquardt family backs
     off."""
 
+    state: "Any"
+    """The state this attempt produced, committed by the loop when
+    ``accepted``. A scheme still writes it to ``ensemble.enX_temp`` first,
+    because that is what the forecast predicts on -- but handing it back here
+    is what lets the loop own the commit, rather than every scheme
+    remembering the same two lines. Forgetting them used to give a run that
+    iterated and logged normally while returning the prior untouched."""
+
     misfit: "np.ndarray"
     """Per-realisation data misfit **as of now**. The loop derives
     ``data_misfit`` and ``data_misfit_std`` from it, so the three can no
@@ -165,7 +174,7 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
     the result object -- lives here.
     """
 
-    def __init__(self, ensemble, **options):
+    def __init__(self, ensemble: AssimilationEnsemble, **options):
         """
         Parameters
         ----------
@@ -358,6 +367,17 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
 
             step = self.update_step()
             self.step_accepted = step.accepted
+
+            # Promote the state the step reported, or discard it. Done here
+            # rather than in every scheme, and before the convergence checks
+            # below, since check_state_convergence compares ensemble.enX
+            # against enX_old.
+            if self.step_accepted:
+                self.ensemble.enX = deepcopy(step.state)
+            # The trial state has been consumed either way; leaving it set
+            # would make the next forecast run on a stale proposal.
+            if getattr(self.ensemble, "enX_temp", None) is not None:
+                self.ensemble.enX_temp = None
 
             # Derived here, from one array, rather than assigned separately by
             # each scheme -- which is what let them drift out of step.

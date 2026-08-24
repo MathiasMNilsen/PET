@@ -43,7 +43,7 @@ class DecreasingMisfitScheme(AssimilationSchemeBase):
         self.enX_old = self.ensemble.enX.copy()
         self.ensemble.enX = self.ensemble.enX + 1.0
         self.ensemble.forecast()
-        return StepReport(accepted=True,
+        return StepReport(accepted=True, state=self.ensemble.enX,
                           misfit=np.full(self.ensemble.enX.shape[1], value))
 
 
@@ -57,7 +57,7 @@ class NeverConvergingScheme(AssimilationSchemeBase):
             self.prior_data_misfit_mean = value
         self.enX_old = self.ensemble.enX.copy()
         self.ensemble.enX = self.ensemble.enX + 10.0
-        return StepReport(accepted=True,
+        return StepReport(accepted=True, state=self.ensemble.enX,
                           misfit=np.full(self.ensemble.enX.shape[1], value))
 
 
@@ -75,7 +75,7 @@ class StallingScheme(AssimilationSchemeBase):
             self.prior_data_misfit_mean = value
         self.ensemble.enX = self.ensemble.enX + 1e-12
         self.ensemble.forecast()
-        return StepReport(accepted=True,
+        return StepReport(accepted=True, state=self.ensemble.enX,
                           misfit=np.full(self.ensemble.enX.shape[1], value))
 
 
@@ -92,7 +92,7 @@ class AlwaysRejectingScheme(AssimilationSchemeBase):
         value = 100.0 if self.data_misfit_mean is None else self.data_misfit_mean
         if self.prior_data_misfit_mean is None:
             self.prior_data_misfit_mean = value
-        return StepReport(accepted=False,
+        return StepReport(accepted=False, state=self.ensemble.enX,
                           misfit=np.full(self.ensemble.enX.shape[1], value))
 
 

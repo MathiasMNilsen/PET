@@ -252,7 +252,8 @@ class EnKF(AssimilationScheme):
         self.after_analysis()
         self.run_forecast()
         self.score_and_commit()
-        return StepReport(accepted=True, misfit=self.ensemble_misfit)
+        return StepReport(accepted=True, misfit=self.ensemble_misfit,
+                          state=self.enX_temp)
 
     def check_convergence(self) -> bool:
         """The EnKF runs its full sweep of data groups; nothing stops early."""
@@ -281,8 +282,6 @@ class EnKF(AssimilationScheme):
                     'prev_data_misfit': self.prev_data_misfit_mean}
 
         # Update state ensemble
-        self.ensemble.enX = deepcopy(self.enX_temp)
-        self.ensemble.enX_temp = None
 
         if self.data_misfit_mean == self.prev_data_misfit_mean:
             self.logger.info(

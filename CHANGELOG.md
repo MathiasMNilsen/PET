@@ -256,7 +256,12 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   StepReport(accepted=..., misfit=...)      # why_stop optional
   ```
 
-  where `misfit` is the *per-realisation* array. The loop derives
+  where `state` is the state the attempt produced and `misfit` is the
+  *per-realisation* array. The loop commits `state` when `accepted` and
+  clears the trial either way, so a scheme no longer has to remember
+  `ensemble.enX = deepcopy(enX_temp); ensemble.enX_temp = None` — forgetting
+  that gave a run which iterated and logged normally while returning the
+  prior untouched. The loop derives
   `data_misfit` and `data_misfit_std` from it, so those three can no longer
   disagree — as they previously could after a rejected LM-EnRML step, which
   restored the scalar but left `ensemble_misfit` holding the rejected attempt.

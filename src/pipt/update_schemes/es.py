@@ -129,8 +129,6 @@ class ES(EnKF):
         # is essentially never taken -- prev_data_misfit is the prior misfit and
         # data_misfit is the posterior one -- so ES returned its prior ensemble
         # unchanged while logging a reduced misfit.
-        self.ensemble.enX = deepcopy(self.enX_temp)
-        self.ensemble.enX_temp = None
 
         if self.data_misfit_mean == self.prev_data_misfit_mean:
             self.logger.info(
