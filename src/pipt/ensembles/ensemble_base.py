@@ -13,7 +13,7 @@ import numpy as np
 from scipy.linalg import cholesky
 from geostat.decomp import Cholesky
 
-from ensemble import BaseEnsemble, PetLogger
+from ensemble import BaseEnsemble, NullLogger, PetLogger
 import misc.read_input_csv as rcsv
 from pipt.localization import build_localization_instance
 import pipt.misc_tools.analysis_tools as at
@@ -56,6 +56,9 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
               (Was ``analysisdebug``, still honoured with a warning.)
             - savefolder (or save_folder): where run artifacts go
               (default ``Results``)
+            - logit: enable run logging (default true). When false, no log
+              file is created and self.logger(...) calls become no-ops.
+            - logger_name: log file name (default ``ASSIM.log``)
             - nosave: present in the config disables artifact saving entirely
             - truedataindex: order of the simulated data (for timeseries this is points in time)
             - obsname: unit for truedataindex (for timeseries this is days or hours or seconds, etc.)
@@ -84,8 +87,13 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
         # do the initiallization of the PETensemble
         super().__init__(keys_da | keys_en, sim)
 
-        # Setup logger
-        self.logger = PetLogger(filename='assim.log')
+        # Setup logger. logit=False replaces it with a no-op so every scheme's
+        # unconditional self.logger(...) calls stay valid without a file being
+        # created.
+        if keys_da.get('logit', True):
+            self.logger = PetLogger(filename=keys_da.get('logger_name', 'ASSIM.log'))
+        else:
+            self.logger = NullLogger()
         self.logger(f'=========== Running Data Assimilation - {keys_da["scheme"].upper()} ===========')
 
         # Internalize PIPT dictionary

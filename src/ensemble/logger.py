@@ -1,6 +1,19 @@
 import logging
 
-__all__ = ["PetLogger"]
+__all__ = ["PetLogger", "NullLogger"]
+
+
+class NullLogger:
+    """Callable no-op standing in for a :class:`PetLogger` when logging is
+    disabled -- so callers can invoke ``self.logger(...)`` unconditionally
+    without checking whether logging is on, and no log file is created.
+    """
+
+    def __call__(self, *args, **kwargs):
+        pass
+
+    def info(self, *args, **kwargs):
+        pass
 
 class PetLogger:
     '''
