@@ -117,7 +117,7 @@ class EnKF(AssimilationScheme):
         # AssimilationSchemeBase's `misfit_tol`/`step_tol` docs for why.
         super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
 
-        # Flavour is a parameter, so it selects a analysis object not a class.
+        # Flavour is a parameter, so it selects an analysis object not a class.
         self.bind_analysis(self.resolve_analysis(analysis, keys_da))
 
         self.prev_data_misfit = None

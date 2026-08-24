@@ -123,7 +123,7 @@ class ESMDA(AssimilationScheme):
         super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
 
         # The analysis flavour is a parameter of the algorithm, not a different
-        # algorithm, so it selects a analysis object rather than a class.
+        # algorithm, so it selects an analysis object rather than a class.
         self.bind_analysis(self.resolve_analysis(analysis, keys_da))
 
         self.prev_data_misfit = None

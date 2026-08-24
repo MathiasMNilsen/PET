@@ -10,7 +10,7 @@ stand on. Three pieces, composed in this order by each scheme::
     The iteration loop, convergence bookkeeping, restart handling and the
     result object. Subclasses supply :meth:`~AssimilationSchemeBase.update_step`.
 :class:`AnalysisBindingMixin`
-    Resolves the ``analysis`` flavour to a analysis object and delegates
+    Resolves the ``analysis`` flavour to an analysis object and delegates
     ``update()`` to it, so the flavour is a parameter rather than part of the
     class name.
 :class:`AssimilationWorkflowMixin`

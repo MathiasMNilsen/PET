@@ -151,7 +151,7 @@ class LMEnRML(AssimilationScheme):
         # AssimilationSchemeBase's `misfit_tol`/`step_tol` docs for why.
         super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
 
-        # Flavour is a parameter, so it selects a analysis object not a class.
+        # Flavour is a parameter, so it selects an analysis object not a class.
         self.bind_analysis(self.resolve_analysis(analysis, keys_da))
 
         if self.restart is False:
@@ -357,6 +357,16 @@ class LMEnRML(AssimilationScheme):
                 )
 
             self._converged = True
+            # Without this the run reports "no stopping reason recorded" on a
+            # perfectly ordinary convergence: only the base class's generic
+            # criteria set conv_msg, and these schemes disable those.
+            self.conv_msg = (
+                f"Data misfit change satisfies |1 - d/d_prev| < "
+                f"{self.data_misfit_tol}"
+                if abs(1 - (self.data_misfit / self.prev_data_misfit))
+                < self.data_misfit_tol
+                else f"Damping parameter reached lambda_max ({self.lam_max})"
+            )
             self.step_accepted = success
             self.why_stop = why_stop
             return why_stop
@@ -558,7 +568,7 @@ class GNEnRML(AssimilationScheme):
         # AssimilationSchemeBase's `misfit_tol`/`step_tol` docs for why.
         super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
 
-        # Flavour is a parameter, so it selects a analysis object not a class.
+        # Flavour is a parameter, so it selects an analysis object not a class.
         self.bind_analysis(self.resolve_analysis(analysis, keys_da))
 
         if self.restart is False:
@@ -746,6 +756,13 @@ class GNEnRML(AssimilationScheme):
                     f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
                     f'from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}')
             self._converged = True
+            # Without this the run reports "no stopping reason recorded" on a
+            # perfectly ordinary convergence: only the base class's generic
+            # criteria set conv_msg, and these schemes disable those.
+            self.conv_msg = (
+                f"Data misfit change satisfies |1 - d/d_prev| < "
+                f"{self.data_misfit_tol}"
+            )
             self.step_accepted = success
             self.why_stop = why_stop
             return why_stop

@@ -64,6 +64,14 @@ mistake is not repeated:
   rather than ``scaling.shape``, so a covariance passed as a plain list or
   scalar works rather than raising ``AttributeError``.
 
+The upstream original also carries a square-root (deterministic) variant,
+delivering ``sqrt_w_step``. Nothing in this codebase consumes it --
+``GNEnRML.calc_analysis`` reconstructs from ``step``, ``w_step`` or
+``W_step`` only -- so the partial ``*_sqrt`` chain that fed it (and the
+commented-out assignment at the end) is dropped here rather than kept as
+dead code that cannot run. Recoverable from the upstream file if the variant
+is ever wired up.
+
 ``nu``/``s`` remain a single shared value across all types rather than
 per-type ``nu_k``/``s_k`` -- the paper's own worked example (Section 3) does
 the same, setting one shared ``nu`` (there, the total measurement count) for
@@ -92,7 +100,6 @@ flavours. Treat it as plausible, not verified.
 import numpy as np
 import pandas as pd
 
-import pipt.misc_tools.analysis_tools as at
 from pipt.update_schemes.analysis.base import AnalysisBase
 
 
@@ -132,7 +139,6 @@ class margIS_update(AnalysisBase):
 
         if scheme.iteration == 0:  # method requires some initiallization
             scheme.current_W = np.eye(ne)
-            scheme.current_w = np.zeros(ne)
             scheme.D = self.solve(scheme.scale_data, enE)
             # Scale everything so that data uncertainty is I
 
@@ -140,7 +146,6 @@ class margIS_update(AnalysisBase):
         S = 0
 
         deltaD = 0
-        deltaD_sqrt = 0
 
         Y = np.linalg.solve(scheme.current_W.T, sY.T).T
         Y = Y @ scheme.proj * np.sqrt(ne - 1)
@@ -161,16 +166,12 @@ class margIS_update(AnalysisBase):
             #Ratio = 1
             #Gradient
             deltaD = deltaD + (Y[index,:] * Ratio).T @ delta
-            deltaD_sqrt = deltaD_sqrt + np.mean((Y[index, :] * Ratio).T @ delta ,axis=1)
             # Hessian
             S = S + (Y[index,:] * Ratio).T @ Y[index,:]
 
         deltaM = (ne-1)*(np.eye(ne)-scheme.current_W)
-        deltaM_sqrt = (ne-1)*scheme.current_w
         S = S + np.eye(ne) * (ne - 1)
         Delta = deltaM + deltaD
-        Delta_sqrt = deltaM_sqrt + deltaD_sqrt
 
 
         scheme.W_step = np.linalg.solve(S, Delta) / (1 + scheme.lam)
-       # scheme.sqrt_w_step = np.linalg.solve(S, Delta_sqrt) / (1 + scheme.lam)

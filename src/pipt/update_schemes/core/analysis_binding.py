@@ -89,7 +89,7 @@ __all__ = ["AnalysisBindingMixin"]
 
 
 class AnalysisBindingMixin:
-    """Resolve an analysis flavour to a analysis object and delegate to it."""
+    """Resolve an analysis flavour to an analysis object and delegate to it."""
 
     #: Flavour name -> analysis class to build with ``self`` as its scheme.
     #: Every scheme mixing this in sets its own (see module docstring). A

@@ -313,6 +313,13 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A converged `LMEnRML`/`GNEnRML` run reported `no stopping reason recorded`.
+  Both schemes set their converged flag in `score_and_commit()` but never set
+  `conv_msg`, and they disable the base class's generic criteria -- which are
+  the only other thing that sets it. `result.message` and the closing log line
+  now name the criterion that fired (the data-misfit tolerance, or
+  `lambda_max` for LM-EnRML).
+
 - `LMEnRML`/`GNEnRML` re-armed a convergence criterion they had just
   disabled. Both pass `step_tol=0.0` to switch off the base class's generic
   state-change check, then set `self.step_tol` from config (default `0.01`) a
