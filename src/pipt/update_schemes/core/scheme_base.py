@@ -210,10 +210,10 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
 
         # Iteration state. `data_misfit` is the assimilation analogue of an
         # optimizer's objective value; `enX` of its control vector.
-        self.data_misfit = None
-        self.prior_data_misfit = None
+        self.data_misfit_mean = None
+        self.prior_data_misfit_mean = None
         self.data_misfit_std = None
-        self.prev_data_misfit = None
+        self.prev_data_misfit_mean = None
         self.enX_old = None
 
         # Logging. Owned by the ensemble (its logit/logger_name config
@@ -356,17 +356,18 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
             if self.step_tol > 0:
                 self.enX_old = deepcopy(self.ensemble.enX)
 
-            report = self.update_step()
-            self.step_accepted = report.accepted
+            step = self.update_step()
+            self.step_accepted = step.accepted
 
             # Derived here, from one array, rather than assigned separately by
             # each scheme -- which is what let them drift out of step.
-            misfit = np.asarray(report.misfit, dtype=float)
-            self.ensemble_misfit = misfit
-            self.data_misfit = float(misfit.mean())
-            self.data_misfit_std = float(misfit.std())
-            if report.why_stop:
-                self.why_stop.update(report.why_stop)
+            misfit = np.asarray(step.misfit, dtype=float)
+            self.ensemble_misfit  = misfit
+            self.data_misfit_mean = float(misfit.mean())
+            self.data_misfit_std  = float(misfit.std())
+
+            if step.why_stop:
+                self.why_stop.update(step.why_stop)
 
             if self.step_accepted:
                 rejected = 0
@@ -467,12 +468,12 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
     # ------------------------------------------------------------------
     def check_misfit_convergence(self) -> bool:
         """Check convergence on the relative change in mean data misfit."""
-        if self.prev_data_misfit is None or self.data_misfit is None:
+        if self.prev_data_misfit_mean is None or self.data_misfit_mean is None:
             return False
-        prev = np.mean(self.prev_data_misfit)
+        prev = np.mean(self.prev_data_misfit_mean)
         if prev == 0:
             return False
-        change = abs(np.mean(self.data_misfit) - prev)
+        change = abs(np.mean(self.data_misfit_mean) - prev)
         if change < self.misfit_tol * abs(prev):
             self.conv_msg = (
                 f"Data misfit change satisfies |Δd| < {self.misfit_tol}·|d_prev|"
@@ -520,8 +521,8 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
         self.results["success"] = bool(converged)
         self.results["message"] = self.conv_msg
         self.results["why_stop"] = dict(self.why_stop)
-        self.results["data_misfit"] = self.data_misfit
-        self.results["prior_data_misfit"] = self.prior_data_misfit
+        self.results["data_misfit"] = self.data_misfit_mean
+        self.results["prior_data_misfit"] = self.prior_data_misfit_mean
         self.results["x"] = getattr(self.ensemble, "enX", None)
 
         if self.logger:
@@ -536,10 +537,10 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
         """Serialize the state owned by this base class."""
         return {
             "iteration": self.iteration,
-            "data_misfit": self.data_misfit,
-            "prior_data_misfit": self.prior_data_misfit,
+            "data_misfit": self.data_misfit_mean,
+            "prior_data_misfit": self.prior_data_misfit_mean,
             "data_misfit_std": self.data_misfit_std,
-            "prev_data_misfit": self.prev_data_misfit,
+            "prev_data_misfit": self.prev_data_misfit_mean,
             "conv_msg": self.conv_msg,
             "why_stop": dict(self.why_stop),
         }
@@ -547,10 +548,10 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
     def _set_base_restart_state(self, state: dict) -> None:
         """Restore the state owned by this base class."""
         self.iteration = state["iteration"]
-        self.data_misfit = state["data_misfit"]
-        self.prior_data_misfit = state["prior_data_misfit"]
+        self.data_misfit_mean = state["data_misfit"]
+        self.prior_data_misfit_mean = state["prior_data_misfit"]
         self.data_misfit_std = state["data_misfit_std"]
-        self.prev_data_misfit = state["prev_data_misfit"]
+        self.prev_data_misfit_mean = state["prev_data_misfit"]
         self.conv_msg = state.get("conv_msg", "")
         self.why_stop = dict(state.get("why_stop", {}))
 

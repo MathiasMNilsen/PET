@@ -106,22 +106,22 @@ class ES(EnKF):
         """
         Calculate the "convergence" of the method. Important to
         """
-        self.prev_data_misfit = self.prior_data_misfit
+        self.prev_data_misfit_mean = self.prior_data_misfit_mean
         # only calulate for the final (posterior) estimate
         if self.iteration + 1 == len(self.keys_da['assimindex']):
             enPred = self.pred_data.to_matrix()
             data_misfit = at.calc_objectivefun(self.enObs, enPred, self.scale_data)
             self.ensemble_misfit = data_misfit
-            self.data_misfit = np.mean(data_misfit)
+            self.data_misfit_mean = np.mean(data_misfit)
             self.data_misfit_std = np.std(data_misfit)
 
         else:  # sequential updates not finished. Misfit is not relevant
-            self.data_misfit = self.prior_data_misfit
+            self.data_misfit_mean = self.prior_data_misfit_mean
 
         # Logical variables for conv. criteria
-        why_stop = {'rel_data_misfit': 1 - (self.data_misfit / self.prev_data_misfit),
-                    'data_misfit': self.data_misfit,
-                    'prev_data_misfit': self.prev_data_misfit}
+        why_stop = {'rel_data_misfit': 1 - (self.data_misfit_mean / self.prev_data_misfit_mean),
+                    'data_misfit': self.data_misfit_mean,
+                    'prev_data_misfit': self.prev_data_misfit_mean}
 
         # Update state ensemble. This is unconditional, as it is in every other
         # scheme: the analysis result lives in enX_temp and is worthless until
@@ -132,22 +132,22 @@ class ES(EnKF):
         self.ensemble.enX = deepcopy(self.enX_temp)
         self.ensemble.enX_temp = None
 
-        if self.data_misfit == self.prev_data_misfit:
+        if self.data_misfit_mean == self.prev_data_misfit_mean:
             self.logger.info(
                 f'ES update {self.iteration} complete!')
         else:
 
             # Reduction
-            if self.data_misfit < self.prior_data_misfit:
-                dF = (self.prev_data_misfit - self.data_misfit)/self.prev_data_misfit * 100
+            if self.data_misfit_mean < self.prior_data_misfit_mean:
+                dF = (self.prev_data_misfit_mean - self.data_misfit_mean)/self.prev_data_misfit_mean * 100
                 self.logger('ES update complete!')
-                msg = f'Data Misfit reduced by {dF:.1f} %: {self.prev_data_misfit:0.1f} --> {self.data_misfit:0.1f}.'
+                msg = f'Data Misfit reduced by {dF:.1f} %: {self.prev_data_misfit_mean:0.1f} --> {self.data_misfit_mean:0.1f}.'
                 self.logger(msg)
 
             # Increase
             else:
                 self.logger.info(
-                    f'ES update complete! Objective function increased from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}.')
+                    f'ES update complete! Objective function increased from {self.prior_data_misfit_mean:0.1f} to {self.data_misfit_mean:0.1f}.')
 
         self.why_stop = why_stop
         return why_stop

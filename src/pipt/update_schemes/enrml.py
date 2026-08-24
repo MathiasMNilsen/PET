@@ -187,7 +187,7 @@ class LMEnRML(AssimilationScheme):
             self.maxiter = self.max_iter - 1
             self._converged = False
             self.ensemble.prior_enX = cp.deepcopy(self.enX) # (Not sure if this is wise!)
-            self.prev_data_misfit = None  # Data misfit at previous iteration
+            self.prev_data_misfit_mean = None  # Data misfit at previous iteration
             self.ensemble.list_datatypes = list(self.data_df.columns)
 
             # Load ACTNUM if given
@@ -225,12 +225,12 @@ class LMEnRML(AssimilationScheme):
         data_misfit = at.calc_objectivefun(self.enObs, self.enPred, self.cov_data)
 
         self.ensemble_misfit = data_misfit
-        self.data_misfit = np.mean(data_misfit)
-        self.prior_data_misfit = np.mean(data_misfit)
+        self.data_misfit_mean = np.mean(data_misfit)
+        self.prior_data_misfit_mean = np.mean(data_misfit)
         self.data_misfit_std = np.std(data_misfit)
 
         if self.lam == 'auto':
-            self.lam = (0.5 * self.prior_data_misfit)/self.enPred.shape[0]
+            self.lam = (0.5 * self.prior_data_misfit_mean)/self.enPred.shape[0]
 
         self.log_update(success=True, prior_run=True)
 
@@ -317,7 +317,7 @@ class LMEnRML(AssimilationScheme):
         success = False
 
         # if inital conv. check, there are no prev_data_misfit
-        self.prev_data_misfit = self.data_misfit
+        self.prev_data_misfit_mean = self.data_misfit_mean
         self.prev_data_misfit_std = self.data_misfit_std
         self.prev_ensemble_misfit = getattr(self, "ensemble_misfit", None)
 
@@ -327,35 +327,35 @@ class LMEnRML(AssimilationScheme):
 
         data_misfit = at.calc_objectivefun(self.enObs, enPred, self.cov_data)
         self.ensemble_misfit = data_misfit
-        self.data_misfit = np.mean(data_misfit)
+        self.data_misfit_mean = np.mean(data_misfit)
         self.data_misfit_std = np.std(data_misfit)
 
         # # Calc. mean data misfit for convergence check, using the updated state variable
-        # self.data_misfit = np.dot((mean_preddata - obs_data_vector).T,
+        # self.data_misfit_mean = np.dot((mean_preddata - obs_data_vector).T,
         #                      solve(cov_data, (mean_preddata - obs_data_vector)))
 
         # Convergence check: Relative step size of data misfit or state change less than tolerance
-        if abs(1 - (self.data_misfit / self.prev_data_misfit)) < self.data_misfit_tol \
+        if abs(1 - (self.data_misfit_mean / self.prev_data_misfit_mean)) < self.data_misfit_tol \
                 or self.lam >= self.lam_max:
             # Logical variables for conv. criteria
-            why_stop = {'data_misfit_stop': 1 - (self.data_misfit / self.prev_data_misfit) < self.data_misfit_tol,
-                        'data_misfit': self.data_misfit,
-                        'prev_data_misfit': self.prev_data_misfit,
+            why_stop = {'data_misfit_stop': 1 - (self.data_misfit_mean / self.prev_data_misfit_mean) < self.data_misfit_tol,
+                        'data_misfit': self.data_misfit_mean,
+                        'prev_data_misfit': self.prev_data_misfit_mean,
                         'lambda': self.lam,
                         'lambda_stop': self.lam >= self.lam_max}
 
-            if self.data_misfit >= self.prev_data_misfit:
+            if self.data_misfit_mean >= self.prev_data_misfit_mean:
                 success = False
                 self.log_update(success=success)
                 self.logger(
                     f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
-                    f'from {self.prior_data_misfit:0.1f} to {self.prev_data_misfit:0.1f}'
+                    f'from {self.prior_data_misfit_mean:0.1f} to {self.prev_data_misfit_mean:0.1f}'
             )
             else:
                 self.log_update(success=True)
                 self.logger.info(
                     f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
-                    f'from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}'
+                    f'from {self.prior_data_misfit_mean:0.1f} to {self.data_misfit_mean:0.1f}'
                 )
 
             self._converged = True
@@ -365,7 +365,7 @@ class LMEnRML(AssimilationScheme):
             self.conv_msg = (
                 f"Data misfit change satisfies |1 - d/d_prev| < "
                 f"{self.data_misfit_tol}"
-                if abs(1 - (self.data_misfit / self.prev_data_misfit))
+                if abs(1 - (self.data_misfit_mean / self.prev_data_misfit_mean))
                 < self.data_misfit_tol
                 else f"Damping parameter reached lambda_max ({self.lam_max})"
             )
@@ -375,9 +375,9 @@ class LMEnRML(AssimilationScheme):
 
         else:  # conv. not met
             # Logical variables for conv. criteria
-            why_stop = {'data_misfit_stop': 1 - (self.data_misfit / self.prev_data_misfit) < self.data_misfit_tol,
-                        'data_misfit': self.data_misfit,
-                        'prev_data_misfit': self.prev_data_misfit,
+            why_stop = {'data_misfit_stop': 1 - (self.data_misfit_mean / self.prev_data_misfit_mean) < self.data_misfit_tol,
+                        'data_misfit': self.data_misfit_mean,
+                        'prev_data_misfit': self.prev_data_misfit_mean,
                         'lambda': self.lam,
                         'lambda_stop': self.lam >= self.lam_max}
 
@@ -386,7 +386,7 @@ class LMEnRML(AssimilationScheme):
             ##### update Lambda step-size values ##########
             ###############################################
             # If reduction in mean data misfit, reduce damping param
-            if self.data_misfit < self.prev_data_misfit and self.data_misfit_std < self.prev_data_misfit_std:
+            if self.data_misfit_mean < self.prev_data_misfit_mean and self.data_misfit_std < self.prev_data_misfit_std:
 
                 success = True
                 self.log_update(success=success)
@@ -405,7 +405,7 @@ class LMEnRML(AssimilationScheme):
                     self.current_W = cp.deepcopy(self.W)
 
 
-            elif self.data_misfit < self.prev_data_misfit and self.data_misfit_std >= self.prev_data_misfit_std:
+            elif self.data_misfit_mean < self.prev_data_misfit_mean and self.data_misfit_std >= self.prev_data_misfit_std:
 
                 # accept itaration, but keep lam the same
                 success = True
@@ -433,7 +433,7 @@ class LMEnRML(AssimilationScheme):
                 # reports that array, and the loop derives the scalars from
                 # it, so leaving it holding the rejected attempt would put
                 # them back out of step.
-                self.data_misfit = self.prev_data_misfit
+                self.data_misfit_mean = self.prev_data_misfit_mean
                 self.data_misfit_std = self.prev_data_misfit_std
                 if self.prev_ensemble_misfit is not None:
                     self.ensemble_misfit = self.prev_ensemble_misfit
@@ -450,12 +450,12 @@ class LMEnRML(AssimilationScheme):
         info = {
             "Iteration"     : f'{0 if prior_run else self.iteration + 1}',
             "Status"        : "Success" if (prior_run or success) else "Failed",
-            "Data Misfit"   : self.data_misfit,
+            "Data Misfit"   : self.data_misfit_mean,
             "Change (%)"    : '',
             "λ"             : self.lam
         }
         if not prior_run:
-            delta = 100*(self.data_misfit / self.prev_data_misfit - 1)
+            delta = 100*(self.data_misfit_mean / self.prev_data_misfit_mean - 1)
             info["Change (%)"] = delta
 
         self.logger(**info)
@@ -603,7 +603,7 @@ class GNEnRML(AssimilationScheme):
             self.maxiter = self.max_iter - 1
             self._converged = False
             self.ensemble.prior_enX = cp.deepcopy(self.enX)
-            self.prev_data_misfit = None
+            self.prev_data_misfit_mean = None
             self.ensemble.list_datatypes = list(self.data_df.columns)
 
             self.actnum = None
@@ -637,8 +637,8 @@ class GNEnRML(AssimilationScheme):
         data_misfit = at.calc_objectivefun(self.enObs, self.enPred, self.cov_data)
 
         self.ensemble_misfit = data_misfit
-        self.data_misfit = np.mean(data_misfit)
-        self.prior_data_misfit = np.mean(data_misfit)
+        self.data_misfit_mean = np.mean(data_misfit)
+        self.prior_data_misfit_mean = np.mean(data_misfit)
         self.data_misfit_std = np.std(data_misfit)
 
         if self.gamma == 'auto':
@@ -731,40 +731,40 @@ class GNEnRML(AssimilationScheme):
         # Initialize the initial success value
         success = False
 
-        self.prev_data_misfit = self.data_misfit
+        self.prev_data_misfit_mean = self.data_misfit_mean
         self.prev_data_misfit_std = self.data_misfit_std
         self.prev_ensemble_misfit = getattr(self, "ensemble_misfit", None)
 
         data_misfit = at.calc_objectivefun(self.enObs, enPred, self.cov_data)
         self.ensemble_misfit = data_misfit
 
-        self.data_misfit = np.mean(data_misfit)
+        self.data_misfit_mean = np.mean(data_misfit)
         self.data_misfit_std = np.std(data_misfit)
 
         # # Calc. mean data misfit for convergence check, using the updated state variable
-        # self.data_misfit = np.dot((mean_preddata - obs_data_vector).T,
+        # self.data_misfit_mean = np.dot((mean_preddata - obs_data_vector).T,
         #                      solve(cov_data, (mean_preddata - obs_data_vector)))
 
         # Convergence check: Relative step size of data misfit or state change less than tolerance
-        if abs(1 - (self.data_misfit / self.prev_data_misfit)) < self.data_misfit_tol:
+        if abs(1 - (self.data_misfit_mean / self.prev_data_misfit_mean)) < self.data_misfit_tol:
             # Logical variables for conv. criteria
-            why_stop = {'data_misfit_stop': 1 - (self.data_misfit / self.prev_data_misfit) < self.data_misfit_tol,
-                        'data_misfit': self.data_misfit,
-                        'prev_data_misfit': self.prev_data_misfit,
+            why_stop = {'data_misfit_stop': 1 - (self.data_misfit_mean / self.prev_data_misfit_mean) < self.data_misfit_tol,
+                        'data_misfit': self.data_misfit_mean,
+                        'prev_data_misfit': self.prev_data_misfit_mean,
                         'gamma': self.gamma,
                         }
 
-            if self.data_misfit >= self.prev_data_misfit:
+            if self.data_misfit_mean >= self.prev_data_misfit_mean:
                 success = False
                 self.log_update(success=success)
                 self.logger.info(
                     f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
-                    f'from {self.prior_data_misfit:0.1f} to {self.prev_data_misfit:0.1f}')
+                    f'from {self.prior_data_misfit_mean:0.1f} to {self.prev_data_misfit_mean:0.1f}')
             else:
                 self.log_update(success=True)
                 self.logger.info(
                     f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
-                    f'from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}')
+                    f'from {self.prior_data_misfit_mean:0.1f} to {self.data_misfit_mean:0.1f}')
             self._converged = True
             # Without this the run reports "no stopping reason recorded" on a
             # perfectly ordinary convergence: only the base class's generic
@@ -779,16 +779,16 @@ class GNEnRML(AssimilationScheme):
 
         else:  # conv. not met
             # Logical variables for conv. criteria
-            why_stop = {'data_misfit_stop': 1 - (self.data_misfit / self.prev_data_misfit) < self.data_misfit_tol,
-                        'data_misfit': self.data_misfit,
-                        'prev_data_misfit': self.prev_data_misfit,
+            why_stop = {'data_misfit_stop': 1 - (self.data_misfit_mean / self.prev_data_misfit_mean) < self.data_misfit_tol,
+                        'data_misfit': self.data_misfit_mean,
+                        'prev_data_misfit': self.prev_data_misfit_mean,
                         'gamma': self.gamma}
 
             ###############################################
             ##### update Lambda step-size values ##########
             ###############################################
             # If reduction in mean data misfit, reduce damping param
-            if self.data_misfit < self.prev_data_misfit and self.data_misfit_std < self.prev_data_misfit_std:
+            if self.data_misfit_mean < self.prev_data_misfit_mean and self.data_misfit_std < self.prev_data_misfit_std:
                 success = True
                 self.log_update(success=success)
 
@@ -802,7 +802,7 @@ class GNEnRML(AssimilationScheme):
                 if hasattr(self, 'W'):
                     self.current_W = cp.deepcopy(self.W)
 
-            elif self.data_misfit < self.prev_data_misfit and self.data_misfit_std >= self.prev_data_misfit_std:
+            elif self.data_misfit_mean < self.prev_data_misfit_mean and self.data_misfit_std >= self.prev_data_misfit_std:
                 # accept itaration, but keep lam the same
                 success = True
                 self.log_update(success=success)
@@ -827,7 +827,7 @@ class GNEnRML(AssimilationScheme):
                 # Restore the last accepted misfit, per-realisation array
                 # included -- update_step reports that array and the loop
                 # derives the scalars from it.
-                self.data_misfit = self.prev_data_misfit
+                self.data_misfit_mean = self.prev_data_misfit_mean
                 self.data_misfit_std = self.prev_data_misfit_std
                 if self.prev_ensemble_misfit is not None:
                     self.ensemble_misfit = self.prev_ensemble_misfit
@@ -844,12 +844,12 @@ class GNEnRML(AssimilationScheme):
         info = {
             "Iteration"     : f'{0 if prior_run else self.iteration + 1}',
             "Status"        : "Success" if (prior_run or success) else "Failed",
-            "Data Misfit"   : self.data_misfit,
+            "Data Misfit"   : self.data_misfit_mean,
             "Change (%)"    : '',
             "γ"             : self.gamma
         }
         if not prior_run:
-            delta = 100 * (self.data_misfit / self.prev_data_misfit - 1)
+            delta = 100 * (self.data_misfit_mean / self.prev_data_misfit_mean - 1)
             info["Change (%)"] = delta
 
         self.logger(**info)
@@ -952,12 +952,12 @@ class co_lm_enrml(LMEnRML, approx_update):
             data_misfit = at.calc_objectivefun(
                 self.real_obs_data, self.aug_pred_data, self.cov_data)
             # Store the (mean) data misfit (also for conv. check)
-            self.data_misfit = np.mean(data_misfit)
-            self.prior_data_misfit = np.mean(data_misfit)
+            self.data_misfit_mean = np.mean(data_misfit)
+            self.prior_data_misfit_mean = np.mean(data_misfit)
             self.data_misfit_std = np.std(data_misfit)
 
             if self.lam == 'auto':
-                self.lam = 0.5 * self.prior_data_misfit
+                self.lam = 0.5 * self.prior_data_misfit_mean
 
         else:
             _, self.aug_pred_data = at.aug_obs_pred_data(
@@ -1098,8 +1098,8 @@ class gn_enrml(LMEnRML):
             std_data_misfit = np.std(tmp_data_misfit)
 
             # Store the (mean) data misfit (also for conv. check)
-            self.data_misfit = mean_data_misfit
-            self.prior_data_misfit = mean_data_misfit
+            self.data_misfit_mean = mean_data_misfit
+            self.prior_data_misfit_mean = mean_data_misfit
             self.data_misfit_std = std_data_misfit
 
         else:
@@ -1212,14 +1212,14 @@ class gn_enrml(LMEnRML):
         success = False
 
         # if inital conv. check, there are no prev_data_misfit
-        if self.prev_data_misfit is None:
-            self.data_misfit = np.mean(self.data_misfit)
-            self.prev_data_misfit = self.data_misfit
+        if self.prev_data_misfit_mean is None:
+            self.data_misfit_mean = np.mean(self.data_misfit_mean)
+            self.prev_data_misfit_mean = self.data_misfit_mean
             self.prev_data_misfit_std = self.data_misfit_std
             success = True
         # update the last mismatch, only if this was a reduction of the misfit
-        if self.data_misfit < self.prev_data_misfit:
-            self.prev_data_misfit = self.data_misfit
+        if self.data_misfit_mean < self.prev_data_misfit_mean:
+            self.prev_data_misfit_mean = self.data_misfit_mean
             self.prev_data_misfit_std = self.data_misfit_std
             success = True
         # if there was no reduction of the misfit, retain the old "valid" data misfit.
@@ -1235,46 +1235,46 @@ class gn_enrml(LMEnRML):
         else:
             data_misfit = np.diag(np.dot((pred_data - mat_obs).T,
                                   solve(self.cov_data, (pred_data - mat_obs))))
-        self.data_misfit = np.mean(data_misfit)
+        self.data_misfit_mean = np.mean(data_misfit)
         self.data_misfit_std = np.std(data_misfit)
 
         # # Calc. mean data misfit for convergence check, using the updated state variable
-        # self.data_misfit = np.dot((mean_preddata - obs_data_vector).T,
+        # self.data_misfit_mean = np.dot((mean_preddata - obs_data_vector).T,
         #                      solve(cov_data, (mean_preddata - obs_data_vector)))
-        # if self.data_misfit > self.prev_data_misfit:
-        #    print(f'\n\nMisfit increased from {self.prev_data_misfit:.1f} to {self.data_misfit:.1f}. Exiting')
-        #    self.logger.info(f'\n\nMisfit increased from {self.prev_data_misfit:.1f} to {self.data_misfit:.1f}. Exiting')
+        # if self.data_misfit_mean > self.prev_data_misfit_mean:
+        #    print(f'\n\nMisfit increased from {self.prev_data_misfit_mean:.1f} to {self.data_misfit_mean:.1f}. Exiting')
+        #    self.logger.info(f'\n\nMisfit increased from {self.prev_data_misfit_mean:.1f} to {self.data_misfit_mean:.1f}. Exiting')
 
         # Convergence check: Relative step size of data misfit or state change less than tolerance
-        if abs(1 - (self.data_misfit / self.prev_data_misfit)) < self.data_misfit_tol \
+        if abs(1 - (self.data_misfit_mean / self.prev_data_misfit_mean)) < self.data_misfit_tol \
                 or np.any(abs(np.mean(self.step, 1)) < self.step_tol) \
                 or self.lam >= self.lam_max:
-            # or self.data_misfit > self.prev_data_misfit:
+            # or self.data_misfit_mean > self.prev_data_misfit_mean:
             # Logical variables for conv. criteria
-            why_stop = {'data_misfit_stop': 1 - (self.data_misfit / self.prev_data_misfit) < self.data_misfit_tol,
-                        'data_misfit': self.data_misfit,
-                        'prev_data_misfit': self.prev_data_misfit,
+            why_stop = {'data_misfit_stop': 1 - (self.data_misfit_mean / self.prev_data_misfit_mean) < self.data_misfit_tol,
+                        'data_misfit': self.data_misfit_mean,
+                        'prev_data_misfit': self.prev_data_misfit_mean,
                         'step_size_stop': np.any(abs(np.mean(self.step, 1)) < self.step_tol),
                         'step_size': self.step,
                         'lambda': self.lam,
                         'lambda_stop': self.lam >= self.lam_max}
 
-            if self.data_misfit >= self.prev_data_misfit:
+            if self.data_misfit_mean >= self.prev_data_misfit_mean:
                 success = False
                 self.logger.info(f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
-                                 f'from {self.prior_data_misfit:0.1f} to {self.prev_data_misfit:0.1f}')
+                                 f'from {self.prior_data_misfit_mean:0.1f} to {self.prev_data_misfit_mean:0.1f}')
             else:
                 self.logger.info(f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
-                                 f'from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}')
+                                 f'from {self.prior_data_misfit_mean:0.1f} to {self.data_misfit_mean:0.1f}')
 
             # Return conv = True, why_stop var.
             return True, success, why_stop
 
         else:  # conv. not met
             # Logical variables for conv. criteria
-            why_stop = {'data_misfit_stop': 1 - (self.data_misfit / self.prev_data_misfit) < self.data_misfit_tol,
-                        'data_misfit': self.data_misfit,
-                        'prev_data_misfit': self.prev_data_misfit,
+            why_stop = {'data_misfit_stop': 1 - (self.data_misfit_mean / self.prev_data_misfit_mean) < self.data_misfit_tol,
+                        'data_misfit': self.data_misfit_mean,
+                        'prev_data_misfit': self.prev_data_misfit_mean,
                         'step_size': self.step,
                         'step_size_stop': np.any(abs(np.mean(self.step, 1)) < self.step_tol),
                         'lambda': self.lam,
@@ -1283,13 +1283,13 @@ class gn_enrml(LMEnRML):
             ###############################################
             ##### update Lambda step-size values ##########
             ###############################################
-            if self.data_misfit < self.prev_data_misfit and self.data_misfit_std < self.prev_data_misfit_std:
+            if self.data_misfit_mean < self.prev_data_misfit_mean and self.data_misfit_std < self.prev_data_misfit_std:
                 # If reduction in mean data misfit, increase step length
                 self.lam = self.lam + (self.lam_max - self.lam) * \
                     2 ** (-(self.iteration) / (self.gamma - 1))
                 success = True
                 self.current_state = cp.deepcopy(self.state)
-            elif self.data_misfit < self.prev_data_misfit and self.data_misfit_std >= self.prev_data_misfit_std:
+            elif self.data_misfit_mean < self.prev_data_misfit_mean and self.data_misfit_std >= self.prev_data_misfit_std:
                 # Accept itaration, but keep lam the same
                 success = True
                 self.current_state = cp.deepcopy(self.state)
@@ -1299,14 +1299,14 @@ class gn_enrml(LMEnRML):
 
             if success:
                 self.logger.info(f'Successfull iteration number {self.iteration}! Objective function reduced from '
-                                 f'{self.prev_data_misfit:0.1f} to {self.data_misfit:0.1f}. New Lamba for next analysis: '
+                                 f'{self.prev_data_misfit_mean:0.1f} to {self.data_misfit_mean:0.1f}. New Lamba for next analysis: '
                                  f'{self.lam}')
             else:
                 self.logger.info(f'Failed iteration number {self.iteration}! Objective function increased from '
-                                 f'{self.prev_data_misfit:0.1f} to {self.data_misfit:0.1f}. New Lamba for repeated analysis: '
+                                 f'{self.prev_data_misfit_mean:0.1f} to {self.data_misfit_mean:0.1f}. New Lamba for repeated analysis: '
                                  f'{self.lam}')
                 # Reset data misfit to prev_data_misfit (because the current state is neglected)
-                self.data_misfit = self.prev_data_misfit
+                self.data_misfit_mean = self.prev_data_misfit_mean
                 self.data_misfit_std = self.prev_data_misfit_std
 
             return False, success, why_stop

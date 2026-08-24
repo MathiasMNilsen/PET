@@ -179,9 +179,9 @@ class esmda_hybrid(ESMDA):
         )
 
         self.ensemble_misfit = data_misfit
-        self.prior_data_misfit = np.mean(data_misfit)
+        self.prior_data_misfit_mean = np.mean(data_misfit)
         self.prior_data_misfit_std = np.std(data_misfit)
-        self.data_misfit = np.mean(data_misfit)
+        self.data_misfit_mean = np.mean(data_misfit)
         self.data_misfit_std = np.std(data_misfit)
 
         self.log_update(prior_run=True)
@@ -266,7 +266,7 @@ class esmda_hybrid(ESMDA):
             The ``why_stop`` record, also stored on ``self.why_stop``.
         """
 
-        self.prev_data_misfit = self.data_misfit
+        self.prev_data_misfit_mean = self.data_misfit_mean
         self.prev_data_misfit_std = self.data_misfit_std
 
         # Prelude to calc. conv. check (everything done below is from calc_analysis)
@@ -281,16 +281,16 @@ class esmda_hybrid(ESMDA):
             self.cov_data
         )
         self.ensemble_misfit = data_misfit
-        self.data_misfit = np.mean(data_misfit)
+        self.data_misfit_mean = np.mean(data_misfit)
         self.data_misfit_std = np.std(data_misfit)
 
         # Logical variables for conv. criteria
-        why_stop = {'rel_data_misfit': 1 - (self.data_misfit / self.prev_data_misfit),
-                    'data_misfit': self.data_misfit,
-                    'prev_data_misfit': self.prev_data_misfit}
+        why_stop = {'rel_data_misfit': 1 - (self.data_misfit_mean / self.prev_data_misfit_mean),
+                    'data_misfit': self.data_misfit_mean,
+                    'prev_data_misfit': self.prev_data_misfit_mean}
 
         # Log update results
-        success = self.data_misfit < self.prev_data_misfit
+        success = self.data_misfit_mean < self.prev_data_misfit_mean
         self.log_update(success=success)
 
         self.ensemble.enX = deepcopy(self.enX_temp)

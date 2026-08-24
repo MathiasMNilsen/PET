@@ -212,14 +212,14 @@ class AssimilationWorkflowMixin:
             pickle.dump(why, file, protocol=4)
 
     def _log_convergence_summary(self) -> None:
-        if self.prev_data_misfit is None:
+        if self.prev_data_misfit_mean is None:
             return
 
         out_str = "\n Convergence was met."
-        if self.prior_data_misfit > self.data_misfit:
+        if self.prior_data_misfit_mean > self.data_misfit_mean:
             out_str += (
-                f" Obj. function reduced from {self.prior_data_misfit:0.1f} "
-                f"to {self.data_misfit:0.1f}"
+                f" Obj. function reduced from {self.prior_data_misfit_mean:0.1f} "
+                f"to {self.data_misfit_mean:0.1f}"
             )
         self.logger(out_str)
 

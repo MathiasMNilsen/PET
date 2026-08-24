@@ -127,7 +127,7 @@ class ESMDA(AssimilationScheme):
         # algorithm, so it selects an analysis object rather than a class.
         self.bind_analysis(self.resolve_analysis(analysis, keys_da))
 
-        self.prev_data_misfit = None
+        self.prev_data_misfit_mean = None
 
         if self.restart is False:
             # A specialised ensemble may already have established these -- the
@@ -177,7 +177,7 @@ class ESMDA(AssimilationScheme):
         # Extract the inflation parameter from MDA keyword
         self.alpha = self._ext_inflation_param()
 
-        self.prev_data_misfit = None
+        self.prev_data_misfit_mean = None
 
     # ------------------------------------------------------------------
     # AssimilationSchemeBase contract
@@ -224,9 +224,9 @@ class ESMDA(AssimilationScheme):
         )
 
         self.ensemble_misfit = data_misfit
-        self.prior_data_misfit = np.mean(data_misfit)
+        self.prior_data_misfit_mean = np.mean(data_misfit)
         self.prior_data_misfit_std = np.std(data_misfit)
-        self.data_misfit = np.mean(data_misfit)
+        self.data_misfit_mean = np.mean(data_misfit)
         self.data_misfit_std = np.std(data_misfit)
 
         self.log_update(prior_run=True)
@@ -320,24 +320,24 @@ class ESMDA(AssimilationScheme):
             The ``why_stop`` record, also stored on ``self.why_stop``.
         """
 
-        self.prev_data_misfit = self.data_misfit
+        self.prev_data_misfit_mean = self.data_misfit_mean
         self.prev_data_misfit_std = self.data_misfit_std
 
         # Get Ensemble of predicted data
         enPred = self.pred_data.to_matrix()
 
         data_misfit = at.calc_objectivefun(self.enObs_conv, enPred, self.cov_data)
-        self.data_misfit     = np.mean(data_misfit)
+        self.data_misfit_mean     = np.mean(data_misfit)
         self.data_misfit_std = np.std(data_misfit)
         self.ensemble_misfit = data_misfit
 
         # Logical variables for conv. criteria
-        why_stop = {'rel_data_misfit': 1 - (self.data_misfit / self.prev_data_misfit),
-                    'data_misfit': self.data_misfit,
-                    'prev_data_misfit': self.prev_data_misfit}
+        why_stop = {'rel_data_misfit': 1 - (self.data_misfit_mean / self.prev_data_misfit_mean),
+                    'data_misfit': self.data_misfit_mean,
+                    'prev_data_misfit': self.prev_data_misfit_mean}
 
         # Log update results
-        success = self.data_misfit < self.prev_data_misfit
+        success = self.data_misfit_mean < self.prev_data_misfit_mean
         self.log_update(success=success)
 
         # Promote the trial state. Written through the ensemble so the next
@@ -357,12 +357,12 @@ class ESMDA(AssimilationScheme):
         info = {
             "Iteration"     : f'{0 if prior_run else self.iteration + 1}',
             "Status"        : "Success" if (prior_run or success) else "Failed",
-            "Data Misfit"   : self.data_misfit,
+            "Data Misfit"   : self.data_misfit_mean,
             "Change (%)"    : '',
             "α"             : self.alpha[self.iteration] if not prior_run else '',
         }
         if not prior_run:
-            delta = 100*(self.data_misfit / self.prev_data_misfit - 1)
+            delta = 100*(self.data_misfit_mean / self.prev_data_misfit_mean - 1)
             info["Change (%)"] = delta
 
         self.logger(**info)

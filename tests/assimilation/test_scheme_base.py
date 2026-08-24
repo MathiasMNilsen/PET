@@ -36,10 +36,10 @@ class DecreasingMisfitScheme(AssimilationSchemeBase):
     def update_step(self):
         # The loop derives data_misfit from the reported array, so the shift
         # of current -> previous happens here, before the new value is sent.
-        self.prev_data_misfit = self.data_misfit
-        value = 100.0 if self.data_misfit is None else self.data_misfit / 2.0
-        if self.prior_data_misfit is None:
-            self.prior_data_misfit = value
+        self.prev_data_misfit_mean = self.data_misfit_mean
+        value = 100.0 if self.data_misfit_mean is None else self.data_misfit_mean / 2.0
+        if self.prior_data_misfit_mean is None:
+            self.prior_data_misfit_mean = value
         self.enX_old = self.ensemble.enX.copy()
         self.ensemble.enX = self.ensemble.enX + 1.0
         self.ensemble.forecast()
@@ -51,10 +51,10 @@ class NeverConvergingScheme(AssimilationSchemeBase):
     """Scheme that always accepts but never satisfies a tolerance."""
 
     def update_step(self):
-        self.prev_data_misfit = self.data_misfit
-        value = 100.0 if self.data_misfit is None else self.data_misfit * 2.0
-        if self.prior_data_misfit is None:
-            self.prior_data_misfit = value
+        self.prev_data_misfit_mean = self.data_misfit_mean
+        value = 100.0 if self.data_misfit_mean is None else self.data_misfit_mean * 2.0
+        if self.prior_data_misfit_mean is None:
+            self.prior_data_misfit_mean = value
         self.enX_old = self.ensemble.enX.copy()
         self.ensemble.enX = self.ensemble.enX + 10.0
         return StepReport(accepted=True,
@@ -69,10 +69,10 @@ class StallingScheme(AssimilationSchemeBase):
     """
 
     def update_step(self):
-        self.prev_data_misfit = self.data_misfit
-        value = 100.0 if self.data_misfit is None else self.data_misfit * 0.999
-        if self.prior_data_misfit is None:
-            self.prior_data_misfit = value
+        self.prev_data_misfit_mean = self.data_misfit_mean
+        value = 100.0 if self.data_misfit_mean is None else self.data_misfit_mean * 0.999
+        if self.prior_data_misfit_mean is None:
+            self.prior_data_misfit_mean = value
         self.ensemble.enX = self.ensemble.enX + 1e-12
         self.ensemble.forecast()
         return StepReport(accepted=True,
@@ -89,9 +89,9 @@ class AlwaysRejectingScheme(AssimilationSchemeBase):
     def update_step(self):
         self.attempts += 1
         # Rejected: nothing moved, so report the misfit as it stands.
-        value = 100.0 if self.data_misfit is None else self.data_misfit
-        if self.prior_data_misfit is None:
-            self.prior_data_misfit = value
+        value = 100.0 if self.data_misfit_mean is None else self.data_misfit_mean
+        if self.prior_data_misfit_mean is None:
+            self.prior_data_misfit_mean = value
         return StepReport(accepted=False,
                           misfit=np.full(self.ensemble.enX.shape[1], value))
 
@@ -246,14 +246,14 @@ def test_restart_roundtrip(in_tmp_dir):
     scheme.run_assimilation()
     assert os.path.exists(scheme.restart_file)
     saved_iteration = scheme.iteration
-    saved_misfit = scheme.data_misfit
+    saved_misfit = scheme.data_misfit_mean
 
     resumed = DecreasingMisfitScheme(
         FakeEnsemble(), maxiter=3, restart=True
     )
     resumed.load_restart()
     assert resumed.iteration == saved_iteration
-    assert resumed.data_misfit == saved_misfit
+    assert resumed.data_misfit_mean == saved_misfit
 
 
 def test_restart_file_rejects_foreign_scheme(in_tmp_dir):

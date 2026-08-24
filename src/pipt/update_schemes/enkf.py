@@ -121,7 +121,7 @@ class EnKF(AssimilationScheme):
         # Flavour is a parameter, so it selects an analysis object not a class.
         self.bind_analysis(self.resolve_analysis(analysis, keys_da))
 
-        self.prev_data_misfit = None
+        self.prev_data_misfit_mean = None
 
         if self.restart is False:
             self.ensemble.prior_enX = deepcopy(self.enX)
@@ -162,7 +162,7 @@ class EnKF(AssimilationScheme):
     def score_prior(self):
         """Score the prior forecast.
 
-        Was an ``if self.prior_data_misfit is None`` branch at the top of
+        Was an ``if self.prior_data_misfit_mean is None`` branch at the top of
         :meth:`calc_analysis`, which ran after the iteration-0 artifacts had
         already been written. ``ensemble_misfit`` is recorded here as well, so
         the per-realisation misfits are available to ``savedata`` for the
@@ -173,12 +173,12 @@ class EnKF(AssimilationScheme):
         data_misfit = at.calc_objectivefun(self.enObs, enPred, self.scale_data)
 
         self.ensemble_misfit = data_misfit
-        self.data_misfit = np.mean(data_misfit)
-        self.prior_data_misfit = np.mean(data_misfit)
+        self.data_misfit_mean = np.mean(data_misfit)
+        self.prior_data_misfit_mean = np.mean(data_misfit)
         self.data_misfit_std = np.std(data_misfit)
 
         self.logger.info(
-            f'Prior run complete with data misfit: {self.prior_data_misfit:0.1f}.')
+            f'Prior run complete with data misfit: {self.prior_data_misfit_mean:0.1f}.')
 
     def calc_analysis(self):
         """
@@ -262,38 +262,38 @@ class EnKF(AssimilationScheme):
         """
         Calculate the "convergence" of the method. Important to
         """
-        self.prev_data_misfit = self.prior_data_misfit
+        self.prev_data_misfit_mean = self.prior_data_misfit_mean
 
         # only calulate for the final (posterior) estimate
         if self.iteration + 1 == len(self.keys_da['assimindex']):
             enPred = self.pred_data.to_matrix()
             data_misfit = at.calc_objectivefun(self.enObs, enPred, self.scale_data)
             self.ensemble_misfit = data_misfit
-            self.data_misfit = np.mean(data_misfit)
+            self.data_misfit_mean = np.mean(data_misfit)
             self.data_misfit_std = np.std(data_misfit)
 
         else:  # sequential updates not finished. Misfit is not relevant
-            self.data_misfit = self.prior_data_misfit
+            self.data_misfit_mean = self.prior_data_misfit_mean
 
         # Logical variables for conv. criteria
-        why_stop = {'rel_data_misfit': 1 - (self.data_misfit / self.prev_data_misfit),
-                    'data_misfit': self.data_misfit,
-                    'prev_data_misfit': self.prev_data_misfit}
+        why_stop = {'rel_data_misfit': 1 - (self.data_misfit_mean / self.prev_data_misfit_mean),
+                    'data_misfit': self.data_misfit_mean,
+                    'prev_data_misfit': self.prev_data_misfit_mean}
 
         # Update state ensemble
         self.ensemble.enX = deepcopy(self.enX_temp)
         self.ensemble.enX_temp = None
 
-        if self.data_misfit == self.prev_data_misfit:
+        if self.data_misfit_mean == self.prev_data_misfit_mean:
             self.logger.info(
                 f'EnKF update {self.iteration} complete!')
         else:
-            if self.data_misfit < self.prior_data_misfit:
+            if self.data_misfit_mean < self.prior_data_misfit_mean:
                 self.logger.info(
-                    f'EnKF update complete! Objective function decreased from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}.')
+                    f'EnKF update complete! Objective function decreased from {self.prior_data_misfit_mean:0.1f} to {self.data_misfit_mean:0.1f}.')
             else:
                 self.logger.info(
-                    f'EnKF update complete! Objective function increased from {self.prior_data_misfit:0.1f} to {self.data_misfit:0.1f}.')
+                    f'EnKF update complete! Objective function increased from {self.prior_data_misfit_mean:0.1f} to {self.data_misfit_mean:0.1f}.')
         self.why_stop = why_stop
         return why_stop
 
