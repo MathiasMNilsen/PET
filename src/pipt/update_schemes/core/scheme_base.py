@@ -366,6 +366,10 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
                 self.enX_old = deepcopy(self.ensemble.enX)
 
             step = self.update_step()
+            assert isinstance(step, StepReport), (
+                f"{type(self).__name__}.update_step() must return a StepReport, "
+                f"not {type(step).__name__}"
+            )
             self.step_accepted = step.accepted
 
             # Promote the state the step reported, or discard it. Done here
@@ -374,8 +378,14 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
             # against enX_old.
             if self.step_accepted:
                 self.ensemble.enX = deepcopy(step.state)
-            # The trial state has been consumed either way; leaving it set
-            # would make the next forecast run on a stale proposal.
+            # Cleared either way, so the ensemble is left coherent once the
+            # run ends. Not needed for the loop itself -- every forecast is
+            # preceded by a calc_analysis that sets enX_temp afresh, and the
+            # suite plus a real margis run are byte-identical without this.
+            # It matters afterwards: forecast() predicts on enX_temp when it
+            # is set, so leaving the last proposal there means a later
+            # ensemble.forecast() runs on an uncommitted state -- the
+            # *rejected* one, if the run ended on a rejection.
             if getattr(self.ensemble, "enX_temp", None) is not None:
                 self.ensemble.enX_temp = None
 

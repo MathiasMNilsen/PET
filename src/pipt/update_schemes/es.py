@@ -4,7 +4,6 @@ ES type schemes
 from pipt.update_schemes.enkf import EnKF
 
 import numpy as np
-from copy import deepcopy
 from pipt.misc_tools import analysis_tools as at
 
 
