@@ -442,22 +442,9 @@ class LMEnRML(AssimilationScheme):
             self.why_stop = why_stop
             return why_stop
 
-    def log_update(self, success, prior_run=False):
-        '''
-        Log the update results in a formatted table.
-        '''
-        info = {
-            "Iteration"     : f'{0 if prior_run else self.iteration + 1}',
-            "Status"        : "Success" if (prior_run or success) else "Failed",
-            "Data Misfit"   : self.data_misfit_mean,
-            "Change (%)"    : '',
-            "λ"             : self.lam
-        }
-        if not prior_run:
-            delta = 100*(self.data_misfit_mean / self.prev_data_misfit_mean - 1)
-            info["Change (%)"] = delta
-
-        self.logger(**info)
+    def log_columns(self, prior_run: bool = False) -> dict:
+        """LM-EnRML reports the damping parameter."""
+        return {"λ": self.lam}
 
 
 
@@ -712,8 +699,11 @@ class GNEnRML(AssimilationScheme):
         self.after_analysis()
         state = self.run_forecast(self.enX_proposal)
         self.score_and_commit()
-        return StepReport(accepted=self.step_accepted, misfit=self.ensemble_misfit,
-                          state=state)
+        return StepReport(
+            accepted=self.step_accepted,
+            misfit=self.ensemble_misfit,
+            state=state
+        )
 
     def check_convergence(self) -> bool:
         """Report the verdict reached by the preceding :meth:`score_and_commit`."""
@@ -839,22 +829,9 @@ class GNEnRML(AssimilationScheme):
             self.why_stop = why_stop
             return why_stop
 
-    def log_update(self, success, prior_run=False):
-        '''
-        Log the update results in a formatted table.
-        '''
-        info = {
-            "Iteration"     : f'{0 if prior_run else self.iteration + 1}',
-            "Status"        : "Success" if (prior_run or success) else "Failed",
-            "Data Misfit"   : self.data_misfit_mean,
-            "Change (%)"    : '',
-            "γ"             : self.gamma
-        }
-        if not prior_run:
-            delta = 100 * (self.data_misfit_mean / self.prev_data_misfit_mean - 1)
-            info["Change (%)"] = delta
-
-        self.logger(**info)
+    def log_columns(self, prior_run: bool = False) -> dict:
+        """GN-EnRML reports the step length."""
+        return {"γ": self.gamma}
 
 
 #: Historical names.

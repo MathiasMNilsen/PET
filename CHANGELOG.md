@@ -246,6 +246,20 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   — so `pipt.update_schemes` lists algorithms rather than mixing them with the
   scaffolding they stand on.
 
+- **`log_update()` moved to the scheme base.** ES-MDA, LM-EnRML and GN-EnRML
+  each carried a near-identical 14-line copy differing only in the trailing
+  column -- `α`, `λ` and `γ` respectively. The base now builds the shared row
+  and calls `log_columns()`, which a scheme overrides to add its control
+  parameter:
+
+  ```python
+  def log_columns(self, prior_run: bool = False) -> dict:
+      return {"λ": self.lam}
+  ```
+
+  The rendered table is unchanged, verified by capturing every row a run
+  logs before and after.
+
 - **`forecast()` takes the state to predict on.** It used to read
   `ensemble.enX_temp`, falling back to `enX` -- an ambient slot a scheme had
   to park its trial state in before calling, and clear afterwards. It is now

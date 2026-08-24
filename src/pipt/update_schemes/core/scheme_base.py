@@ -441,6 +441,29 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
     # no-ops here so the loop stays algorithm-only; PIPT supplies them through
     # :class:`pipt.update_schemes.core.AssimilationWorkflowMixin`.
 
+    def log_update(self, success=None, prior_run=False) -> None:
+        """Log one attempt as a row in the run table.
+
+        The row is the same for every scheme apart from its control
+        parameter, which :meth:`log_columns` supplies.
+        """
+        if self.logger is None:
+            return
+        info = {
+            "Iteration"   : f"{0 if prior_run else self.iteration + 1}",
+            "Status"      : "Success" if (prior_run or success) else "Failed",
+            "Data Misfit" : self.data_misfit_mean,
+            "Change (%)"  : "" if prior_run else
+                            100 * (self.data_misfit_mean / self.prev_data_misfit_mean - 1),
+        }
+        info.update(self.log_columns(prior_run=prior_run))
+        self.logger(**info)
+
+    def log_columns(self, prior_run: bool = False) -> dict:
+        """Trailing columns for the run table -- typically the scheme's
+        control parameter, e.g. ``{"λ": self.lam}``. Empty by default."""
+        return {}
+
     def score_prior(self) -> None:
         """Score the prior forecast, before any iteration.
 

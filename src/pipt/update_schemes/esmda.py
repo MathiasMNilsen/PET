@@ -355,22 +355,9 @@ class ESMDA(AssimilationScheme):
         self.why_stop = why_stop
         return why_stop
 
-    def log_update(self, success=None, prior_run=False):
-        '''
-        Log the update results in a formatted table.
-        '''
-        info = {
-            "Iteration"     : f'{0 if prior_run else self.iteration + 1}',
-            "Status"        : "Success" if (prior_run or success) else "Failed",
-            "Data Misfit"   : self.data_misfit_mean,
-            "Change (%)"    : '',
-            "α"             : self.alpha[self.iteration] if not prior_run else '',
-        }
-        if not prior_run:
-            delta = 100*(self.data_misfit_mean / self.prev_data_misfit_mean - 1)
-            info["Change (%)"] = delta
-
-        self.logger(**info)
+    def log_columns(self, prior_run: bool = False) -> dict:
+        """ES-MDA reports the inflation factor for the step just taken."""
+        return {"α": "" if prior_run else self.alpha[self.iteration]}
 
     def _ext_inflation_param(self):
         r"""
