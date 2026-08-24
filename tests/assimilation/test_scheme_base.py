@@ -53,6 +53,21 @@ class NeverConvergingScheme(AssimilationSchemeBase):
         return True
 
 
+class StallingScheme(AssimilationSchemeBase):
+    """Accepts, but barely moves the state -- and does not snapshot enX_old.
+
+    The shipped schemes are all like this: none of them assign ``enX_old``,
+    so state convergence only works if the base loop takes the snapshot.
+    """
+
+    def update_step(self):
+        self.prev_data_misfit = self.data_misfit
+        self.data_misfit = 100.0 if self.data_misfit is None else self.data_misfit * 0.999
+        self.ensemble.enX = self.ensemble.enX + 1e-12
+        self.ensemble.forecast()
+        return True
+
+
 class AlwaysRejectingScheme(AssimilationSchemeBase):
     """Scheme that never accepts a step, as an LM scheme backing off forever."""
 
@@ -126,6 +141,42 @@ def test_converges_on_state_tolerance(in_tmp_dir):
     res = scheme.run_assimilation()
     assert res.success is True
     assert res.why_stop.get("step_tol") is True
+
+
+def test_state_convergence_works_without_the_scheme_snapshotting(in_tmp_dir):
+    """The base loop takes the enX_old snapshot, so a scheme gets state
+    convergence without doing any bookkeeping of its own -- which is the
+    situation every shipped scheme is in.
+    """
+    scheme = StallingScheme(FakeEnsemble(), maxiter=20, step_tol=1e-6)
+    res = scheme.run_assimilation()
+    assert res.success is True
+    assert res.why_stop.get("step_tol") is True
+    assert "did not move" not in res.message  # names the criterion
+    assert res.nit < 20                       # stopped early, not on maxiter
+
+
+def test_state_convergence_ignores_rejected_steps(in_tmp_dir):
+    """A rejected step leaves enX untouched, so the norm is exactly zero.
+
+    Without the step_accepted guard that would read as instant convergence,
+    when the truth is the scheme could not find an improvement.
+    """
+    scheme = AlwaysRejectingScheme(FakeEnsemble(), maxiter=5, max_rejected=3, step_tol=1e9)
+    res = scheme.run_assimilation()
+    assert res.why_stop.get("step_tol") is not True
+    assert "rejected" in res.message
+
+
+def test_no_snapshot_taken_when_the_criterion_is_off(in_tmp_dir):
+    """enX can be large; the copy is skipped entirely when step_tol == 0."""
+    scheme = NeverConvergingScheme(FakeEnsemble(), maxiter=3, step_tol=0.0)
+    scheme.enX_old = None
+    scheme.run_assimilation()
+    # NeverConvergingScheme sets enX_old itself, so prove the *loop* did not:
+    plain = AlwaysRejectingScheme(FakeEnsemble(), maxiter=2, max_rejected=99, step_tol=0.0)
+    plain.run_assimilation()
+    assert plain.enX_old is None
 
 
 def test_subclass_convergence_hook(in_tmp_dir):

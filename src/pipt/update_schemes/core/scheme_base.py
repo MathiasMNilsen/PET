@@ -56,6 +56,7 @@ Here the ensemble is a *collaborator* rather than a superclass, matching how
 """
 
 from abc import ABC, abstractmethod
+from copy import deepcopy
 
 import numpy as np
 from scipy.optimize import OptimizeResult
@@ -344,7 +345,25 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
         max_rejected = self.options.get("max_rejected", 10 * self.maxiter)
 
         while self.iteration < self.maxiter:
+            # Snapshot for check_state_convergence(), taken here rather than
+            # in each scheme's own commit path: popt has each optimizer set
+            # `xk_old` itself, which works for four of them but would be
+            # seven sites here, and a scheme that forgot would get a silently
+            # wrong criterion instead of an error.
+            #
+            # Guarded, because enX is (nx, ne) and can be large -- unlike
+            # popt's control vector, an unconditional copy per attempt is a
+            # real memory cost. Every shipped scheme passes step_tol=0.0, so
+            # none of them pay it.
+            if self.step_tol > 0:
+                self.enX_old = deepcopy(self.ensemble.enX)
+
             accepted = self.update_step()
+            # Keep the attribute in step with what update_step actually
+            # reported. Only the EnRML family maintains it itself (and returns
+            # exactly this value), so for every other scheme this is what makes
+            # `step_accepted` true rather than merely defaulting to True.
+            self.step_accepted = accepted
 
             if accepted:
                 rejected = 0
@@ -465,16 +484,28 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
     def check_state_convergence(self) -> bool:
         """Check convergence on the norm of the state update.
 
-        .. warning::
-           Currently inert: ``enX_old`` is initialised to ``None`` and nothing
-           ever assigns it, so this returns ``False`` unconditionally for every
-           shipped scheme. Wiring it up means snapshotting ``ensemble.enX``
-           before each analysis *and* giving the schemes a ``step_tol`` they
-           actually opt into -- they pass ``step_tol=0.0`` today. Left in place
-           rather than deleted because the criterion itself is wanted; it just
-           was never finished.
+        The counterpart of :meth:`popt.optimization_methods.optimizer_base.
+        OptimizerBase.check_state_convergence`, which compares ``xk`` against
+        ``xk_old``. ``enX_old`` is snapshotted by :meth:`run_assimilation`
+        before each attempt, but only when ``step_tol > 0`` -- see there for
+        why.
+
+        Opt-in in practice: every shipped scheme passes ``step_tol=0.0``,
+        because ``‖Δx‖₂`` over a state that mixes variables on different
+        scales (log-permeability alongside saturations, say) has no tolerance
+        that is meaningful across cases. The base default of ``1e-8`` is small
+        enough to mean "the state did not move at all" rather than being a
+        guess at a scale.
         """
         if self.enX_old is None:
+            return False
+        # A rejected step leaves enX untouched, so the norm below would be
+        # exactly zero and this would report convergence on every rejection --
+        # when what actually happened is the scheme failed to find an
+        # improvement. `run_assimilation` checks convergence after every
+        # attempt, accepted or not, so this guard is what keeps the two
+        # compatible.
+        if not self.step_accepted:
             return False
         step_norm = np.linalg.norm(np.asarray(self.ensemble.enX) - np.asarray(self.enX_old))
         if step_norm < self.step_tol:

@@ -313,6 +313,23 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `check_state_convergence()` was inert: `enX_old` was initialised to `None`
+  and never assigned, so it returned `False` for every scheme. It is the
+  counterpart of a criterion that works on the popt side, where each optimizer
+  assigns `xk_old` itself. `run_assimilation` now takes the snapshot centrally
+  -- one site rather than the seven a per-scheme approach would need -- and
+  only when `step_tol > 0`, since `enX` is `(nx, ne)` and a copy per attempt
+  would cost memory for schemes that never use the criterion. Every shipped
+  scheme still passes `step_tol=0.0`, so behaviour is unchanged; the criterion
+  now works for anyone who opts in.
+
+- `step_accepted` could disagree with what `update_step()` returned. Only the
+  EnRML family maintained it, so for other schemes it stayed at its default of
+  `True` regardless. The loop now syncs it from the return value. This matters
+  because a rejected step leaves `enX` untouched: without an accurate flag,
+  state convergence would read the resulting zero-norm as instant convergence
+  on every rejection.
+
 - A converged `LMEnRML`/`GNEnRML` run reported `no stopping reason recorded`.
   Both schemes set their converged flag in `score_and_commit()` but never set
   `conv_msg`, and they disable the base class's generic criteria -- which are
@@ -421,12 +438,6 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   named helpers with identical behaviour.
 
 ### Known issues
-
-- `AssimilationSchemeBase.check_state_convergence()` is inert: `enX_old` is
-  initialised to `None` and never assigned, so it returns `False` for every
-  scheme. Finishing it means snapshotting `ensemble.enX` before each analysis
-  and giving the schemes a `step_tol` they opt into. Documented in place
-  rather than deleted, since the criterion itself is wanted.
 
 - **Local analysis is broken along both routes.** `localization = {name =
   "localanalysis"}` reaches a branch that warns and returns `None`, so no update
