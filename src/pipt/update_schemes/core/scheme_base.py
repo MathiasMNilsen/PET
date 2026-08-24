@@ -30,8 +30,8 @@ can be substituted (a lightweight fake is used in the unit tests):
 Reaching the ensemble's state
 -----------------------------
 A scheme reads plenty of ensemble state -- ``enX``, ``pred_data``,
-``keys_da``, ``localization`` and friends -- and so do the analysis
-analyses, through the scheme. Rather than forwarding unknown attributes
+``keys_da``, ``localization`` and friends -- and so do the analyses,
+through the scheme. Rather than forwarding unknown attributes
 at lookup time, each of those names is declared as an explicit
 :class:`property` on :class:`AssimilationSchemeBase` (see the block of
 ``_ensemble_attr`` / ``_own_or_ensemble_attr`` declarations below). The
@@ -207,20 +207,9 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
     # ------------------------------------------------------------------
     # Ensemble delegation
     # ------------------------------------------------------------------
-    # Each name below is a real property, so it shows up in dir(), in an
-    # editor's autocomplete and to a type checker -- unlike the blanket
-    # __getattr__ this replaces, which forwarded anything and was invisible
-    # to all three. The set was derived by instrumenting the old forwarding
-    # and running the full test suite plus every real scheme
-    # (EnKF/ES/ESMDA/LMEnRML/GNEnRML, including multilevel), so it is what
-    # actually crosses the boundary rather than a guess.
-
-    # Owned by the ensemble outright: no scheme ever assigns these, so
-    # reading is delegation and writing is a mistake. Left without setters
-    # deliberately -- a stray `self.enX = ...` in scheme code raises
-    # AttributeError instead of silently creating a shadow that diverges
-    # from what the forecast actually reads. Scheme code that means to
-    # update ensemble state says so: `self.ensemble.enX = ...`.
+    # Owned by the ensemble outright. No setter is deliberate: a stray
+    # `self.enX = ...` raises instead of creating a shadow the forecast never
+    # sees. Write ensemble state as `self.ensemble.enX = ...`.
     adjoints = _ensemble_attr("adjoints")
     data_df = _ensemble_attr("data_df")
     data_var_df = _ensemble_attr("data_var_df")
@@ -243,34 +232,19 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
     tot_level = _ensemble_attr("tot_level")
     _saving_enabled = _ensemble_attr("_saving_enabled")
 
-    # The ensemble computes a default, but a scheme may supply its own --
-    # and which schemes do is genuinely per-name, which is why these need a
-    # setter and the ones above do not:
-    #   cov_data    EnKF rebuilds it each calc_analysis; ESMDA/EnRML do not.
-    #   scale_data  EnKF, ESMDA and esmda_hybrid redraw it each iteration
-    #               (fresh perturbed observations); LMEnRML/GNEnRML do not.
-    #   proj        esmda_hybrid holds one projection matrix *per level*,
-    #               a list where every other scheme has a single matrix.
-    #   Am          full_update caches it here after computing it once.
-    # Assigning stores on the scheme and shadows the ensemble from then on;
-    # until something assigns, reads fall through.
+    # The ensemble holds a default, but these four a scheme may compute for
+    # itself, so they need setters:
+    #   cov_data    EnKF rebuilds it each calc_analysis.
+    #   scale_data  EnKF/ESMDA/esmda_hybrid redraw it each iteration.
+    #   proj        esmda_hybrid holds one matrix *per level*, not one.
+    #   Am          full_update caches it after computing it once.
+    # Assigning shadows the ensemble from then on; until then reads fall
+    # through.
     #
-    # These deliberately do *not* write through to the ensemble, and that is
-    # not a safety hedge -- for three of them the scheme's value is a
-    # different quantity that merely shares a name, so writing through would
-    # corrupt a value the ensemble itself still uses:
-    #   - esmda_hybrid's `proj` is a *list* of per-level matrices; the
-    #     ensemble's is one matrix, and `local_analysis` does
-    #     `np.dot(aug_pred_data, self.proj)` with it.
-    #   - ESMDA's `scale_data` factors the *inflated* covariance
-    #     `alpha[iteration] * cov_data`; the ensemble's is uninflated, and
-    #     `local_analysis` expects the uninflated one.
-    #   - `cov_data` is read by `perturb_observations`, and `local_analysis`
-    #     mutates then restores the ensemble's copy -- a second writer would
-    #     tangle with that.
-    # (`Am` alone could safely write through: the ensemble sets it to None
-    # and never reads it. Left consistent with the other three rather than
-    # given its own storage rule for one slot's worth of benefit.)
+    # Do NOT make these write through. For three of them the scheme's value is
+    # a different quantity that merely shares a name -- hybrid's per-level
+    # `proj` list, ESMDA's alpha-inflated `scale_data` -- and `local_analysis`
+    # and `perturb_observations` still read the ensemble's own version.
     Am = _own_or_ensemble_attr("Am")
     cov_data = _own_or_ensemble_attr("cov_data")
     proj = _own_or_ensemble_attr("proj")
@@ -345,24 +319,15 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
         max_rejected = self.options.get("max_rejected", 10 * self.maxiter)
 
         while self.iteration < self.maxiter:
-            # Snapshot for check_state_convergence(), taken here rather than
-            # in each scheme's own commit path: popt has each optimizer set
-            # `xk_old` itself, which works for four of them but would be
-            # seven sites here, and a scheme that forgot would get a silently
-            # wrong criterion instead of an error.
-            #
-            # Guarded, because enX is (nx, ne) and can be large -- unlike
-            # popt's control vector, an unconditional copy per attempt is a
-            # real memory cost. Every shipped scheme passes step_tol=0.0, so
-            # none of them pay it.
+            # Snapshot for check_state_convergence(). Centrally, so no scheme
+            # can forget it; guarded, because enX is (nx, ne) and copying it
+            # per attempt would cost memory for schemes that never opt in.
             if self.step_tol > 0:
                 self.enX_old = deepcopy(self.ensemble.enX)
 
             accepted = self.update_step()
-            # Keep the attribute in step with what update_step actually
-            # reported. Only the EnRML family maintains it itself (and returns
-            # exactly this value), so for every other scheme this is what makes
-            # `step_accepted` true rather than merely defaulting to True.
+            # Only the EnRML family maintains this itself (returning exactly
+            # this value); elsewhere it would otherwise just stay True.
             self.step_accepted = accepted
 
             if accepted:
@@ -372,15 +337,9 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
             else:
                 rejected += 1
 
-            # Checked after every attempt, not only accepted ones: a scheme's
-            # own check_convergence() can fire on a step it is about to
-            # reject (e.g. the misfit has stalled close to the previous
-            # value without actually improving on it). Gating this behind
-            # `accepted` used to let that verdict through score_and_commit's
-            # bookkeeping and printed log line, then silently discard it here
-            # -- the loop kept retrying at shrinking step lengths, printing a
-            # fresh "converged" message on every attempt that landed near
-            # tolerance again without ever actually stopping.
+            # After every attempt, not only accepted ones: a scheme can
+            # converge on a step it is about to reject, when the misfit
+            # stalls near the previous value without improving on it.
             if self.check_misfit_convergence():
                 converged = True
             elif self.check_state_convergence():
@@ -499,12 +458,9 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
         """
         if self.enX_old is None:
             return False
-        # A rejected step leaves enX untouched, so the norm below would be
-        # exactly zero and this would report convergence on every rejection --
-        # when what actually happened is the scheme failed to find an
-        # improvement. `run_assimilation` checks convergence after every
-        # attempt, accepted or not, so this guard is what keeps the two
-        # compatible.
+        # A rejected step leaves enX untouched, so the norm would be exactly
+        # zero -- convergence on every rejection, when the scheme in fact
+        # failed to improve.
         if not self.step_accepted:
             return False
         step_norm = np.linalg.norm(np.asarray(self.ensemble.enX) - np.asarray(self.enX_old))
