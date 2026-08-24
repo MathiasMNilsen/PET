@@ -244,10 +244,8 @@ class LMEnRML(AssimilationScheme):
 
         if 'localanalysis' in self.keys_da:
             self.ensemble.local_analysis_update()
-            # Local analysis is the one path that still writes the ensemble's
-            # own enX_temp; nothing reads that field any more, so take the
-            # result explicitly. (That path is flagged unimplemented since the
-            # refactor -- see approx_update -- hence the fallback.)
+            # The one path that still writes ensemble.enX_temp, which nothing
+            # reads now -- so take its result explicitly.
             proposed = getattr(self.ensemble, "enX_temp", None)
             self.enX_proposal = self.enX if proposed is None else proposed
         else:
@@ -426,12 +424,8 @@ class LMEnRML(AssimilationScheme):
                 self.logger(f'Data misfit increased! λ increased: {self.lam / self.gamma} ──> {self.lam}')
 
             if not success:
-                # Reset the objective function after report, so the next
-                # comparison is against the last *accepted* misfit. The
-                # per-realisation array is restored with it: update_step
-                # reports that array, and the loop derives the scalars from
-                # it, so leaving it holding the rejected attempt would put
-                # them back out of step.
+                # Back to the last accepted misfit, array included -- that is
+                # what update_step reports and the next comparison uses.
                 self.data_misfit_mean = self.prev_data_misfit_mean
                 self.data_misfit_std = self.prev_data_misfit_std
                 if self.prev_ensemble_misfit is not None:
@@ -643,10 +637,8 @@ class GNEnRML(AssimilationScheme):
 
         if 'localanalysis' in self.keys_da:
             self.ensemble.local_analysis_update()
-            # Local analysis is the one path that still writes the ensemble's
-            # own enX_temp; nothing reads that field any more, so take the
-            # result explicitly. (That path is flagged unimplemented since the
-            # refactor -- see approx_update -- hence the fallback.)
+            # The one path that still writes ensemble.enX_temp, which nothing
+            # reads now -- so take its result explicitly.
             proposed = getattr(self.ensemble, "enX_temp", None)
             self.enX_proposal = self.enX if proposed is None else proposed
         else:
@@ -816,9 +808,7 @@ class GNEnRML(AssimilationScheme):
                 )
 
             if not success:
-                # Restore the last accepted misfit, per-realisation array
-                # included -- update_step reports that array and the loop
-                # derives the scalars from it.
+                # Back to the last accepted misfit, array included.
                 self.data_misfit_mean = self.prev_data_misfit_mean
                 self.data_misfit_std = self.prev_data_misfit_std
                 if self.prev_ensemble_misfit is not None:

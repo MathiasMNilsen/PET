@@ -211,10 +211,8 @@ class EnKF(AssimilationScheme):
 
         if 'localanalysis' in self.keys_da:
             self.ensemble.local_analysis_update()
-            # Local analysis is the one path that still writes the ensemble's
-            # own enX_temp; nothing reads that field any more, so take the
-            # result explicitly. (That path is flagged unimplemented since the
-            # refactor -- see approx_update -- hence the fallback.)
+            # The one path that still writes ensemble.enX_temp, which nothing
+            # reads now -- so take its result explicitly.
             proposed = getattr(self.ensemble, "enX_temp", None)
             self.enX_proposal = self.enX if proposed is None else proposed
         else:

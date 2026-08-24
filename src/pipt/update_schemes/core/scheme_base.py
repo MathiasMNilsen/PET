@@ -358,12 +358,11 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
         max_rejected = self.options.get("max_rejected", 10 * self.maxiter)
 
         while self.iteration < self.maxiter:
-            # Snapshot for check_state_convergence(). Centrally, so no scheme
-            # can forget it; guarded, because enX is (nx, ne) and copying it
-            # per attempt would cost memory for schemes that never opt in.
+            # Guarded: enX is (nx, ne), so schemes that never opt in pay nothing.
             if self.step_tol > 0:
                 self.enX_old = deepcopy(self.ensemble.enX)
 
+            # Perform the scheme-specific update
             step = self.update_step()
             assert isinstance(step, StepReport), (
                 f"{type(self).__name__}.update_step() must return a StepReport, "
@@ -371,15 +370,11 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
             )
             self.step_accepted = step.accepted
 
-            # Promote the state the step reported, or discard it. Done here
-            # rather than in every scheme, and before the convergence checks
-            # below, since check_state_convergence compares ensemble.enX
-            # against enX_old.
+            # Update the state ensemble
             if self.step_accepted:
                 self.ensemble.enX = deepcopy(step.state)
 
-            # Derived here, from one array, rather than assigned separately by
-            # each scheme -- which is what let them drift out of step.
+            # Update the misfit and convergence bookkeeping
             misfit = np.asarray(step.misfit, dtype=float)
             self.ensemble_misfit  = misfit
             self.data_misfit_mean = float(misfit.mean())
@@ -396,8 +391,7 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
                 rejected += 1
 
             # After every attempt, not only accepted ones: a scheme can
-            # converge on a step it is about to reject, when the misfit
-            # stalls near the previous value without improving on it.
+            # converge on a step it is about to reject.
             if self.check_misfit_convergence():
                 converged = True
             elif self.check_state_convergence():
