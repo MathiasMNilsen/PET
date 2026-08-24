@@ -8,9 +8,7 @@ from geostat.decomp import Cholesky                     # Making realizations
 
 # Internal imports
 from pipt.ensembles import AssimilationEnsemble as Ensemble
-from pipt.update_schemes.core.scheme_base import AssimilationSchemeBase
-from pipt.update_schemes.core.workflow import AssimilationWorkflowMixin
-from pipt.update_schemes.core.strategy import StrategyMixin
+from pipt.update_schemes.core.workflow import AssimilationScheme
 from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.subspace import subspace_update
 # Misc. tools used in analysis schemes
@@ -20,7 +18,7 @@ import pipt.misc_tools.extract_tools as extract
 
 
 
-class EnKF(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
+class EnKF(AssimilationScheme):
     """Ensemble Kalman Filter (EnKF).
 
     Assimilates data sequentially, updating the state once per group of
@@ -55,10 +53,14 @@ class EnKF(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     ----------
     ensemble : pipt.ensembles.AssimilationEnsemble
         Collaborator holding the state realisations, observed data and
-        simulator. Attribute reads the scheme does not own fall through to it,
-        so ``scheme.enX`` and ``scheme.keys_da`` resolve as expected.
-    strategy : pipt.update_schemes.analysis.AnalysisStrategy
-        The bound analysis flavour.
+        simulator. Its state is exposed as properties on the scheme, so
+        ``scheme.enX`` and ``scheme.keys_da`` read straight through.
+    analysis : pipt.update_schemes.analysis.AnalysisBase
+        The bound analysis object. Note the constructor takes ``analysis`` as
+        a *name* and this attribute holds the resulting object, the way
+        ``Model(optimizer="adam").optimizer`` is an optimizer instance.
+    analysis_name : str
+        The flavour name that was resolved, e.g. ``'approx'``.
     iteration : int
         Accepted iterations completed so far.
     data_misfit, prior_data_misfit : float
@@ -103,22 +105,20 @@ class EnKF(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     }
 
     def __init__(self, keys_da, keys_en, sim, analysis=None):
-        """Build the ensemble from the config and bind the analysis strategy.
+        """Build the ensemble from the config and bind the analysis.
 
         See the class docstring for the parameters.
         """
-        # Build the collaborator, then hand it to the scheme base. Logging
-        # stays on the ensemble's logger so log output is unchanged.
+        # Build the collaborator, then hand it to the scheme base -- which
+        # adopts the ensemble's own logger, so log output is unchanged.
         ensemble = Ensemble(keys_da, keys_en, sim)
-        # misfit_tol/step_tol disable the base class's *generic* convergence
-        # criteria. PIPT schemes decide convergence themselves, in
-        # check_convergence(); letting the generic ones also fire would stop a
-        # run early on a criterion the scheme never opted into.
-        super().__init__(ensemble, logit=False, misfit_tol=0.0, step_tol=0.0)
-        self.logger = ensemble.logger
+        # Zero tolerances switch off the base class's generic convergence
+        # criteria; this scheme decides in check_convergence(). See
+        # AssimilationSchemeBase's `misfit_tol`/`step_tol` docs for why.
+        super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
 
-        # Flavour is a parameter, so it selects a strategy object not a class.
-        self.bind_strategy(self.resolve_analysis(analysis, keys_da))
+        # Flavour is a parameter, so it selects a analysis object not a class.
+        self.bind_analysis(self.resolve_analysis(analysis, keys_da))
 
         self.prev_data_misfit = None
 

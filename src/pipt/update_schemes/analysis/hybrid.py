@@ -6,35 +6,18 @@ import numpy as np
 from scipy.linalg import solve
 from pipt.misc_tools import analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
-from pipt.update_schemes.analysis.base import AnalysisStrategy
+from pipt.update_schemes.analysis.base import AnalysisBase
 
-class hybrid_update(AnalysisStrategy):
+class hybrid_update(AnalysisBase):
     '''
     Class for hybrid update schemes as described in: Fossum, K., Mannseth, T., & Stordal, A. S. (2020). Assessment of
     multilevel ensemble-based data assimilation for reservoir history matching. Computational Geosciences, 24(1),
     217–239. https://doi.org/10.1007/s10596-019-09911-x
 
     Note that the scheme is slightly modified to be inline with the standard (I)ES approximate update scheme. This
-    is what lets it be bound as a strategy like ``approx_update`` and friends, despite working on *lists* of
+    is what lets it be bound as an analysis like ``approx_update`` and friends, despite working on *lists* of
     per-level matrices rather than single ones -- see ``esmda_hybrid.COMPATIBLE_ANALYSES``.
     '''
-
-    def scale(self, data, scaling):
-        """
-        Scale the data perturbations by the data error standard deviation.
-
-        Args:
-            data (np.ndarray): data perturbations
-            scaling (np.ndarray): data error standard deviation
-
-        Returns:
-            np.ndarray: scaled data perturbations
-        """
-
-        if len(scaling.shape) == 1:
-            return (scaling ** (-1))[:, None] * data
-        else:
-            return solve(scaling, data)
 
     def update(self, enX, enY, enE, **kwargs):
         '''
@@ -51,40 +34,48 @@ class hybrid_update(AnalysisStrategy):
             enE : list of np.ndarray
                 List of ensemble of perturbed observations for each level (nd, ne)
         '''
+        # esmda_hybrid computes its own proj/scale_data (one entry per
+        # fidelity level, where other flavours have a single matrix). Reading
+        # them off the scheme picks those up automatically -- that is what
+        # the scheme's own_or_ensemble properties are for.
+        scheme = self.scheme
+        proj = scheme.proj
+        scale_data = scheme.scale_data
+        state_scaling = scheme.state_scaling
+
         # Loop over levels to calculate the update step
         X3 = []
         enXcentered = []
-        for l in range(self.tot_level):
+        for l in range(scheme.tot_level):
 
             # Get Perturbed state ensemble at level l
-            if extract.is_enabled(self.keys_da.get('emp_cov', False)):
-                enXcentered.append(self.scale(enX[l] - np.mean(enX[l], 1)[:,None], self.state_scaling))
+            if extract.is_enabled(scheme.keys_da.get('emp_cov', False)):
+                enXcentered.append(self.solve(state_scaling, enX[l] - np.mean(enX[l], 1)[:,None]))
             else:
-                enXcentered.append(self.scale(np.dot(enX[l], self.proj[l]), self.state_scaling))
+                enXcentered.append(self.solve(state_scaling, np.dot(enX[l], proj[l])))
 
             # Calculate truncated SVD of predicted data ensemble at level l
-            enYcentered = self.scale(np.dot(enY[l], self.proj[l]), self.scale_data[l])
-            Ud, Sd, VTd = at.truncSVD(enYcentered, energy=self.trunc_energy)
+            enYcentered = self.solve(scale_data[l], np.dot(enY[l], proj[l]))
+            Ud, Sd, VTd = at.truncSVD(enYcentered, energy=scheme.trunc_energy)
 
-            X2 = solve(((self.lam + 1)*np.eye(len(Sd)) + np.diag(Sd**2)), Ud.T)
+            X2 = solve(((scheme.lam + 1)*np.eye(len(Sd)) + np.diag(Sd**2)), Ud.T)
             X3.append(np.dot(np.dot(VTd.T, np.diag(Sd)), X2))
 
-        # Calculate each row of self.step individually to avoid memory issues.
-        self.step = [np.empty(enXcentered[l].shape) for l in range(self.tot_level)]
-        step_size = min(1000, int(self.state_scaling.shape[0]/2)) # do maximum 1000 rows at a time.
+        # Calculate each row of step individually to avoid memory issues.
+        step = [np.empty(enXcentered[l].shape) for l in range(scheme.tot_level)]
+        scheme.step = step
+        step_size = min(1000, int(state_scaling.shape[0]/2)) # do maximum 1000 rows at a time.
 
         # Generate row batches
-        nrows = self.state_scaling.shape[0]
+        nrows = state_scaling.shape[0]
         row_step = [np.arange(s, min(s + step_size, nrows)) for s in range(0, nrows, step_size)]
 
         # Loop over rows
         for row in row_step:
-            ml_weights = self.multilevel['ml_weights']
-            kg = sum([ml_weights[l]*np.dot(enXcentered[l][row, :], X3[l]) for l in range(self.tot_level)])
+            ml_weights = scheme.multilevel['ml_weights']
+            kg = sum([ml_weights[l]*np.dot(enXcentered[l][row, :], X3[l]) for l in range(scheme.tot_level)])
 
             # Loop over levels
-            for l in range(self.tot_level):
-                enRes = self.scale(enE[l] - enY[l], self.scale_data[l])
-                self.step[l][row, :] = np.dot(self.state_scaling[row, None] * kg, enRes)
-
-
+            for l in range(scheme.tot_level):
+                enRes = self.solve(scale_data[l], enE[l] - enY[l])
+                step[l][row, :] = np.dot(state_scaling[row, None] * kg, enRes)

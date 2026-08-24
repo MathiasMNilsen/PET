@@ -14,9 +14,9 @@ A later refactor replaced the string surgery with an explicit table, but built
 it from eighteen hand-written classes -- one per ``(scheme, analysis)``
 combination -- because the analysis flavour used to be baked into the class
 through mixin composition. It no longer is: every algorithm class declares its
-own ``COMPATIBLE_ANALYSES`` (flavour name -> strategy class) and takes
+own ``COMPATIBLE_ANALYSES`` (flavour name -> analysis class) and takes
 ``analysis`` as a constructor argument that picks from it (see
-``StrategyMixin`` for how). The per-combination classes had become pure
+``AnalysisBindingMixin`` for how). The per-combination classes had become pure
 duplication -- ``esmda_approx`` was nothing but ``class esmda_approx(ESMDA):
 FLAVOUR = "approx"`` -- so this module now derives the regular combinations
 from two small tables instead of storing eighteen classes:

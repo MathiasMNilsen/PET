@@ -40,8 +40,9 @@ from misc.structures import PETDataFrame
 import pipt.misc_tools.analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
 from pipt.misc_tools.qaqc_tools import QAQC
+from pipt.update_schemes.core.scheme_base import AssimilationSchemeBase
 
-__all__ = ["AssimilationWorkflowMixin"]
+__all__ = ["AssimilationWorkflowMixin", "AssimilationScheme"]
 
 
 class AssimilationWorkflowMixin:
@@ -302,3 +303,29 @@ class AssimilationWorkflowMixin:
         if self.save_folder is None:
             raise RuntimeError("Cannot save results because saving is disabled.")
         return os.path.join(self.save_folder, filename)
+
+
+class AssimilationScheme(AssimilationWorkflowMixin, AssimilationSchemeBase):
+    """What a concrete PIPT scheme inherits: the algorithm core plus the run
+    workflow around it.
+
+    :class:`~pipt.update_schemes.core.scheme_base.AssimilationSchemeBase`
+    owns the iteration loop, convergence bookkeeping, restart handling and
+    the ensemble façade; :class:`AssimilationWorkflowMixin` layers the
+    diagnostics, artifact saving and outlier handling every run wants. Every
+    shipped scheme wants both, so they are combined here once rather than
+    each scheme repeating the base list -- and repeating it in the one order
+    that works.
+
+    That order is load-bearing: the workflow mixin *overrides* hooks
+    (``after_analysis``, ``after_forecast``, ``after_loop``,
+    ``after_accepted_iteration``, ``after_prior_forecast``) that the base
+    defines as no-op defaults, so it has to come first in the MRO. Listed the
+    other way round the base's empty versions would win and every run would
+    silently stop saving its artifacts.
+
+    The two parts stay separable: :class:`AssimilationWorkflowMixin` is still
+    a plain mixin, usable (and tested) on its own against a lightweight
+    stand-in, and a scheme that wants the loop without the artifacts can
+    still subclass ``AssimilationSchemeBase`` directly.
+    """

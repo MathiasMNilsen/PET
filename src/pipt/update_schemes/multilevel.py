@@ -119,7 +119,7 @@ class esmda_hybrid(ESMDA):
     extra flavour, though: its own ``COMPATIBLE_ANALYSES`` offers only
     ``"hybrid"``, deliberately narrower than ``ESMDA``'s -- ``approx_update``
     et al. expect a single ``enX``/``proj`` matrix, and this scheme's state is
-    partitioned into one such matrix *per level*, which those strategies were
+    partitioned into one such matrix *per level*, which those analyses were
     never written to handle.
 
     Notes
@@ -242,8 +242,9 @@ class esmda_hybrid(ESMDA):
             self.step = returned
         if self.step is not None:
             limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX[0].indices}
-            # Written through the ensemble: the forecast reads enX_temp off the
-            # collaborator, and attribute delegation covers reads only.
+            # Written on the ensemble explicitly: the forecast reads
+            # enX_temp off the collaborator, and the scheme's enX_temp
+            # property is read-only.
             enX_temp = []
             for l in range(self.tot_level):
                 level = self.enX[l] + self.step[l]

@@ -41,10 +41,14 @@ class ES(EnKF):
     ----------
     ensemble : pipt.ensembles.AssimilationEnsemble
         Collaborator holding the state realisations, observed data and
-        simulator. Attribute reads the scheme does not own fall through to it,
-        so ``scheme.enX`` and ``scheme.keys_da`` resolve as expected.
-    strategy : pipt.update_schemes.analysis.AnalysisStrategy
-        The bound analysis flavour.
+        simulator. Its state is exposed as properties on the scheme, so
+        ``scheme.enX`` and ``scheme.keys_da`` read straight through.
+    analysis : pipt.update_schemes.analysis.AnalysisBase
+        The bound analysis object. Note the constructor takes ``analysis`` as
+        a *name* and this attribute holds the resulting object, the way
+        ``Model(optimizer="adam").optimizer`` is an optimizer instance.
+    analysis_name : str
+        The flavour name that was resolved, e.g. ``'approx'``.
     iteration : int
         Accepted iterations completed so far.
     data_misfit, prior_data_misfit : float
@@ -58,7 +62,7 @@ class ES(EnKF):
     Because there is only one step, the ``full`` flavour coincides with
     ``approx`` -- the prior-increment term they differ over is only reached
     when iterating -- so :attr:`EnKF.COMPATIBLE_ANALYSES`, inherited
-    unchanged here, points ``"full"`` at the cheaper ``approx`` strategy.
+    unchanged here, points ``"full"`` at the cheaper ``approx`` analysis.
 
     Examples
     --------
@@ -77,7 +81,7 @@ class ES(EnKF):
     """
 
     def __init__(self, keys_da, keys_en, sim, analysis=None):
-        """Build the ensemble from the config and bind the analysis strategy.
+        """Build the ensemble from the config and bind the analysis.
 
         See the class docstring for the parameters.
         """

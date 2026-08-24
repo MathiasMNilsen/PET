@@ -1,11 +1,13 @@
-"""Binding an analysis strategy to a scheme instead of mixing it in.
+"""Binding an analysis to a scheme instead of mixing it in.
 
 Groundwork for making ``analysis`` a parameter of one scheme class rather than
-the thing that selects which of eighteen classes you get. The blocker is that
-the strategies read their context -- ``lam``, ``trunc_energy``,
-``localization``, ``keys_da``, ``cov_data``, ``scale_data``, ``proj`` -- off
-``self``, which only resolves while they are mixed into the scheme. Bound
-strategies reach the same context by delegation.
+the thing that selects which of eighteen classes you get. Strategy code reads
+its context explicitly off ``self.scheme`` -- always that one object, never
+``scheme.ensemble``. Some of those names are the scheme's own (``lam``,
+``trunc_energy``, ``iteration``) and some belong to its ensemble
+(``localization``, ``keys_da``, ``proj``, ``prior_enX``, ``state_scaling``),
+but the scheme exposes both as properties, so an analysis never has to know
+which -- see :class:`~pipt.update_schemes.core.AssimilationSchemeBase`.
 
 The load-bearing test is
 :func:`test_bound_strategy_matches_mixed_in_result`: bound and mixed-in must
@@ -16,11 +18,11 @@ scheme's numbers.
 import numpy as np
 import pytest
 
-from pipt.update_schemes.analysis import AnalysisStrategy
+from pipt.update_schemes.analysis import AnalysisBase
 from pipt.update_schemes.analysis.registry import (
-    available_strategies,
-    get_strategy,
-    register_strategy,
+    available_analyses,
+    get_analysis,
+    register_analysis,
 )
 from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.subspace import subspace_update
@@ -31,13 +33,16 @@ class FakeLocalization:
 
 
 class FakeScheme:
-    """The context an analysis strategy reads, and nothing else.
+    """The context an analysis reads, and nothing else.
 
-    Worth recording: the context is wider than the list in
-    ``analysis/base.py``. ``full_update`` also reads ``prior_enX``, ``Am``,
-    ``ext_Am`` and ``state_scaling`` -- and ``prior_enX`` is *ensemble* state,
-    which resolved under the mixin only because the scheme delegates to its
-    ensemble. Anything binding strategies has to supply these too.
+    Flat on purpose: a real scheme exposes ensemble-owned state (``proj``,
+    ``prior_enX``, ``keys_da``, ...) as properties of its own, so an analysis
+    only ever reads ``scheme.<name>``. A double just needs those names
+    present -- it does not have to reproduce the scheme/ensemble split.
+
+    Worth recording: the context is wider than what any one flavour needs on
+    its own. ``full_update`` also reads ``prior_enX``, ``Am``, ``ext_Am``
+    and ``state_scaling``. Anything binding analyses has to supply these.
     """
 
     def __init__(self, ne=8, nx=5, lam=0.0, trunc_energy=0.99):
@@ -46,7 +51,6 @@ class FakeScheme:
         self.keys_da = {}
         self.localization = FakeLocalization()
         self.proj = (np.eye(ne) - np.ones((ne, ne)) / ne) / np.sqrt(ne - 1)
-        # Context `full_update` needs on top of the documented set.
         self.prior_enX = np.random.default_rng(7).standard_normal((nx, ne))
         self.Am = None
         self.state_scaling = np.ones(nx)
@@ -64,63 +68,48 @@ def _case(seed=0, nx=5, ny=4, ne=8):
 # ----------------------------------------------------------------------
 # Delegation
 # ----------------------------------------------------------------------
-def test_bound_strategy_reads_context_from_scheme():
+def test_scheme_property_returns_the_bound_scheme():
+    """``self.scheme`` is what strategy code reads context off of and writes
+    results onto -- explicitly, at every use, not synced or resolved lazily.
+    """
     scheme = FakeScheme(lam=3.5, trunc_energy=0.77)
     strategy = approx_update(scheme)
 
-    assert strategy.lam == 3.5
-    assert strategy.trunc_energy == 0.77
-    assert strategy.localization.name is None
+    assert strategy.scheme is scheme
+    assert strategy.scheme.lam == 3.5
+    assert strategy.scheme.trunc_energy == 0.77
+    assert strategy.scheme.localization.name is None
 
 
-def test_unbound_strategy_resolves_nothing():
-    """Optional context must keep falling back to its default.
-
-    The strategies read optional context as ``getattr(self, 'scale_state',
-    <default>)``. If an unbound strategy resolved anything, those defaults
-    would stop applying.
+def test_unbound_strategy_scheme_falls_back_to_self():
+    """An unbound analysis's ``self.scheme`` is itself, so a context read
+    goes looking on the analysis -- which does not have it -- and raises
+    a plain ``AttributeError`` rather than finding a half-initialised scheme.
     """
     strategy = approx_update()
 
+    assert strategy.scheme is strategy
     with pytest.raises(AttributeError):
-        strategy.lam
-    assert getattr(strategy, "scale_state", "fallback") == "fallback"
+        strategy.scheme.lam
 
 
-def test_binding_does_not_swallow_genuine_attribute_errors():
-    scheme = FakeScheme()
-    strategy = approx_update(scheme)
-
-    with pytest.raises(AttributeError):
-        strategy.no_such_attribute_anywhere
-
-
-def test_public_writes_go_through_to_the_scheme():
-    """Mixed in, every `self.x = ...` in a strategy set it on the scheme.
-
-    Binding has to reproduce that: `subspace_update` delivers its result by
-    assigning `w_step`, and the scheme applies it only if `hasattr(self,
-    'w_step')`. Without write-through the update is skipped silently.
+def test_writes_land_wherever_the_strategy_writes_them():
+    """No __setattr__ magic any more: an analysis writes its result exactly
+    where it says to. ``subspace_update`` writes ``self.scheme.w_step``,
+    which is what the scheme then checks via ``hasattr(self, 'w_step')`` --
+    so writing anywhere else would make the update silently skipped.
     """
     scheme = FakeScheme(lam=1.0)
     strategy = approx_update(scheme)
 
-    strategy.lam = 99.0
+    strategy.scheme.lam = 99.0
     assert scheme.lam == 99.0
 
-
-def test_private_writes_stay_on_the_strategy():
-    scheme = FakeScheme()
-    strategy = approx_update(scheme)
-
-    strategy._local = "mine"
-    assert not hasattr(scheme, "_local")
-
-
-def test_unbound_writes_stay_local():
-    strategy = approx_update()
-    strategy.w_step = 5
-    assert strategy.w_step == 5
+    # An analysis that (wrongly) wrote to itself instead of self.scheme would
+    # not be visible to the scheme -- there is nothing to catch that mistake
+    # any more, which is the tradeoff for there being no magic to misfire.
+    strategy.lam = -1.0
+    assert scheme.lam == 99.0
 
 
 # ----------------------------------------------------------------------
@@ -133,7 +122,7 @@ def test_bound_strategy_matches_mixed_in_result(flavour):
     This is what makes collapsing the eighteen classes safe: if the two paths
     diverged, every scheme's numbers would move with no test to catch it.
     """
-    strategy_cls = get_strategy(flavour)
+    strategy_cls = get_analysis(flavour)
     enX, enY, enE = _case()
 
     # Mixed in: `self` is the scheme, context resolves by inheritance.
@@ -160,8 +149,9 @@ def test_bound_strategy_matches_mixed_in_result(flavour):
         )
 
     # Side effects are the real payload for some flavours: subspace_update
-    # delivers via `w_step` and returns nothing useful, full_update caches `Am`.
-    # Comparing only return values would have missed that entirely.
+    # delivers via scheme.w_step and returns nothing useful, full_update
+    # caches scheme.Am. Comparing only return values would have missed that
+    # entirely. (Mixed in, self.scheme is self, so both land on `mixed`.)
     for attr in ("w_step", "Am"):
         assert hasattr(scheme, attr) == hasattr(mixed, attr), (
             f"{flavour}: bound path {'set' if hasattr(scheme, attr) else 'did not set'} "
@@ -176,10 +166,10 @@ def test_bound_strategy_matches_mixed_in_result(flavour):
 
 
 def test_mixin_path_is_untouched_by_the_new_init():
-    """Adding __init__ to AnalysisStrategy must not perturb the mixin MRO.
+    """Adding __init__ to AnalysisBase must not perturb the mixin MRO.
 
     Nothing in the scheme's __init__ chain calls super().__init__(), so
-    AnalysisStrategy.__init__ is never invoked there and `_scheme` is never
+    AnalysisBase.__init__ is never invoked there and `_scheme` is never
     set -- which is exactly why mixed-in lookup is unaffected.
     """
     class MixedIn(FakeScheme, approx_update):
@@ -194,38 +184,38 @@ def test_mixin_path_is_untouched_by_the_new_init():
 # Registry
 # ----------------------------------------------------------------------
 def test_registry_resolves_the_shipped_flavours():
-    assert get_strategy("approx") is approx_update
-    assert get_strategy("subspace") is subspace_update
-    assert available_strategies() == ["approx", "full", "subspace"]
+    assert get_analysis("approx") is approx_update
+    assert get_analysis("subspace") is subspace_update
+    assert available_analyses() == ["approx", "full", "subspace"]
 
 
 def test_registry_is_case_insensitive():
-    assert get_strategy("APPROX") is approx_update
+    assert get_analysis("APPROX") is approx_update
 
 
 def test_unknown_flavour_lists_the_valid_ones():
     with pytest.raises(KeyError, match="Unknown analysis flavour 'nope'"):
-        get_strategy("nope")
+        get_analysis("nope")
 
 
 def test_registering_a_duplicate_needs_overwrite():
-    class Extra(AnalysisStrategy):
+    class Extra(AnalysisBase):
         def update(self, enX, enY, enE, **kwargs):
             return None
 
     with pytest.raises(ValueError, match="already registered"):
-        register_strategy("approx", Extra)
+        register_analysis("approx", Extra)
 
 
 def test_register_and_resolve_an_out_of_tree_flavour():
     from pipt.update_schemes.analysis import registry
 
-    class Extra(AnalysisStrategy):
+    class Extra(AnalysisBase):
         def update(self, enX, enY, enE, **kwargs):
             return None
 
-    register_strategy("extra_flavour", Extra)
+    register_analysis("extra_flavour", Extra)
     try:
-        assert get_strategy("extra_flavour") is Extra
+        assert get_analysis("extra_flavour") is Extra
     finally:
-        del registry.STRATEGIES["extra_flavour"]
+        del registry.ANALYSES["extra_flavour"]

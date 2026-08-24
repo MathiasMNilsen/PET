@@ -242,9 +242,40 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Custom `main(self)` hooks reading loop attributes need adjusting.
 
 - **Scheme machinery moved to `pipt.update_schemes.core`** —
-  `AssimilationSchemeBase`, `StrategyMixin`, `AssimilationWorkflowMixin` — so
-  `pipt.update_schemes` lists algorithms rather than mixing them with the
+  `AssimilationSchemeBase`, `AnalysisBindingMixin`, `AssimilationWorkflowMixin`
+  — so `pipt.update_schemes` lists algorithms rather than mixing them with the
   scaffolding they stand on.
+
+- **One name for the analysis concept.** The code called the same thing an
+  "analysis" (the config key, `COMPATIBLE_ANALYSES`) and a "strategy" (the
+  base class, the registry, the bound attribute). It is now "analysis"
+  throughout:
+
+  | before | after |
+  | --- | --- |
+  | `AnalysisStrategy` | `AnalysisBase` |
+  | `StrategyMixin` | `AnalysisBindingMixin` |
+  | `pipt.update_schemes.core.strategy` | `pipt.update_schemes.core.analysis_binding` |
+  | `STRATEGIES` | `ANALYSES` |
+  | `get_strategy` / `register_strategy` / `available_strategies` | `get_analysis` / `register_analysis` / `available_analyses` |
+  | `bind_strategy()` | `bind_analysis()` |
+  | `scheme.strategy` (object) + `scheme.analysis` (name) | `scheme.analysis` (object) + `scheme.analysis_name` (name) |
+
+  Note the last row: `analysis` is both the constructor argument (a flavour
+  *name*) and the attribute holding the resulting object, the way
+  `Model(optimizer="adam").optimizer` is an optimizer instance.
+  `pipt.localization` keeps its own, unrelated use of "strategy".
+
+- **Schemes inherit one base, `AssimilationScheme`,** instead of listing
+  `(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase)`. The
+  order was load-bearing and easy to get wrong: the workflow mixin *overrides*
+  five hooks (`after_analysis`, `after_forecast`, `after_loop`,
+  `after_accepted_iteration`, `after_prior_forecast`) that the base defines as
+  no-op defaults, so listing it after the base would have silently stopped
+  every run from saving its artifacts. Combining them once removes that
+  hazard. `AssimilationWorkflowMixin` stays a usable standalone mixin, and a
+  scheme wanting the loop without the artifacts can still subclass
+  `AssimilationSchemeBase` directly.
 
 ### Added
 
@@ -281,6 +312,20 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   PIPT and POPT rather than duplicated.
 
 ### Fixed
+
+- `LMEnRML`/`GNEnRML` re-armed a convergence criterion they had just
+  disabled. Both pass `step_tol=0.0` to switch off the base class's generic
+  state-change check, then set `self.step_tol` from config (default `0.01`) a
+  few lines later. Neither reads the value itself — the only consumer is the
+  check they opted out of. The assignment was vestigial, carried over from the
+  never-constructed `co_lm_enrml`/`gn_enrml`, and is removed. No behaviour
+  change today, because `check_state_convergence()` cannot fire at all (see
+  Known issues).
+
+- `hybrid_update` carried its own `scale()`, a duplicate of the inherited
+  `AnalysisBase.solve()` with the arguments in the opposite order. Removed in
+  favour of `solve`, which additionally accepts a covariance given as a plain
+  list or scalar.
 
 - **`savedata` could not record the prior.** Every scheme computed its
   prior misfit inside the first `calc_analysis`, which runs *after* the
@@ -338,6 +383,26 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **A scheme reaches its ensemble through declared properties, not
+  `__getattr__`.** Reads a scheme does not own (`enX`, `pred_data`,
+  `keys_da`, `localization`, ...) were forwarded to the ensemble by a blanket
+  `__getattr__`, which resolved *any* name, was invisible to `dir()`,
+  autocompletion and type checkers, and silently absorbed typos. Each of the
+  25 names that actually crosses that boundary is now an explicit `property`
+  on `AssimilationSchemeBase`: 21 read-only, plus `cov_data`, `scale_data`,
+  `proj` and `Am`, which a scheme may legitimately compute for itself and so
+  have setters. Reading is unchanged (`self.enX` still works everywhere);
+  *assigning* a read-only one now raises `AttributeError` instead of quietly
+  creating a shadow the forecast would never see. Ensemble state is still
+  written explicitly through `self.ensemble.<name> = ...`.
+
+- `logit` and `logger_name` are real `[dataassim]` options. Both were
+  documented on the scheme base but could never take effect: the ensemble
+  built its logger unconditionally, hardcoded to `assim.log`, and every scheme
+  overwrote the scheme-side logger with the ensemble's. The ensemble now
+  honours both, defaulting to `ASSIM.log`, and `logit = false` installs a
+  no-op logger so no file is created at all.
+
 - Packaging: corrected the license path (pointed at a nonexistent
   `LICENSE.txt`), moved test tooling to a `dev` extra, added classifiers and a
   supported-Python floor matching CI.
@@ -349,6 +414,12 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   named helpers with identical behaviour.
 
 ### Known issues
+
+- `AssimilationSchemeBase.check_state_convergence()` is inert: `enX_old` is
+  initialised to `None` and never assigned, so it returns `False` for every
+  scheme. Finishing it means snapshotting `ensemble.enX` before each analysis
+  and giving the schemes a `step_tol` they opt into. Documented in place
+  rather than deleted, since the criterion itself is wanted.
 
 - **Local analysis is broken along both routes.** `localization = {name =
   "localanalysis"}` reaches a branch that warns and returns `None`, so no update

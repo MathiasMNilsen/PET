@@ -23,7 +23,27 @@ can be substituted (a lightweight fake is used in the unit tests):
 ``ensemble.pred_data``
     Predicted data for the current state.
 ``ensemble.logger``
-    A :class:`ensemble.logger.PetLogger`, or ``None``.
+    A :class:`ensemble.logger.PetLogger`, a no-op :class:`ensemble.logger.NullLogger`
+    (set when the ensemble's ``logit`` option is false), or ``None`` (e.g. a test
+    double with no logger at all).
+
+Reaching the ensemble's state
+-----------------------------
+A scheme reads plenty of ensemble state -- ``enX``, ``pred_data``,
+``keys_da``, ``localization`` and friends -- and so do the analysis
+analyses, through the scheme. Rather than forwarding unknown attributes
+at lookup time, each of those names is declared as an explicit
+:class:`property` on :class:`AssimilationSchemeBase` (see the block of
+``_ensemble_attr`` / ``_own_or_ensemble_attr`` declarations below). The
+scheme is therefore a *façade*: everything an analysis needs is
+reachable as ``scheme.<name>``, whether the value lives on the scheme or on
+its ensemble, and an analysis never has to know which.
+
+Reads delegate; writes do not. Assigning ensemble state goes through
+``self.ensemble.<name> = ...`` explicitly, because that is the object the
+forecast reads back. The four names a scheme *may* legitimately compute for
+itself (``cov_data``, ``scale_data``, ``proj``, ``Am``) are the exception
+and have setters.
 
 Relationship to the legacy design
 ---------------------------------
@@ -41,9 +61,48 @@ import numpy as np
 from scipy.optimize import OptimizeResult
 
 from ensemble.checkpoint import RestartMixin
-from ensemble.logger import PetLogger
+from pipt.update_schemes.core.analysis_binding import AnalysisBindingMixin
 
 __all__ = ["AssimilationSchemeBase", "AssimilationResult"]
+
+
+def _ensemble_attr(name):
+    """Read-only view of an ensemble attribute, as a real property.
+
+    Used for the state a scheme reads but never owns. No setter: assigning
+    raises ``AttributeError`` rather than quietly creating a scheme-local
+    shadow that the ensemble -- and therefore the forecast -- would never
+    see.
+    """
+    def getter(self):
+        return getattr(self.ensemble, name)
+
+    return property(getter, doc=f"``ensemble.{name}`` (owned by the ensemble).")
+
+
+def _own_or_ensemble_attr(name):
+    """The scheme's own value if it has set one, else the ensemble's.
+
+    For the handful of names a scheme may legitimately recompute for itself
+    (see the block where these are declared). Assigning stores on the
+    scheme; reads fall through to the ensemble until it does.
+    """
+    slot = f"_own_{name}"
+
+    def getter(self):
+        try:
+            return self.__dict__[slot]
+        except KeyError:
+            return getattr(self.ensemble, name)
+
+    def setter(self, value):
+        self.__dict__[slot] = value
+
+    return property(
+        getter,
+        setter,
+        doc=f"``{name}``: the scheme's own if it computed one, else the ensemble's.",
+    )
 
 
 class AssimilationResult(OptimizeResult):
@@ -67,7 +126,7 @@ class AssimilationResult(OptimizeResult):
     """
 
 
-class AssimilationSchemeBase(RestartMixin, ABC):
+class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
     """Base class for iterative ensemble data-assimilation schemes.
 
     Subclasses implement :meth:`update_step`, which performs one analysis and
@@ -93,8 +152,6 @@ class AssimilationSchemeBase(RestartMixin, ABC):
               ``ftol``.
             - step_tol: Absolute tolerance on the norm of the state update
               (default: 1e-8). Counterpart of an optimizer's ``xtol``.
-            - logit: Enable logging (default: True).
-            - logger_name: Log file name (default: 'ASSIM.log').
             - restart: Restore from a restart file on startup (default: False).
             - restartsave: Write a restart file after each accepted iteration
               (default: False).
@@ -129,10 +186,10 @@ class AssimilationSchemeBase(RestartMixin, ABC):
         self.prev_data_misfit = None
         self.enX_old = None
 
-        # Logging.
-        self.logger = None
-        if options.get("logit", True):
-            self.logger = PetLogger(options.get("logger_name", "ASSIM.log"))
+        # Logging. Owned by the ensemble (its logit/logger_name config
+        # decides whether this is a real PetLogger or a no-op) -- adopt
+        # whatever it has rather than building a separate one.
+        self.logger = getattr(ensemble, "logger", None)
 
         # Result container and stop bookkeeping.
         self.conv_msg = ""
@@ -149,30 +206,74 @@ class AssimilationSchemeBase(RestartMixin, ABC):
     # ------------------------------------------------------------------
     # Ensemble delegation
     # ------------------------------------------------------------------
-    def __getattr__(self, name):
-        """Fall back to the ensemble for attributes the scheme does not own.
+    # Each name below is a real property, so it shows up in dir(), in an
+    # editor's autocomplete and to a type checker -- unlike the blanket
+    # __getattr__ this replaces, which forwarded anything and was invisible
+    # to all three. The set was derived by instrumenting the old forwarding
+    # and running the full test suite plus every real scheme
+    # (EnKF/ES/ESMDA/LMEnRML/GNEnRML, including multilevel), so it is what
+    # actually crosses the boundary rather than a guess.
 
-        The analysis strategies in :mod:`pipt.update_schemes.analysis`
-        read their context off ``self`` -- ``keys_da``, ``proj``, ``cov_data``,
-        ``localization`` and friends -- which resolved by inheritance while a
-        scheme *was* an ensemble. Under composition they would not, so reads
-        fall through to the collaborator instead. Replacing this with an
-        explicit strategy context is the follow-on step noted in
-        ``pipt/update_schemes/analysis/base.py``.
+    # Owned by the ensemble outright: no scheme ever assigns these, so
+    # reading is delegation and writing is a mistake. Left without setters
+    # deliberately -- a stray `self.enX = ...` in scheme code raises
+    # AttributeError instead of silently creating a shadow that diverges
+    # from what the forecast actually reads. Scheme code that means to
+    # update ensemble state says so: `self.ensemble.enX = ...`.
+    adjoints = _ensemble_attr("adjoints")
+    data_df = _ensemble_attr("data_df")
+    data_var_df = _ensemble_attr("data_var_df")
+    enX = _ensemble_attr("enX")
+    enX_temp = _ensemble_attr("enX_temp")
+    idX = _ensemble_attr("idX")
+    keys_da = _ensemble_attr("keys_da")
+    localization = _ensemble_attr("localization")
+    ml_ne = _ensemble_attr("ml_ne")
+    multilevel = _ensemble_attr("multilevel")
+    ne = _ensemble_attr("ne")
+    pred_data = _ensemble_attr("pred_data")
+    prior_enX = _ensemble_attr("prior_enX")
+    prior_info = _ensemble_attr("prior_info")
+    save_folder = _ensemble_attr("save_folder")
+    sim = _ensemble_attr("sim")
+    sim_data = _ensemble_attr("sim_data")
+    state = _ensemble_attr("state")
+    state_scaling = _ensemble_attr("state_scaling")
+    tot_level = _ensemble_attr("tot_level")
+    _saving_enabled = _ensemble_attr("_saving_enabled")
 
-        Reads only. Assignments still land on the scheme, so anything the
-        ensemble must actually see -- ``enX``, ``enX_temp``, ``pred_data`` --
-        has to be written through ``self.ensemble`` explicitly.
-        """
-        # Guard against recursion before __init__ has bound the collaborator,
-        # and keep dunder lookups (copy, pickle) off the delegation path.
-        if name.startswith("__") or name == "ensemble":
-            raise AttributeError(name)
-        try:
-            ensemble = object.__getattribute__(self, "ensemble")
-        except AttributeError:
-            raise AttributeError(name) from None
-        return getattr(ensemble, name)
+    # The ensemble computes a default, but a scheme may supply its own --
+    # and which schemes do is genuinely per-name, which is why these need a
+    # setter and the ones above do not:
+    #   cov_data    EnKF rebuilds it each calc_analysis; ESMDA/EnRML do not.
+    #   scale_data  EnKF, ESMDA and esmda_hybrid redraw it each iteration
+    #               (fresh perturbed observations); LMEnRML/GNEnRML do not.
+    #   proj        esmda_hybrid holds one projection matrix *per level*,
+    #               a list where every other scheme has a single matrix.
+    #   Am          full_update caches it here after computing it once.
+    # Assigning stores on the scheme and shadows the ensemble from then on;
+    # until something assigns, reads fall through.
+    #
+    # These deliberately do *not* write through to the ensemble, and that is
+    # not a safety hedge -- for three of them the scheme's value is a
+    # different quantity that merely shares a name, so writing through would
+    # corrupt a value the ensemble itself still uses:
+    #   - esmda_hybrid's `proj` is a *list* of per-level matrices; the
+    #     ensemble's is one matrix, and `local_analysis` does
+    #     `np.dot(aug_pred_data, self.proj)` with it.
+    #   - ESMDA's `scale_data` factors the *inflated* covariance
+    #     `alpha[iteration] * cov_data`; the ensemble's is uninflated, and
+    #     `local_analysis` expects the uninflated one.
+    #   - `cov_data` is read by `perturb_observations`, and `local_analysis`
+    #     mutates then restores the ensemble's copy -- a second writer would
+    #     tangle with that.
+    # (`Am` alone could safely write through: the ensemble sets it to None
+    # and never reads it. Left consistent with the other three rather than
+    # given its own storage rule for one slot's worth of benefit.)
+    Am = _own_or_ensemble_attr("Am")
+    cov_data = _own_or_ensemble_attr("cov_data")
+    proj = _own_or_ensemble_attr("proj")
+    scale_data = _own_or_ensemble_attr("scale_data")
 
     # ------------------------------------------------------------------
     # Subclass contract
@@ -362,7 +463,17 @@ class AssimilationSchemeBase(RestartMixin, ABC):
         return False
 
     def check_state_convergence(self) -> bool:
-        """Check convergence on the norm of the state update."""
+        """Check convergence on the norm of the state update.
+
+        .. warning::
+           Currently inert: ``enX_old`` is initialised to ``None`` and nothing
+           ever assigns it, so this returns ``False`` unconditionally for every
+           shipped scheme. Wiring it up means snapshotting ``ensemble.enX``
+           before each analysis *and* giving the schemes a ``step_tol`` they
+           actually opt into -- they pass ``step_tol=0.0`` today. Left in place
+           rather than deleted because the criterion itself is wanted; it just
+           was never finished.
+        """
         if self.enX_old is None:
             return False
         step_norm = np.linalg.norm(np.asarray(self.ensemble.enX) - np.asarray(self.enX_old))

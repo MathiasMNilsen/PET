@@ -9,9 +9,7 @@ from geostat.decomp import Cholesky
 
 # Internal imports
 from pipt.ensembles import AssimilationEnsemble as Ensemble
-from pipt.update_schemes.core.scheme_base import AssimilationSchemeBase
-from pipt.update_schemes.core.workflow import AssimilationWorkflowMixin
-from pipt.update_schemes.core.strategy import StrategyMixin
+from pipt.update_schemes.core.workflow import AssimilationScheme
 from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.full import full_update
 from pipt.update_schemes.analysis.subspace import subspace_update
@@ -19,7 +17,7 @@ import pipt.misc_tools.analysis_tools as at
 
 __all__ = ['ESMDA']
 
-class ESMDA(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
+class ESMDA(AssimilationScheme):
     """Ensemble Smoother with Multiple Data Assimilation (ES-MDA).
 
     An iterative ensemble smoother that assimilates all data repeatedly over a
@@ -59,10 +57,14 @@ class ESMDA(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     ----------
     ensemble : pipt.ensembles.AssimilationEnsemble
         Collaborator holding the state realisations, observed data and
-        simulator. Attribute reads the scheme does not own fall through to it,
-        so ``scheme.enX`` and ``scheme.keys_da`` resolve as expected.
-    strategy : pipt.update_schemes.analysis.AnalysisStrategy
-        The bound analysis flavour.
+        simulator. Its state is exposed as properties on the scheme, so
+        ``scheme.enX`` and ``scheme.keys_da`` read straight through.
+    analysis : pipt.update_schemes.analysis.AnalysisBase
+        The bound analysis object. Note the constructor takes ``analysis`` as
+        a *name* and this attribute holds the resulting object, the way
+        ``Model(optimizer="adam").optimizer`` is an optimizer instance.
+    analysis_name : str
+        The flavour name that was resolved, e.g. ``'approx'``.
     iteration : int
         Accepted iterations completed so far.
     data_misfit, prior_data_misfit : float
@@ -108,23 +110,21 @@ class ESMDA(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     }
 
     def __init__(self, keys_da, keys_en, sim, analysis=None):
-        """Build the ensemble from the config and bind the analysis strategy.
+        """Build the ensemble from the config and bind the analysis.
 
         See the class docstring for the parameters.
         """
-        # Build the collaborator, then hand it to the scheme base. Logging stays
-        # on the ensemble's logger so the log output is unchanged.
+        # Build the collaborator, then hand it to the scheme base -- which
+        # adopts the ensemble's own logger, so the log output is unchanged.
         ensemble = self.ENSEMBLE_CLASS(keys_da, keys_en, sim)
-        # misfit_tol/step_tol disable the base class's *generic* convergence
-        # criteria. PIPT schemes decide convergence themselves, in
-        # check_convergence(); letting the generic ones also fire would stop a
-        # run early on a criterion the scheme never opted into.
-        super().__init__(ensemble, logit=False, misfit_tol=0.0, step_tol=0.0)
-        self.logger = ensemble.logger
+        # Zero tolerances switch off the base class's generic convergence
+        # criteria; this scheme decides in check_convergence(). See
+        # AssimilationSchemeBase's `misfit_tol`/`step_tol` docs for why.
+        super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
 
         # The analysis flavour is a parameter of the algorithm, not a different
-        # algorithm, so it selects a strategy object rather than a class.
-        self.bind_strategy(self.resolve_analysis(analysis, keys_da))
+        # algorithm, so it selects a analysis object rather than a class.
+        self.bind_analysis(self.resolve_analysis(analysis, keys_da))
 
         self.prev_data_misfit = None
 
@@ -290,9 +290,9 @@ class ESMDA(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
                 enAdj = enAdj
             )
 
-            # Update the state ensemble and weights. These land on the ensemble
-            # explicitly: the forecast reads enX_temp off the collaborator, and
-            # attribute delegation covers reads only.
+            # Written on the ensemble explicitly: the forecast reads
+            # enX_temp off the collaborator, and the scheme's enX_temp
+            # property is read-only.
             if self.step is not None:
                 self.ensemble.enX_temp = self.enX + self.step
             if hasattr(self, 'w_step'):

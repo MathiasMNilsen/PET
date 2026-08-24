@@ -1,6 +1,6 @@
-"""Shared base for the analysis-step strategies.
+"""Shared base for the analysis-step analyses.
 
-An *analysis strategy* computes the state update for one assimilation
+An *analysis* computes the state update for one assimilation
 iteration. The three shipped flavours -- ``approx``, ``full`` and ``subspace``
 -- differ only in how the ensemble-approximated sensitivity is inverted; they
 share their calling convention and their linear-algebra helpers.
@@ -13,32 +13,45 @@ Historically these flavours were mixins combined into the scheme at class
 definition time, producing a combinatorial explosion of names
 (``esmda_approx``, ``esmda_full``, ``esmda_subspace``, ``lmenrml_approx``, ...).
 Every algorithm class now takes ``analysis`` as a constructor argument and
-binds the matching strategy instead (see ``StrategyMixin``). Mixing in still
-works, for a strategy that genuinely cannot take this shape -- nothing shipped
+binds the matching analysis instead (see ``AnalysisBindingMixin``). Mixing in still
+works, for an analysis that genuinely cannot take this shape -- nothing shipped
 here needs it any more, now that ``margis`` binds like the rest -- but doing
-so is riskier than it looks: see ``StrategyMixin``'s module docstring for why
+so is riskier than it looks: see ``AnalysisBindingMixin``'s module docstring for why
 the scheme base usually has to be listed first, and what that can do to
 method resolution.
 
-Strategy contract
+Analysis contract
 -----------------
 ``update(enX, enY, enE, **kwargs) -> np.ndarray | None``
     Return the state update step, shape ``(nx, ne)``, or ``None`` if the
-    strategy declined to produce one.
+    analysis delivers its result by assignment onto the scheme instead (see
+    below).
 
-Strategies read the surrounding scheme's configuration off ``self`` -- the
-damping parameter ``lam``, ``trunc_energy``, ``localization``, ``keys_da``, and
-optionally ``cov_data`` / ``scale_state`` / ``scale_data`` / ``proj``.
-``full_update`` reads more still: ``prior_enX``, ``Am``, ``ext_Am`` and
-``state_scaling``. Note that ``prior_enX`` is *ensemble* state -- it resolves
-under the mixin only because the scheme delegates unknown reads to its
-ensemble, so the context spans both objects.
+Analyses reach everything they need through ``self.scheme``: the damping
+parameter ``self.scheme.lam``, ``self.scheme.trunc_energy``,
+``self.scheme.localization``, ``self.scheme.prior_enX``,
+``self.scheme.cov_data``, and so on. Some of those are the scheme's own
+attributes and some belong to its ensemble, but the scheme exposes both as
+properties (see :class:`~pipt.update_schemes.core.AssimilationSchemeBase`),
+so an analysis never has to know which -- and there is no forwarding
+machinery on this side at all. A new flavour that needs a value no existing
+one uses just reads ``self.scheme.<name>``; if the scheme does not already
+expose it, adding one property there is the whole change.
 
-That coupling is inherited from the mixin design and is what a later phase
-replaces with an explicit context object. :meth:`AnalysisStrategy.__getattr__`
-is the intermediate step: a strategy can now be *bound* to a scheme and reach
-the same context by delegation, which is what allows the flavour to become a
-parameter rather than part of the class name.
+``self.scheme`` resolves for both ways an analysis can be used:
+
+- **Bound** -- ``self.scheme`` is the scheme it was constructed against.
+- **Mixed in** -- ``self`` *is* the scheme, so ``self.scheme`` is ``self``
+  (see :attr:`scheme` below). Nothing shipped here still needs this
+  (``margis`` binds like the rest now); it remains supported for an analysis
+  whose calling convention genuinely does not fit the bound shape.
+
+An analysis that delivers its result by assignment (``subspace_update`` sets
+``w_step``; ``full_update`` caches ``Am``) writes it onto ``self.scheme``
+explicitly, the same way it reads -- e.g. ``self.scheme.w_step = ...`` --
+not onto ``self``. There is nothing that forwards a plain ``self.w_step =
+...`` for you; an analysis that wrote to itself here would have the scheme's
+``hasattr(self, 'w_step')`` silently stay False, no error.
 """
 
 from abc import ABC, abstractmethod
@@ -47,11 +60,11 @@ import numpy as np
 from scipy.linalg import solve as _dense_solve
 from scipy.linalg import sqrtm as _dense_sqrtm
 
-__all__ = ["AnalysisStrategy"]
+__all__ = ["AnalysisBase"]
 
 
-class AnalysisStrategy(ABC):
-    """Base class for analysis-step strategies.
+class AnalysisBase(ABC):
+    """Base class for analysis-step analyses.
 
     Provides the linear-algebra helpers every flavour needs. Both accept either
     a full 2-D matrix or a 1-D array holding just the diagonal, which is how
@@ -68,24 +81,25 @@ class AnalysisStrategy(ABC):
         step = strategy.update(enX, enY, enE)
 
     which is what lets ``analysis`` be a constructor argument of one scheme
-    class rather than picking which of several classes you get. Context
-    reads fall through to the bound scheme via :meth:`__getattr__`, the same
-    delegation :class:`~pipt.update_schemes.core.AssimilationSchemeBase`
-    uses to reach its ensemble.
+    class rather than picking which of several classes you get. Inside
+    ``update()``, context is read explicitly off ``self.scheme`` -- there is
+    no delegation step to run first; ``self.scheme`` is just the object
+    passed to the constructor, and it exposes ensemble state as properties
+    of its own.
 
     **Mixed in** -- nothing shipped here still needs this (``margis`` binds
-    like the rest now); it remains supported for a strategy whose calling
+    like the rest now); it remains supported for an analysis whose calling
     convention genuinely does not fit the bound shape above::
 
-        class some_scheme(SomeAlgorithm, some_strategy): ...
+        class some_scheme(SomeAlgorithm, some_analysis): ...
 
-    ``self`` is the scheme, so ``self.lam`` and friends resolve by
-    inheritance and nothing here is involved.
+    ``self`` *is* the scheme here, so ``self.scheme`` (the :attr:`scheme`
+    property below) simply returns ``self`` -- ``self.scheme.lam`` and
+    ``self.lam`` are then the same read, resolved by ordinary inheritance.
 
-    An unbound strategy resolves nothing and raises ``AttributeError``, which is
-    deliberate: the optional context reads below are written as
-    ``getattr(self, 'scale_state', <default>)`` and must keep falling back to
-    their defaults rather than finding a half-initialised scheme.
+    An unbound, un-mixed-in analysis has ``self.scheme`` fall back to
+    ``self`` too, so a context read raises a plain ``AttributeError`` rather
+    than finding a half-initialised scheme.
     """
 
     def __init__(self, scheme=None):
@@ -93,51 +107,24 @@ class AnalysisStrategy(ABC):
         Parameters
         ----------
         scheme : object, optional
-            Scheme to read analysis context from. ``None`` leaves the strategy
-            unbound. Never invoked in the mixin case: no ``__init__`` in that
-            MRO chains to ``super()``.
+            Scheme this analysis computes updates for. ``None`` leaves the
+            analysis unbound. Never invoked in the mixin case: no
+            ``__init__`` in that MRO chains to ``super()``.
         """
         self._scheme = scheme
 
-    def __getattr__(self, name):
-        """Fall back to the bound scheme for context this strategy lacks.
+    @property
+    def scheme(self):
+        """The scheme to read context from and write results onto.
 
-        Only reached when normal lookup fails, so a mixed-in strategy -- where
-        ``self`` is the scheme -- never gets here for an attribute that exists.
+        The bound value if there is one; otherwise ``self`` -- which is
+        exactly right when *mixed in* (``self`` already is the scheme, so
+        ``self.scheme.x`` and ``self.x`` are the same read) and merely
+        produces a plain ``AttributeError`` from an unbound, un-mixed-in
+        analysis rather than a special-cased error path.
         """
-        # Guard the recursion: resolving `_scheme` must not re-enter this.
-        if name.startswith("__") or name == "_scheme":
-            raise AttributeError(name)
-        try:
-            scheme = object.__getattribute__(self, "_scheme")
-        except AttributeError:
-            raise AttributeError(name) from None
-        if scheme is None:
-            raise AttributeError(name)
-        return getattr(scheme, name)
-
-    def __setattr__(self, name, value):
-        """Write public attributes through to the bound scheme.
-
-        Some strategies deliver their result by *assignment* rather than by
-        return value: ``subspace_update`` sets ``w_step``, which is what the
-        scheme actually applies, and ``full_update`` caches ``Am``. Mixed in,
-        those writes landed on the scheme because ``self`` was the scheme. Bound,
-        they would land here instead and the scheme's ``hasattr(self, 'w_step')``
-        would silently be False -- the update quietly skipped, no error.
-
-        So write-through is what makes binding faithful, not a convenience.
-        Private names stay local, which is what keeps ``_scheme`` itself out of
-        the loop.
-        """
-        if name.startswith("_"):
-            object.__setattr__(self, name, value)
-            return
-        scheme = getattr(self, "_scheme", None)
-        if scheme is None:
-            object.__setattr__(self, name, value)
-        else:
-            setattr(scheme, name, value)
+        bound = getattr(self, "_scheme", None)
+        return bound if bound is not None else self
 
     @abstractmethod
     def update(self, enX, enY, enE, **kwargs):
@@ -152,7 +139,7 @@ class AnalysisStrategy(ABC):
         enE : np.ndarray
             Perturbed observation ensemble, shape ``(nd, ne)``.
         **kwargs
-            Strategy-specific extras, e.g. ``prior`` or ``enAdj``.
+            Analysis-specific extras, e.g. ``prior`` or ``enAdj``.
 
         Returns
         -------

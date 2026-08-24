@@ -2,11 +2,11 @@
 
 import numpy as np
 
-from pipt.update_schemes.analysis.base import AnalysisStrategy
+from pipt.update_schemes.analysis.base import AnalysisBase
 import pipt.misc_tools.analysis_tools as at
 
 
-class subspace_update(AnalysisStrategy):
+class subspace_update(AnalysisBase):
     """
     Ensemble subspace update (weight-space IES).
 
@@ -32,8 +32,8 @@ class subspace_update(AnalysisStrategy):
         """
         Perform the subspace (weight-space) LM update.
 
-        Sets ``self.w_step`` (shape ne × ne) on the instance and returns
-        ``None`` — the caller applies the weight update, not a state-space step.
+        Sets ``self.scheme.w_step`` (shape ne × ne) and returns ``None`` --
+        the caller applies the weight update, not a state-space step.
 
         Parameters
         ----------
@@ -48,47 +48,43 @@ class subspace_update(AnalysisStrategy):
         -------
         None
         """
+        scheme = self.scheme
         ny, ne = enY.shape
 
-        scy = getattr(self, 'scale_data', np.ones(ny))
-        PI  = getattr(self, 'proj',
+        scy = getattr(scheme, 'scale_data', np.ones(ny))
+        PI  = getattr(scheme, 'proj',
                       (np.eye(ne) - np.ones((ne, ne)) / ne) / np.sqrt(ne - 1))
 
         # Initialise weight matrix and projected observation perturbations once
-        if self.iteration == 0:
-            self.current_W = np.zeros((ne, ne))
-            self.E = enE @ PI                                # shape: (nd, ne)
+        if scheme.iteration == 0:
+            scheme.current_W = np.zeros((ne, ne))
+            scheme.E = enE @ PI                              # shape: (nd, ne)
 
         Y = enY @ PI                                         # shape: (nd, ne)
 
         # S = Y @ Omega^{-1},  Omega = I + W @ PI
-        Omega = np.eye(ne) + self.current_W @ PI             # shape: (ne, ne)
+        Omega = np.eye(ne) + scheme.current_W @ PI           # shape: (ne, ne)
         S = np.linalg.solve(Omega.T, Y.T).T                  # shape: (nd, ne)
 
         # Scaled observation residuals
         enRes = self.solve(scy, enY - enE)                   # shape: (nd, ne)
 
         # Truncated SVD of S
-        Us, Ss, VsT = at.truncSVD(S, energy=self.trunc_energy)  # (nd,nr), (nr,), (nr,ne)
+        Us, Ss, VsT = at.truncSVD(S, energy=scheme.trunc_energy)  # (nd,nr), (nr,), (nr,ne)
         Sinv = (1 / Ss)[:, None]                             # shape: (nr, 1)
 
         # Projected observation perturbations in reduced space
-        X  = Sinv * (Us.T @ self.solve(scy, self.E))         # shape: (nr, ne)
+        X  = Sinv * (Us.T @ self.solve(scy, scheme.E))       # shape: (nr, ne)
         eigval, eigvec = np.linalg.eig(X @ X.T)             # shape: (nr,), (nr, nr)
         X2 = (Us * Sinv.T) @ eigvec                          # shape: (nd, nr)
         X3 = S.T @ X2                                        # shape: (ne, nr)
 
-        lam_term = np.eye(len(eigval)) + (1 + self.lam) * np.diag(eigval)  # shape: (nr, nr)
-        deltaM = X3 @ self.solve(lam_term, X3.T @ self.current_W)  # shape: (ne, ne)
+        lam_term = np.eye(len(eigval)) + (1 + scheme.lam) * np.diag(eigval)  # shape: (nr, nr)
+        deltaM = X3 @ self.solve(lam_term, X3.T @ scheme.current_W)  # shape: (ne, ne)
         deltaD = X3 @ self.solve(lam_term, X2.T @ enRes)           # shape: (ne, ne)
 
-        self.w_step = (
-            -self.current_W / (1 + self.lam)
-            - (deltaD - deltaM) / (1 + self.lam)
+        scheme.w_step = (
+            -scheme.current_W / (1 + scheme.lam)
+            - (deltaD - deltaM) / (1 + scheme.lam)
         )
         return None
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-

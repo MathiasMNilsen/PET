@@ -165,7 +165,7 @@ def _write_config(name, scheme, analysis, report_points, ne=ENSEMBLE_SIZE):
 #: ``ValueError: Length of values (11) does not match length of index (15)`` on
 #: this case, which predates the Phase 8 work and is untested elsewhere.
 #: ``esmda/subspace`` is fine, so the fault is in the sequential path rather
-#: than in the subspace strategy. See docs/phase8_handover.md.
+#: than in the subspace analysis.
 CASES = [
     ("esmda", "approx"),
     ("esmda", "full"),

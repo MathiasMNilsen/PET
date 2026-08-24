@@ -3,11 +3,12 @@
 Ported from ``update_methods_ns/margIS_update.py`` on the project's ``main``
 branch (an older, pre-refactor layout), replacing the inert placeholder that
 used to live here. This is closer to real than that placeholder -- it reads
-attribute names (``self.ne``, ``self.proj``, ``self.lam``, ``self.scale_data``)
-that match this codebase's current conventions, and its
-``update(self, enX, enY, enE, **kwargs)`` signature matches what
-``GNEnRML.calc_analysis`` already calls it with -- unlike on ``main``, where
-the equivalent caller passes no arguments at all.
+the same context (``ne``, ``proj``, ``lam``, ``scale_data``) other analyses
+in this package need, via ``self.scheme`` rather than the ported code's
+original bare ``self.X`` (see ``AnalysisBase`` for why), and its
+``update(self, enX, enY, enE, **kwargs)`` signature matches
+what ``GNEnRML.calc_analysis`` already calls it with -- unlike on ``main``,
+where the equivalent caller passes no arguments at all.
 
 Several problems in the ported code have been fixed here, against
 Stordal, Lorentzen & Fossum, *Marginalized iterative ensemble smoothers for
@@ -41,7 +42,7 @@ mistake is not repeated:
   give the multi-type log-likelihood as a *sum over data types*, each with
   its own count ``M_k`` -- Eq. 37's ``(M + nu)/(S + nu*s**2)`` factor (what
   ``Ratio`` computes below) is exactly one term of that sum. The loop now
-  groups rows by data type (``self.data_df``'s columns) instead of walking
+  groups rows by data type (``scheme.data_df``'s columns) instead of walking
   points one at a time; ``M`` is each type's actual row count rather than a
   fixed ``1``.
 - It checked ``if self.iteration == 1`` to detect the first call and
@@ -55,10 +56,10 @@ mistake is not repeated:
   first real call failed outright with ``AttributeError: 'AssimilationEnsemble'
   object has no attribute 'current_W'``.
 - It carried its own ``scale()`` (elementwise for a diagonal covariance,
-  else a dense solve), duplicating :meth:`AnalysisStrategy.solve` -- the same
+  else a dense solve), duplicating :meth:`AnalysisBase.solve` -- the same
   duplication ``approx``/``full``/``subspace`` used to have before they were
   consolidated onto the shared base (see that base's module docstring). Now
-  ``margIS_update`` inherits :class:`AnalysisStrategy` and calls ``self.solve``
+  ``margIS_update`` inherits :class:`AnalysisBase` and calls ``self.solve``
   directly, picking up the same fix that consolidation made: ``np.ndim``
   rather than ``scaling.shape``, so a covariance passed as a plain list or
   scalar works rather than raising ``AttributeError``.
@@ -68,16 +69,16 @@ per-type ``nu_k``/``s_k`` -- the paper's own worked example (Section 3) does
 the same, setting one shared ``nu`` (there, the total measurement count) for
 every type, so this is not a shortcut introduced here.
 
-Inheriting ``AnalysisStrategy`` also let ``"margis": margIS_update`` join
+Inheriting ``AnalysisBase`` also let ``"margis": margIS_update`` join
 ``GNEnRML.COMPATIBLE_ANALYSES`` directly, the same way ``"approx"`` and
 friends are listed there -- ``GNEnRML(..., analysis="margis")`` builds
 ``margIS_update(self)`` by ordinary composition, no mixin involved. The
 former ``gnenrml_margis`` class -- which mixed ``margIS_update`` into its
 bases instead -- is gone; while it existed, that mixing turned out to be
 broken in its own right (before this class-level entry existed): with
-``GNEnRML`` listed first, plain attribute lookup found ``StrategyMixin.update``
+``GNEnRML`` listed first, plain attribute lookup found ``AnalysisBindingMixin.update``
 before ``margIS_update.update``, so the scheme could not run regardless of
-this file's own math. See :class:`pipt.update_schemes.core.strategy.StrategyMixin`
+this file's own math. See :class:`pipt.update_schemes.core.analysis_binding.AnalysisBindingMixin`
 for why that shadowing happens and why binding avoids it entirely.
 
 This has now been run against real data (see above) and produces a large,
@@ -92,7 +93,7 @@ import numpy as np
 import pandas as pd
 
 import pipt.misc_tools.analysis_tools as at
-from pipt.update_schemes.analysis.base import AnalysisStrategy
+from pipt.update_schemes.analysis.base import AnalysisBase
 
 
 def _row_datatypes(df):
@@ -117,7 +118,7 @@ def _row_datatypes(df):
     return labels
 
 
-class margIS_update(AnalysisStrategy):
+class margIS_update(AnalysisBase):
     """
     MargIES update from Stordal et.al.
     This is now implemented with perturbed observations, which means that we set a prior belief on the data uncertainty.
@@ -126,31 +127,34 @@ class margIS_update(AnalysisStrategy):
 
     def update(self, enX, enY, enE, **kwargs):
 
-        if self.iteration == 0:  # method requires some initiallization
-            self.current_W = np.eye(self.ne)
-            self.current_w = np.zeros(self.ne)
-            self.D = self.solve(self.scale_data, enE)
+        scheme = self.scheme
+        ne = scheme.ne
+
+        if scheme.iteration == 0:  # method requires some initiallization
+            scheme.current_W = np.eye(ne)
+            scheme.current_w = np.zeros(ne)
+            scheme.D = self.solve(scheme.scale_data, enE)
             # Scale everything so that data uncertainty is I
 
-        sY = self.solve(self.scale_data, enY) #Scaling is same as with 'known' uncertainty, hence makes sense to set s = 1
-        self.S = 0
+        sY = self.solve(scheme.scale_data, enY) #Scaling is same as with 'known' uncertainty, hence makes sense to set s = 1
+        S = 0
 
         deltaD = 0
         deltaD_sqrt = 0
 
-        Y = np.linalg.solve(self.current_W.T, sY.T).T
-        Y = Y @ self.proj * np.sqrt(self.ne - 1)
+        Y = np.linalg.solve(scheme.current_W.T, sY.T).T
+        Y = Y @ scheme.proj * np.sqrt(ne - 1)
 
         # One term of Eq. 8/9 per data type, not per individual point.
-        row_labels = np.asarray(_row_datatypes(self.data_df))
+        row_labels = np.asarray(_row_datatypes(scheme.data_df))
         data_types = pd.unique(row_labels)
         s = 1 #should be default option with possibility to change in setup
-        nu = self.ne-1 #should be default option with possibility to change in setup
+        nu = ne-1 #should be default option with possibility to change in setup
         for dtype in data_types:
             index = np.flatnonzero(row_labels == dtype)
             M = len(index)  # Numbers of data of this type.
 
-            delta = self.D[index,:]-sY[index,:]
+            delta = scheme.D[index,:]-sY[index,:]
             Chi = np.sum(delta * delta, axis = 0)
             Chi = np.mean(Chi)
             Ratio = (M + nu) / (Chi + nu*s*s)
@@ -159,14 +163,14 @@ class margIS_update(AnalysisStrategy):
             deltaD = deltaD + (Y[index,:] * Ratio).T @ delta
             deltaD_sqrt = deltaD_sqrt + np.mean((Y[index, :] * Ratio).T @ delta ,axis=1)
             # Hessian
-            self.S = self.S + (Y[index,:] * Ratio).T @ Y[index,:]
+            S = S + (Y[index,:] * Ratio).T @ Y[index,:]
 
-        deltaM = (self.ne-1)*(np.eye(self.ne)-self.current_W)
-        deltaM_sqrt = (self.ne-1)*self.current_w
-        self.S = self.S + np.eye(self.ne) * (self.ne - 1)
+        deltaM = (ne-1)*(np.eye(ne)-scheme.current_W)
+        deltaM_sqrt = (ne-1)*scheme.current_w
+        S = S + np.eye(ne) * (ne - 1)
         Delta = deltaM + deltaD
         Delta_sqrt = deltaM_sqrt + deltaD_sqrt
 
 
-        self.W_step =   np.linalg.solve(self.S, Delta) / (1 + self.lam)
-       # self.sqrt_w_step = np.linalg.solve(self.S, Delta_sqrt) / (1 + self.lam)
+        scheme.W_step = np.linalg.solve(S, Delta) / (1 + scheme.lam)
+       # scheme.sqrt_w_step = np.linalg.solve(S, Delta_sqrt) / (1 + scheme.lam)

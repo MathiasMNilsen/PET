@@ -128,21 +128,26 @@ def test_approx_update_with_autoadaloc():
     enE = enY.mean(axis=1)[:, None] + np.random.normal(0, 0.1, size=enY.shape)
     Cdd = 0.1*np.ones(NY)
 
-    # Define class
-    class DummyApproxUpdate(approx_update):
-        localization = AutoAdaptiveLocalization(loc_info)
+    # Fake scheme providing exactly the context approx_update reads. A real
+    # scheme exposes ensemble-owned state as properties of its own, so a
+    # strategy only ever reads scheme.<name> -- a double can be flat.
+    class FakeScheme:
         lam = 1.0
         trunc_energy = 0.98
         cov_data = Cdd
         keys_da = {"emp_cov": False}
 
+        def __init__(self, localization):
+            self.localization = localization
+
     # Step with localization
-    approx = DummyApproxUpdate()
+    approx = approx_update(FakeScheme(AutoAdaptiveLocalization(loc_info)))
     step_loc = approx.update(enX, enY, enE)
 
     # Step without localization
-    approx_no_loc = DummyApproxUpdate()
-    approx_no_loc.localization = type('localization', (object,), {'name': None})()
+    approx_no_loc = approx_update(
+        FakeScheme(type('localization', (object,), {'name': None})())
+    )
     step_no_loc = approx_no_loc.update(enX, enY, enE)
 
     # Calculate step manually without localization

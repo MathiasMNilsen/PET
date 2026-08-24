@@ -7,9 +7,7 @@ import pipt.misc_tools.extract_tools as extract
 
 from geostat.decomp import Cholesky
 from pipt.ensembles import AssimilationEnsemble as Ensemble
-from pipt.update_schemes.core.scheme_base import AssimilationSchemeBase
-from pipt.update_schemes.core.workflow import AssimilationWorkflowMixin
-from pipt.update_schemes.core.strategy import StrategyMixin
+from pipt.update_schemes.core.workflow import AssimilationScheme
 from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.full import full_update
 from pipt.update_schemes.analysis.subspace import subspace_update
@@ -40,7 +38,7 @@ __all__ = [
 ]
 
 
-class LMEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
+class LMEnRML(AssimilationScheme):
     """Levenberg-Marquardt Ensemble Randomized Maximum Likelihood (LM-EnRML).
 
     An iterative ensemble smoother that solves the randomized maximum
@@ -81,10 +79,14 @@ class LMEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     ----------
     ensemble : pipt.ensembles.AssimilationEnsemble
         Collaborator holding the state realisations, observed data and
-        simulator. Attribute reads the scheme does not own fall through to it,
-        so ``scheme.enX`` and ``scheme.keys_da`` resolve as expected.
-    strategy : pipt.update_schemes.analysis.AnalysisStrategy
-        The bound analysis flavour.
+        simulator. Its state is exposed as properties on the scheme, so
+        ``scheme.enX`` and ``scheme.keys_da`` read straight through.
+    analysis : pipt.update_schemes.analysis.AnalysisBase
+        The bound analysis object. Note the constructor takes ``analysis`` as
+        a *name* and this attribute holds the resulting object, the way
+        ``Model(optimizer="adam").optimizer`` is an optimizer instance.
+    analysis_name : str
+        The flavour name that was resolved, e.g. ``'approx'``.
     iteration : int
         Accepted iterations completed so far.
     data_misfit, prior_data_misfit : float
@@ -137,22 +139,20 @@ class LMEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     }
 
     def __init__(self, keys_da, keys_en, sim, analysis=None):
-        """Build the ensemble from the config and bind the analysis strategy.
+        """Build the ensemble from the config and bind the analysis.
 
         See the class docstring for the parameters.
         """
-        # Build the collaborator, then hand it to the scheme base. Logging
-        # stays on the ensemble's logger so log output is unchanged.
+        # Build the collaborator, then hand it to the scheme base -- which
+        # adopts the ensemble's own logger, so log output is unchanged.
         ensemble = Ensemble(keys_da, keys_en, sim)
-        # misfit_tol/step_tol disable the base class's *generic* convergence
-        # criteria. PIPT schemes decide convergence themselves, in
-        # check_convergence(); letting the generic ones also fire would stop a
-        # run early on a criterion the scheme never opted into.
-        super().__init__(ensemble, logit=False, misfit_tol=0.0, step_tol=0.0)
-        self.logger = ensemble.logger
+        # Zero tolerances switch off the base class's generic convergence
+        # criteria; this scheme decides in check_convergence(). See
+        # AssimilationSchemeBase's `misfit_tol`/`step_tol` docs for why.
+        super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
 
-        # Flavour is a parameter, so it selects a strategy object not a class.
-        self.bind_strategy(self.resolve_analysis(analysis, keys_da))
+        # Flavour is a parameter, so it selects a analysis object not a class.
+        self.bind_analysis(self.resolve_analysis(analysis, keys_da))
 
         if self.restart is False:
 
@@ -166,7 +166,6 @@ class LMEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
             # ------------------------------------------------------------
             self.data_misfit_tol = options.get('data_misfit_tol', 0.01)
             self.trunc_energy = options.get('energy', 0.95)
-            self.step_tol  = options.get('step_tol', 0.01)
             self.lam       = options.get('lambda', 100)
             self.lam_max   = options.get('lambda_max', 1e10)
             self.lam_min   = options.get('lambda_min', 0.01)
@@ -449,7 +448,7 @@ class LMEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
 lmenrmlMixIn = LMEnRML
 
 
-class GNEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
+class GNEnRML(AssimilationScheme):
     """Gauss-Newton Ensemble Randomized Maximum Likelihood (GN-EnRML).
 
     Solves the same randomized maximum likelihood problem as :class:`LMEnRML`,
@@ -486,10 +485,14 @@ class GNEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     ----------
     ensemble : pipt.ensembles.AssimilationEnsemble
         Collaborator holding the state realisations, observed data and
-        simulator. Attribute reads the scheme does not own fall through to it,
-        so ``scheme.enX`` and ``scheme.keys_da`` resolve as expected.
-    strategy : pipt.update_schemes.analysis.AnalysisStrategy
-        The bound analysis flavour.
+        simulator. Its state is exposed as properties on the scheme, so
+        ``scheme.enX`` and ``scheme.keys_da`` read straight through.
+    analysis : pipt.update_schemes.analysis.AnalysisBase
+        The bound analysis object. Note the constructor takes ``analysis`` as
+        a *name* and this attribute holds the resulting object, the way
+        ``Model(optimizer="adam").optimizer`` is an optimizer instance.
+    analysis_name : str
+        The flavour name that was resolved, e.g. ``'approx'``.
     iteration : int
         Accepted iterations completed so far.
     data_misfit, prior_data_misfit : float
@@ -543,22 +546,20 @@ class GNEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
     }
 
     def __init__(self, keys_da, keys_en, sim, analysis=None):
-        """Build the ensemble from the config and bind the analysis strategy.
+        """Build the ensemble from the config and bind the analysis.
 
         See the class docstring for the parameters.
         """
-        # Build the collaborator, then hand it to the scheme base. Logging
-        # stays on the ensemble's logger so log output is unchanged.
+        # Build the collaborator, then hand it to the scheme base -- which
+        # adopts the ensemble's own logger, so log output is unchanged.
         ensemble = Ensemble(keys_da, keys_en, sim)
-        # misfit_tol/step_tol disable the base class's *generic* convergence
-        # criteria. PIPT schemes decide convergence themselves, in
-        # check_convergence(); letting the generic ones also fire would stop a
-        # run early on a criterion the scheme never opted into.
-        super().__init__(ensemble, logit=False, misfit_tol=0.0, step_tol=0.0)
-        self.logger = ensemble.logger
+        # Zero tolerances switch off the base class's generic convergence
+        # criteria; this scheme decides in check_convergence(). See
+        # AssimilationSchemeBase's `misfit_tol`/`step_tol` docs for why.
+        super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
 
-        # Flavour is a parameter, so it selects a strategy object not a class.
-        self.bind_strategy(self.resolve_analysis(analysis, keys_da))
+        # Flavour is a parameter, so it selects a analysis object not a class.
+        self.bind_analysis(self.resolve_analysis(analysis, keys_da))
 
         if self.restart is False:
             options = self.keys_da['iteration']
@@ -567,7 +568,6 @@ class GNEnRML(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase):
 
             self.data_misfit_tol = options.get('data_misfit_tol', 0.01)
             self.trunc_energy = options.get('energy', 0.95)
-            self.step_tol = options.get('step_tol', 0.01)
             self.gamma = options.get('gamma', 0.2)
             self.gamma_max = options.get('gamma_max', 0.5)
             self.gamma_factor = options.get('gamma_factor', 2.5)
@@ -838,7 +838,7 @@ class co_lm_enrml(LMEnRML, approx_update):
     """
 
     def __init__(self, keys_da):
-        """Build the ensemble from the config and bind the analysis strategy.
+        """Build the ensemble from the config and bind the analysis.
 
         See the class docstring for the parameters.
         """
@@ -975,7 +975,7 @@ class gn_enrml(LMEnRML):
     """
 
     def __init__(self, keys_da):
-        """Build the ensemble from the config and bind the analysis strategy.
+        """Build the ensemble from the config and bind the analysis.
 
         See the class docstring for the parameters.
         """

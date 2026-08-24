@@ -105,14 +105,14 @@ def test_esmda_and_enrml_do_not_fold_full_into_approx():
 def test_geo_is_gone_and_hybrid_stays_a_separate_class():
     """`geo` was dead code (a broken, untested `__init__`) and has been removed.
 
-    `hybrid` is a distinct algorithm sharing the ESMDA name, not a strategy,
+    `hybrid` is a distinct algorithm sharing the ESMDA name, not an analysis,
     so it remains its own class reachable through the registry rather than
     through `ESMDA(analysis=...)`.
     """
-    from pipt.update_schemes.analysis.registry import available_strategies
+    from pipt.update_schemes.analysis.registry import available_analyses
 
-    assert "geo" not in available_strategies()
-    assert "hybrid" not in available_strategies()
+    assert "geo" not in available_analyses()
+    assert "hybrid" not in available_analyses()
     with pytest.raises(KeyError):
         registry.get_scheme("esmda", "geo")
     assert registry.get_scheme("esmda", "hybrid") is not None

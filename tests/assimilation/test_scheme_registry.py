@@ -27,9 +27,9 @@ def test_hybrid_is_a_special_scheme_not_a_registered_flavour():
     only through ``SPECIAL_SCHEMES``, never through ``ALGORITHMS`` + a bound
     strategy.
     """
-    from pipt.update_schemes.analysis.registry import available_strategies
+    from pipt.update_schemes.analysis.registry import available_analyses
 
-    assert "hybrid" not in available_strategies()
+    assert "hybrid" not in available_analyses()
     assert ("esmda", "hybrid") in registry.SPECIAL_SCHEMES
 
 
@@ -38,14 +38,14 @@ def test_margis_is_a_gnenrml_specific_flavour_not_a_special_scheme():
 
     It is not a *globally* registered flavour (only ``GNEnRML`` offers it,
     not every algorithm), but it is an ordinary ``COMPATIBLE_ANALYSES`` entry
-    on that one class -- resolved through ``ALGORITHMS`` + a bound strategy,
+    on that one class -- resolved through ``ALGORITHMS`` + a bound analysis,
     not through ``SPECIAL_SCHEMES`` the way ``hybrid`` is.
     """
-    from pipt.update_schemes.analysis.registry import available_strategies
+    from pipt.update_schemes.analysis.registry import available_analyses
     from pipt.update_schemes.analysis.margis import margIS_update
     from pipt.update_schemes.enrml import GNEnRML
 
-    assert "margis" not in available_strategies()
+    assert "margis" not in available_analyses()
     assert ("gnenrml", "margis") not in registry.SPECIAL_SCHEMES
     assert GNEnRML.COMPATIBLE_ANALYSES["margis"] is margIS_update
     ctor = registry.get_scheme("gnenrml", "margis")
@@ -91,11 +91,11 @@ def test_available_schemes_is_sorted_and_covers_specials():
 
 
 def test_every_algorithm_gets_every_registered_flavour():
-    from pipt.update_schemes.analysis.registry import available_strategies
+    from pipt.update_schemes.analysis.registry import available_analyses
 
     combos = set(registry.available_schemes())
     for algo in registry.ALGORITHMS:
-        for flavour in available_strategies():
+        for flavour in available_analyses():
             assert (algo, flavour) in combos
 
 
