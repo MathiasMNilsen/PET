@@ -211,6 +211,12 @@ class EnKF(AssimilationScheme):
 
         if 'localanalysis' in self.keys_da:
             self.ensemble.local_analysis_update()
+            # Local analysis is the one path that still writes the ensemble's
+            # own enX_temp; nothing reads that field any more, so take the
+            # result explicitly. (That path is flagged unimplemented since the
+            # refactor -- see approx_update -- hence the fallback.)
+            proposed = getattr(self.ensemble, "enX_temp", None)
+            self.enX_proposal = self.enX if proposed is None else proposed
         else:
             # Check for adjoint
             if hasattr(self, 'adjoints'):
@@ -227,14 +233,14 @@ class EnKF(AssimilationScheme):
             )
             # Update the state ensemble and weights
             if self.step is not None:
-                self.ensemble.enX_temp = self.enX + self.step
+                self.enX_proposal = self.enX + self.step
             if hasattr(self, 'w_step'):
                 self.W = self.current_W + self.w_step
-                self.ensemble.enX_temp = np.dot(self.prior_enX, (np.eye(self.ne) + self.W/np.sqrt(self.ne - 1)))
+                self.enX_proposal = np.dot(self.prior_enX, (np.eye(self.ne) + self.W/np.sqrt(self.ne - 1)))
 
             # Ensure limits are respected
             limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.idX.keys()}
-            self.ensemble.enX_temp = entools.clip_matrix(self.enX_temp, limits, self.idX)
+            self.enX_proposal = entools.clip_matrix(self.enX_proposal, limits, self.idX)
 
     # ------------------------------------------------------------------
     # AssimilationSchemeBase contract
@@ -250,10 +256,10 @@ class EnKF(AssimilationScheme):
         """
         self.calc_analysis()
         self.after_analysis()
-        self.run_forecast()
+        state = self.run_forecast(self.enX_proposal)
         self.score_and_commit()
         return StepReport(accepted=True, misfit=self.ensemble_misfit,
-                          state=self.enX_temp)
+                          state=state)
 
     def check_convergence(self) -> bool:
         """The EnKF runs its full sweep of data groups; nothing stops early."""

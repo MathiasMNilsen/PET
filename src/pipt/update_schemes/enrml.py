@@ -244,6 +244,12 @@ class LMEnRML(AssimilationScheme):
 
         if 'localanalysis' in self.keys_da:
             self.ensemble.local_analysis_update()
+            # Local analysis is the one path that still writes the ensemble's
+            # own enX_temp; nothing reads that field any more, so take the
+            # result explicitly. (That path is flagged unimplemented since the
+            # refactor -- see approx_update -- hence the fallback.)
+            proposed = getattr(self.ensemble, "enX_temp", None)
+            self.enX_proposal = self.enX if proposed is None else proposed
         else:
 
             # Check for adjoint
@@ -264,15 +270,15 @@ class LMEnRML(AssimilationScheme):
 
             # Update the state ensemble and weights
             if self.step is not None:
-                self.ensemble.enX_temp = self.enX + self.step
+                self.enX_proposal = self.enX + self.step
             if hasattr(self, 'w_step'):
                 self.W = self.current_W + self.w_step
-                self.ensemble.enX_temp = np.dot(self.prior_enX, (np.eye(self.ne) + self.W/np.sqrt(self.ne - 1)))
+                self.enX_proposal = np.dot(self.prior_enX, (np.eye(self.ne) + self.W/np.sqrt(self.ne - 1)))
 
 
             # Ensure limits are respected
             limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
-            self.ensemble.enX_temp.clip_matrix(limits)
+            self.enX_proposal.clip_matrix(limits)
 
     # ------------------------------------------------------------------
     # AssimilationSchemeBase contract
@@ -289,10 +295,10 @@ class LMEnRML(AssimilationScheme):
         """
         self.calc_analysis()
         self.after_analysis()
-        self.run_forecast()
+        state = self.run_forecast(self.enX_proposal)
         self.score_and_commit()
         return StepReport(accepted=self.step_accepted, misfit=self.ensemble_misfit,
-                          state=self.enX_temp)
+                          state=state)
 
     def check_convergence(self) -> bool:
         """Report the verdict reached by the preceding :meth:`score_and_commit`."""
@@ -650,6 +656,12 @@ class GNEnRML(AssimilationScheme):
 
         if 'localanalysis' in self.keys_da:
             self.ensemble.local_analysis_update()
+            # Local analysis is the one path that still writes the ensemble's
+            # own enX_temp; nothing reads that field any more, so take the
+            # result explicitly. (That path is flagged unimplemented since the
+            # refactor -- see approx_update -- hence the fallback.)
+            proposed = getattr(self.ensemble, "enX_temp", None)
+            self.enX_proposal = self.enX if proposed is None else proposed
         else:
 
             if hasattr(self, 'adjoints'):
@@ -666,22 +678,22 @@ class GNEnRML(AssimilationScheme):
             )
 
             if self.step is not None:
-                self.ensemble.enX_temp = self.enX + self.gamma * self.step
+                self.enX_proposal = self.enX + self.gamma * self.step
             # Vector update following e.g. Evensen et al. 2019, for the
             # additive-anomaly flavours (subspace_update and friends).
             if hasattr(self, 'w_step'):
                 self.W = self.current_W + self.gamma * self.w_step
-                self.ensemble.enX_temp = np.dot(self.prior_enX, (np.eye(self.ne) + self.W / np.sqrt(self.ne - 1)))
+                self.enX_proposal = np.dot(self.prior_enX, (np.eye(self.ne) + self.W / np.sqrt(self.ne - 1)))
             # Matrix update following e.g. Raanes et al. 2019, for flavours
             # that deliver a multiplicative ensemble-transform matrix instead
             # (margIS_update: W_0 = I, not the w_step branch's W_0 = 0).
             if hasattr(self, 'W_step'):
                 self.W = self.current_W + self.gamma * self.W_step
                 X_p = self.prior_enX @ self.proj * np.sqrt(self.ne - 1)
-                self.ensemble.enX_temp = np.mean(self.prior_enX, axis=1, keepdims=True) + np.dot(X_p, self.W)
+                self.enX_proposal = np.mean(self.prior_enX, axis=1, keepdims=True) + np.dot(X_p, self.W)
 
             limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
-            self.ensemble.enX_temp.clip_matrix(limits)
+            self.enX_proposal.clip_matrix(limits)
 
     # ------------------------------------------------------------------
     # AssimilationSchemeBase contract
@@ -698,10 +710,10 @@ class GNEnRML(AssimilationScheme):
         """
         self.calc_analysis()
         self.after_analysis()
-        self.run_forecast()
+        state = self.run_forecast(self.enX_proposal)
         self.score_and_commit()
         return StepReport(accepted=self.step_accepted, misfit=self.ensemble_misfit,
-                          state=self.enX_temp)
+                          state=state)
 
     def check_convergence(self) -> bool:
         """Report the verdict reached by the preceding :meth:`score_and_commit`."""

@@ -252,7 +252,6 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
     data_df = _ensemble_attr("data_df")
     data_var_df = _ensemble_attr("data_var_df")
     enX = _ensemble_attr("enX")
-    enX_temp = _ensemble_attr("enX_temp")
     idX = _ensemble_attr("idX")
     keys_da = _ensemble_attr("keys_da")
     localization = _ensemble_attr("localization")
@@ -378,16 +377,6 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
             # against enX_old.
             if self.step_accepted:
                 self.ensemble.enX = deepcopy(step.state)
-            # Cleared either way, so the ensemble is left coherent once the
-            # run ends. Not needed for the loop itself -- every forecast is
-            # preceded by a calc_analysis that sets enX_temp afresh, and the
-            # suite plus a real margis run are byte-identical without this.
-            # It matters afterwards: forecast() predicts on enX_temp when it
-            # is set, so leaving the last proposal there means a later
-            # ensemble.forecast() runs on an uncommitted state -- the
-            # *rejected* one, if the run ended on a rejection.
-            if getattr(self.ensemble, "enX_temp", None) is not None:
-                self.ensemble.enX_temp = None
 
             # Derived here, from one array, rather than assigned separately by
             # each scheme -- which is what let them drift out of step.
@@ -439,9 +428,10 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
 
         Goes through the same post-forecast hook as every later forecast, so
         outlier replacement applies to the prior ensemble too rather than being
-        duplicated by the workflow mixin.
+        duplicated by the workflow mixin -- and because that hook can resample
+        members, the state it hands back is committed here.
         """
-        self.run_forecast()
+        self.ensemble.enX = self.run_forecast(self.enX)
 
     # ------------------------------------------------------------------
     # Workflow hooks
@@ -479,13 +469,25 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
     # AssimilationWorkflowMixin declares and implements it for the schemes
     # that opt into that workflow.
 
-    def after_forecast(self) -> None:
-        """Called after each in-iteration forecast, before the misfit is scored."""
+    def after_forecast(self, state):
+        """Called after each forecast, before the misfit is scored.
 
-    def run_forecast(self) -> None:
-        """Forecast the trial state, then run the post-forecast hook."""
-        self.ensemble.forecast()
-        self.after_forecast()
+        Unlike the other hooks this one *transforms* rather than merely
+        observing: outlier replacement resamples members, so it takes the
+        state that was forecast and returns the state to carry forward.
+        Override it to return ``state`` unchanged if you only want a side
+        effect.
+        """
+        return state
+
+    def run_forecast(self, state):
+        """Forecast ``state``, then run the post-forecast hook.
+
+        Returns the state to carry forward -- the same one unless a hook
+        replaced members in it.
+        """
+        self.ensemble.forecast(state)
+        return self.after_forecast(state)
 
     def after_accepted_iteration(self) -> None:
         """Called after each accepted iteration, once the counter has advanced."""

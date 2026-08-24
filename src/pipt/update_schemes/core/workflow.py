@@ -87,14 +87,17 @@ class AssimilationWorkflowMixin:
         """
         self._refresh_screened_qaqc_datavar()
 
-    def after_forecast(self) -> None:
+    def after_forecast(self, state):
         """Between forecast and scoring: replace outlier members.
 
         Ordering matters -- outliers are replaced before the misfit is scored,
-        so the replacement feeds into the number the scheme sees.
+        so the replacement feeds into the number the scheme sees. The
+        resampled state is returned rather than written back, so the caller
+        keeps ownership of what it is forecasting.
         """
         if "remove_outliers" in self.keys_da:
-            self.ensemble.remove_outliers()
+            return self.ensemble.remove_outliers(state)
+        return state
 
     def after_accepted_iteration(self) -> None:
         """Persist iteration artifacts and run QA/QC after an accepted update."""

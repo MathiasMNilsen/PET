@@ -154,10 +154,10 @@ class esmda_hybrid(ESMDA):
         """
         self.calc_analysis()
         self.after_analysis()
-        self.run_forecast()
+        state = self.run_forecast(self.enX_proposal)
         self.score_and_commit()
         return StepReport(accepted=True, misfit=self.ensemble_misfit,
-                          state=self.enX_temp)
+                          state=state)
 
     def check_convergence(self) -> bool:
         """ES-MDA runs its full schedule of inflated steps; nothing stops early."""
@@ -244,15 +244,13 @@ class esmda_hybrid(ESMDA):
             self.step = returned
         if self.step is not None:
             limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX[0].indices}
-            # Written on the ensemble explicitly: the forecast reads
-            # enX_temp off the collaborator, and the scheme's enX_temp
-            # property is read-only.
-            enX_temp = []
+            # A scheme-local proposal, one entry per fidelity level.
+            enX_proposal = []
             for l in range(self.tot_level):
                 level = self.enX[l] + self.step[l]
                 level.clip_matrix(limits)
-                enX_temp.append(level)
-            self.ensemble.enX_temp = enX_temp
+                enX_proposal.append(level)
+            self.enX_proposal = enX_proposal
 
     def score_and_commit(self):
         """Score the forecast that followed the analysis, then commit the step.

@@ -246,6 +246,17 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   — so `pipt.update_schemes` lists algorithms rather than mixing them with the
   scaffolding they stand on.
 
+- **`forecast()` takes the state to predict on.** It used to read
+  `ensemble.enX_temp`, falling back to `enX` -- an ambient slot a scheme had
+  to park its trial state in before calling, and clear afterwards. It is now
+  `ensemble.forecast(enX)`, and `run_forecast(state) -> state` hands back the
+  state actually used. `after_forecast(state) -> state` and
+  `remove_outliers(state) -> state` follow suit: outlier replacement resamples
+  members, so it returns the resampled state rather than writing it back to
+  whichever slot happened to be set. `enX_temp` is gone from the
+  scheme/ensemble contract entirely; it survives only inside the (already
+  unimplemented) local-analysis path.
+
 - **`update_step()` returns a `StepReport`, not a `bool`.** The loop needed
   four things back from a step but could only see one of them in the
   signature; the rest were attribute side effects a scheme could silently

@@ -25,9 +25,9 @@ class FakeEnsemble:
         self.logger = None
         self.forecast_calls = 0
 
-    def forecast(self):
+    def forecast(self, enX):
         self.forecast_calls += 1
-        self.pred_data = self.enX.copy()
+        self.pred_data = enX.copy()
 
 
 class DecreasingMisfitScheme(AssimilationSchemeBase):
@@ -42,7 +42,7 @@ class DecreasingMisfitScheme(AssimilationSchemeBase):
             self.prior_data_misfit_mean = value
         self.enX_old = self.ensemble.enX.copy()
         self.ensemble.enX = self.ensemble.enX + 1.0
-        self.ensemble.forecast()
+        self.ensemble.forecast(self.ensemble.enX)
         return StepReport(accepted=True, state=self.ensemble.enX,
                           misfit=np.full(self.ensemble.enX.shape[1], value))
 
@@ -74,7 +74,7 @@ class StallingScheme(AssimilationSchemeBase):
         if self.prior_data_misfit_mean is None:
             self.prior_data_misfit_mean = value
         self.ensemble.enX = self.ensemble.enX + 1e-12
-        self.ensemble.forecast()
+        self.ensemble.forecast(self.ensemble.enX)
         return StepReport(accepted=True, state=self.ensemble.enX,
                           misfit=np.full(self.ensemble.enX.shape[1], value))
 

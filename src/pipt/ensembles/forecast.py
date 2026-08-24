@@ -30,12 +30,19 @@ class ForecastMixin:
     RESTART_RESULTS_FILE = "restart_sim_results.pkl"
     SIM_RESULTS_FILE = "sim_results.pkl"
 
-    def forecast(self) -> None:
-        """Run forecast simulations and prepare predicted data for analysis."""
+    def forecast(self, enX) -> None:
+        """Run forecast simulations and prepare predicted data for analysis.
+
+        Parameters
+        ----------
+        enX
+            The state to predict on. Passed in rather than read off the
+            ensemble, so a scheme can forecast a *trial* state without first
+            parking it somewhere for this method to find.
+        """
         if self._load_restart_prediction_if_available():
             return
 
-        enX = self.enX if self.enX_temp is None else self.enX_temp
         self.calc_prediction(enX)
         self.pred_data = self.sim_to_pred_data(self.sim_data)
 
@@ -231,28 +238,30 @@ class OutlierMixin:
     replacement feeds into the misfit the scheme sees.
     """
 
-    def remove_outliers(self) -> None:
-        """Replace outlier ensemble members with resampled non-outliers."""
+    def remove_outliers(self, enX):
+        """Replace outlier ensemble members with resampled non-outliers.
+
+        Returns the state with outliers resampled -- the same object when
+        there is nothing to replace. Returned rather than written back,
+        because the caller owns the state being forecast.
+        """
         outlier_idx, non_outlier_idx = at.get_outlier_index(
             self.pred_data, self.data_df, self.data_var_df,
         )
         if len(outlier_idx) == 0:
-            return
+            return enX
         idx = np.arange(self.ne)
         for outlier in outlier_idx:
             new_idx = np.random.choice(non_outlier_idx)
             idx[outlier] = new_idx
             self.logger(f"Replaced outlier {outlier} with member {new_idx}")
 
-        # Remove outliers from state ensemble
-        state_attribute = "enX_temp" if self.enX_temp is not None else "enX"
-        enX_filtered = getattr(self, state_attribute)[:, idx]
-        setattr(self, state_attribute, enX_filtered)
-
         # Filter outliers from dataframes
         def filter_outliers(cell):
             return cell[..., idx] if cell.ndim > 1 else cell[idx]
         self.pred_data = self.pred_data.map(filter_outliers)
         self.sim_data = self.sim_data.map(filter_outliers)
+
+        return enX[:, idx]
         if getattr(self, "adjoints", None) is not None:
             self.adjoints = self.adjoints.map(filter_outliers)
