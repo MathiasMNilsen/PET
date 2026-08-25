@@ -350,7 +350,7 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
         elif not self.restart:
             self.clear_restart()
             self.run_prior_forecast()
-            self.score_prior()
+            self.score_prior() # Implemented in subclasses.
             self.after_prior_forecast()
 
         converged = False
@@ -362,7 +362,7 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
             if self.step_tol > 0:
                 self.enX_old = deepcopy(self.ensemble.enX)
 
-            # Perform the scheme-specific update
+            # Perform the scheme-specific update (in subclasses)
             step = self.update_step()
             assert isinstance(step, StepReport), (
                 f"{type(self).__name__}.update_step() must return a StepReport, "
@@ -396,7 +396,7 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
                 converged = True
             elif self.check_state_convergence():
                 converged = True
-            elif self.check_convergence():
+            elif self.check_convergence(): # Subclass-specific convergence criteria.
                 converged = True
 
             if self.step_accepted and self.restartsave:
