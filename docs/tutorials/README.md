@@ -14,5 +14,5 @@ Here are some tutorials.
 
 ## Extending PIPT
 
-- [`adding_an_analysis.ipynb`](extending/adding_an_analysis): Write a new analysis flavour and bind it to a scheme
-- [`adding_a_scheme.ipynb`](extending/adding_a_scheme): Write a new scheme and register it for config-driven use
+- [`adding_an_analysis.ipynb`](pipt/extending/adding_an_analysis): Write a new analysis flavour and bind it to a scheme
+- [`adding_a_scheme.ipynb`](pipt/extending/adding_a_scheme): Write a new scheme and register it for config-driven use
