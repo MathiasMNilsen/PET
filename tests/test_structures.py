@@ -9,6 +9,8 @@ This suite preserves:
 - Scaling consistency
 """
 
+import datetime as dt
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -167,6 +169,22 @@ class TestFilterDataFrame:
         wrong_index = pd.Index([0, 1], dtype=int)
         with pytest.raises(ValueError):
             self.df.filter_dataframe(index=wrong_index)
+
+    def test_filter_missing_label(self):
+        with pytest.raises(ValueError):
+            self.df.filter_dataframe(index=["x", "missing"])
+
+    def test_filter_compatible_index_dtype(self):
+        # datetime.date labels select fine against a DatetimeIndex even though
+        # the dtypes differ (object vs datetime64[ns]).
+        dates = pd.to_datetime(["2023-02-05", "2024-03-11", "2025-04-15"])
+        df = PETDataFrame({"A": [1, 2, 3]}, index=dates)
+        wanted = pd.Index([dt.date(2023, 2, 5), dt.date(2025, 4, 15)])
+
+        filtered = df.filter_dataframe(index=wanted)
+
+        assert list(filtered["A"]) == [1, 3]
+        assert isinstance(filtered, PETDataFrame)
 
     def test_return_type(self):
         filtered = self.df.filter_dataframe(columns=["A"])

@@ -1,36 +1,46 @@
 """Tests for the shared assimilation scheme base class.
 
-These exercise ``AssimilationSchemeBase`` in isolation via a fake ensemble, so
+These exercise ``AssimilationScheme`` in isolation via a fake ensemble, so
 the loop/convergence/restart machinery is covered without running a simulator.
 """
 
 import os
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from pipt.update_schemes.core.scheme_base import (
+from pipt.update_schemes.core import (
     AssimilationResult,
-    AssimilationSchemeBase,
+    AssimilationScheme,
     StepReport,
 )
 
 
 class FakeEnsemble:
-    """Minimal object satisfying the ensemble collaborator protocol."""
+    """Minimal object satisfying the ensemble collaborator protocol.
+
+    ``keys_da``, ``sim`` and ``_saving_enabled`` are part of it because the
+    scheme carries the run workflow -- QA/QC, artifact saving, outlier
+    replacement -- and consults them at every hook. Saving is off, so nothing
+    here touches the filesystem.
+    """
 
     def __init__(self, nx=3, ne=5):
         self.enX = np.zeros((nx, ne))
         self.pred_data = None
         self.logger = None
         self.forecast_calls = 0
+        self.keys_da = {}
+        self.sim = SimpleNamespace(input_dict={})
+        self._saving_enabled = False
 
     def forecast(self, enX):
         self.forecast_calls += 1
         self.pred_data = enX.copy()
 
 
-class DecreasingMisfitScheme(AssimilationSchemeBase):
+class DecreasingMisfitScheme(AssimilationScheme):
     """Scheme whose misfit halves each step, converging on misfit_tol."""
 
     def update_step(self):
@@ -47,7 +57,7 @@ class DecreasingMisfitScheme(AssimilationSchemeBase):
                           misfit=np.full(self.ensemble.enX.shape[1], value))
 
 
-class NeverConvergingScheme(AssimilationSchemeBase):
+class NeverConvergingScheme(AssimilationScheme):
     """Scheme that always accepts but never satisfies a tolerance."""
 
     def update_step(self):
@@ -61,7 +71,7 @@ class NeverConvergingScheme(AssimilationSchemeBase):
                           misfit=np.full(self.ensemble.enX.shape[1], value))
 
 
-class StallingScheme(AssimilationSchemeBase):
+class StallingScheme(AssimilationScheme):
     """Accepts, but barely moves the state -- and does not snapshot enX_old.
 
     The shipped schemes are all like this: none of them assign ``enX_old``,
@@ -79,8 +89,12 @@ class StallingScheme(AssimilationSchemeBase):
                           misfit=np.full(self.ensemble.enX.shape[1], value))
 
 
-class AlwaysRejectingScheme(AssimilationSchemeBase):
-    """Scheme that never accepts a step, as an LM scheme backing off forever."""
+class AlwaysRejectingScheme(AssimilationScheme):
+    """Scheme that reports it could not find an improving step.
+
+    A scheme retries internally, so a rejected report means it has given up;
+    the loop stops rather than asking again.
+    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -109,7 +123,7 @@ def in_tmp_dir(tmp_path, monkeypatch):
 def test_is_abstract():
     """The base class cannot be instantiated without update_step."""
     with pytest.raises(TypeError):
-        AssimilationSchemeBase(FakeEnsemble())
+        AssimilationScheme(FakeEnsemble())
 
 
 def test_defaults(in_tmp_dir):
@@ -178,10 +192,10 @@ def test_state_convergence_ignores_rejected_steps(in_tmp_dir):
     Without the step_accepted guard that would read as instant convergence,
     when the truth is the scheme could not find an improvement.
     """
-    scheme = AlwaysRejectingScheme(FakeEnsemble(), maxiter=5, max_rejected=3, step_tol=1e9)
+    scheme = AlwaysRejectingScheme(FakeEnsemble(), maxiter=5, step_tol=1e9)
     res = scheme.run_assimilation()
     assert res.why_stop.get("step_tol") is not True
-    assert "rejected" in res.message
+    assert res.success is False
 
 
 def test_no_snapshot_taken_when_the_criterion_is_off(in_tmp_dir):
@@ -190,7 +204,7 @@ def test_no_snapshot_taken_when_the_criterion_is_off(in_tmp_dir):
     scheme.enX_old = None
     scheme.run_assimilation()
     # NeverConvergingScheme sets enX_old itself, so prove the *loop* did not:
-    plain = AlwaysRejectingScheme(FakeEnsemble(), maxiter=2, max_rejected=99, step_tol=0.0)
+    plain = AlwaysRejectingScheme(FakeEnsemble(), maxiter=2, step_tol=0.0)
     plain.run_assimilation()
     assert plain.enX_old is None
 
@@ -209,12 +223,40 @@ def test_subclass_convergence_hook(in_tmp_dir):
     assert res.message == "scheme-specific criterion"
 
 
-def test_rejected_steps_do_not_advance_iteration(in_tmp_dir):
-    scheme = AlwaysRejectingScheme(FakeEnsemble(), maxiter=5, max_rejected=7)
+def test_a_rejected_step_stops_the_run(in_tmp_dir):
+    """The scheme has already retried inside update_step; asking again would
+    only repeat the step it just said it could not improve on."""
+    scheme = AlwaysRejectingScheme(FakeEnsemble(), maxiter=5)
     res = scheme.run_assimilation()
     assert res.nit == 0
-    assert scheme.attempts == 7
-    assert "rejected steps" in res.message
+    assert scheme.attempts == 1
+    assert res.success is False
+    assert "No improving step" in res.message
+
+
+def test_a_scheme_that_stops_keeps_its_own_message(in_tmp_dir):
+    """A scheme explaining its own give-up is not overwritten by the loop."""
+
+    class ExplainsItself(AlwaysRejectingScheme):
+        def update_step(self):
+            self.conv_msg = "ran out of damping attempts"
+            return super().update_step()
+
+    res = ExplainsItself(FakeEnsemble(), maxiter=5).run_assimilation()
+    assert res.message == "ran out of damping attempts"
+
+
+def test_the_loop_logs_one_row_per_accepted_iteration(in_tmp_dir):
+    """Logging is the loop's job, so a scheme gets its rows without asking."""
+    rows = []
+
+    class Logging(DecreasingMisfitScheme):
+        def log_update(self, success=None, prior_run=False):
+            rows.append((self.iteration, prior_run))
+
+    Logging(FakeEnsemble(), maxiter=3).run_assimilation()
+    # No prior row: this scheme scores nothing, so there is no prior to report.
+    assert rows == [(0, False), (1, False), (2, False)]
 
 
 # ----------------------------------------------------------------------

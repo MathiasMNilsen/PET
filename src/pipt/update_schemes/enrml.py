@@ -7,8 +7,7 @@ import pipt.misc_tools.extract_tools as extract
 
 from geostat.decomp import Cholesky
 from pipt.ensembles import AssimilationEnsemble as Ensemble
-from pipt.update_schemes.core.workflow import AssimilationScheme
-from pipt.update_schemes.core.scheme_base import StepReport
+from pipt.update_schemes.core import AssimilationScheme, StepReport
 from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.full import full_update
 from pipt.update_schemes.analysis.subspace import subspace_update
@@ -52,12 +51,15 @@ class LMEnRML(AssimilationScheme):
         m \\leftarrow m + C_{md} \\big((1 + \\lambda) C_d + C_{dd}\\big)^{-1}
         (d_{obs} - g(m))
 
-    Unlike ES-MDA, iterations are accepted or rejected. A step that increases
-    the mean data misfit is discarded, :math:`\\lambda` is multiplied by
-    ``lambda_factor`` and the iteration is retried; a step that decreases it is
-    kept and :math:`\\lambda` reduced. The run stops when the relative misfit
-    change falls below ``data_misfit_tol``, when :math:`\\lambda` reaches
-    ``lambda_max``, or on ``max_iter``.
+    Unlike ES-MDA, steps are accepted or rejected. A step that increases the
+    mean data misfit is discarded, :math:`\\lambda` is multiplied by
+    ``lambda_factor`` and the step re-solved from the same state; one that
+    decreases it is kept and :math:`\\lambda` reduced. That retry loop lives
+    inside :meth:`update_step`, so one iteration is one call however many
+    attempts it takes -- the shape popt's optimizers have. The run stops when
+    the relative misfit change falls below ``data_misfit_tol``, when
+    :math:`\\lambda` reaches ``lambda_max``, when a single iteration exhausts
+    ``max_inner_iter`` attempts, or on ``max_iter``.
 
     Parameters
     ----------
@@ -104,9 +106,13 @@ class LMEnRML(AssimilationScheme):
         prior data misfit.
     ``lambda_factor``
         Factor by which damping grows on rejection and shrinks on acceptance
-        (default 5).
+        (default 5). Held as ``lam_factor`` -- not ``gamma``, which is
+        GN-EnRML's step length, a different quantity entirely.
     ``lambda_max``, ``lambda_min``
         Bounds on the damping parameter.
+    ``max_inner_iter``
+        Damping attempts one iteration may make before the run gives up
+        (default 10). ``lambda_max`` normally stops it first.
     ``data_misfit_tol``
         Relative misfit change treated as converged (default 0.01).
 
@@ -149,7 +155,7 @@ class LMEnRML(AssimilationScheme):
         ensemble = Ensemble(keys_da, keys_en, sim)
         # Zero tolerances switch off the base class's generic convergence
         # criteria; this scheme decides in check_convergence(). See
-        # AssimilationSchemeBase's `misfit_tol`/`step_tol` docs for why.
+        # AssimilationScheme's `misfit_tol`/`step_tol` docs for why.
         super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
 
         # Flavour is a parameter, so it selects an analysis object not a class.
@@ -170,7 +176,12 @@ class LMEnRML(AssimilationScheme):
             self.lam       = options.get('lambda', 100)
             self.lam_max   = options.get('lambda_max', 1e10)
             self.lam_min   = options.get('lambda_min', 0.01)
-            self.gamma     = options.get('lambda_factor', 5)
+            self.lam_factor = options.get('lambda_factor', 5)
+            # How many times one iteration may re-damp before giving up. The
+            # damping loop lives inside update_step(), so this bounds it
+            # there rather than relying on the base loop's rejected-step
+            # valve; `lambda_max` is normally what stops it first.
+            self.max_inner_iter = options.get('max_inner_iter', 10)
             # ------------------------------------------------------------
 
             # Ensure that it is given as percentage
@@ -210,29 +221,6 @@ class LMEnRML(AssimilationScheme):
             self.ensemble._ext_scaling()
 
 
-
-    def score_prior(self):
-        """Score the prior forecast and size the initial damping parameter.
-
-        Runs once, before the loop, so the iteration-0 artifacts record the
-        prior misfit. Doing it here rather than behind an ``iteration == 0``
-        branch in :meth:`calc_analysis` also stops a rejected first step from
-        overwriting ``prior_data_misfit`` with the rejected forecast's misfit
-        on every retry.
-        """
-        self.enPred = self.pred_data.to_matrix()
-
-        data_misfit = at.calc_objectivefun(self.enObs, self.enPred, self.cov_data)
-
-        self.ensemble_misfit = data_misfit
-        self.data_misfit_mean = np.mean(data_misfit)
-        self.prior_data_misfit_mean = np.mean(data_misfit)
-        self.data_misfit_std = np.std(data_misfit)
-
-        if self.lam == 'auto':
-            self.lam = (0.5 * self.prior_data_misfit_mean)/self.enPred.shape[0]
-
-        self.log_update(success=True, prior_run=True)
 
     def calc_analysis(self):
         """
@@ -279,24 +267,68 @@ class LMEnRML(AssimilationScheme):
             self.enX_proposal.clip_matrix(limits)
 
     # ------------------------------------------------------------------
-    # AssimilationSchemeBase contract
+    # AssimilationScheme contract
     # ------------------------------------------------------------------
     def update_step(self) -> StepReport:
-        """Run one LM-EnRML step: analysis, forecast, then score and commit.
+        """Run one LM-EnRML iteration, re-damping until it finds a step.
+
+        The damping loop is here rather than in the base loop: one call is one
+        iteration, and the :math:`\\lambda` attempts it took to get there are
+        this scheme's business. That mirrors popt, where ``EnOpt.update_step``
+        backtracks over its own step length and returns only once it has an
+        improving step or has run out of attempts.
+
+        Each attempt re-solves the analysis at the current :math:`\\lambda`,
+        forecasts the proposal and scores it. A worse misfit multiplies
+        :math:`\\lambda` by ``lambda_factor`` and tries again from the *same*
+        state -- nothing was committed -- so the retries cost forecasts, not
+        correctness.
 
         Returns
         -------
-        bool
-            Whether the step was accepted. A rejected step leaves ``enX``
-            untouched and backs off, so the loop retries at the same iteration
-            number rather than advancing.
+        StepReport
+            ``accepted`` is whether an attempt improved the misfit. It is
+            ``False`` only when the scheme has also decided to stop, which
+            :meth:`check_convergence` then reports to the loop.
         """
-        self.calc_analysis()
-        self.after_analysis()
-        state = self.run_forecast(self.enX_proposal)
-        self.score_and_commit()
+        attempt = 0
+        while True:
+            self.calc_analysis()
+            self.after_analysis()
+            state = self.run_forecast(self.enX_proposal)
+            self.score_and_commit()
+
+            if self.step_accepted or self._converged:
+                break
+
+            attempt += 1
+            if attempt >= self.max_inner_iter:
+                # Reported the way `lambda_max` is -- a stopping criterion
+                # with its reason in `why_stop` -- because it is the same
+                # event: no smaller step left to try.
+                self._converged = True
+                self.conv_msg = (f"No improving step after {attempt} damping "
+                                 f"attempts (λ = {self.lam:.3g})")
+                self.why_stop['inner_stop'] = True
+                self.logger.info(self.conv_msg)
+                break
+
         return StepReport(accepted=self.step_accepted, misfit=self.ensemble_misfit,
                           state=state)
+
+    def score(self, pred_data=None):
+        r"""Data misfit, sizing ``lambda='auto'`` the first time there is one.
+
+        :math:`\lambda_0 = \Phi_{prior} / 2 N_d` is defined against the prior
+        misfit, so it cannot be settled in ``__init__``. The first score of a
+        run is the prior's, which makes this the earliest point it can be
+        resolved -- and everything downstream needs a number: the prior row
+        reports λ, and the prior QA/QC pass computes with it.
+        """
+        misfit = super().score(pred_data)
+        if self.lam == 'auto' and misfit is not None:
+            self.lam = 0.5 * float(np.mean(misfit)) / self.enObs.shape[0]
+        return misfit
 
     def check_convergence(self) -> bool:
         """Report the verdict reached by the preceding :meth:`score_and_commit`."""
@@ -315,11 +347,13 @@ class LMEnRML(AssimilationScheme):
             Dict. with keys corresponding to conv. criteria, with logical variable telling which of them that has been
             met
         """
-        # Get Ensemble of predicted data
-        enPred = self.pred_data.to_matrix()
-
         # Initialize the initial success value
         success = False
+
+        # The λ this attempt was damped with. Captured before the branches
+        # below adjust it, because that is what the row for this iteration
+        # reports -- the loop logs after the adjustment has happened.
+        self.lam_used = self.lam
 
         # if inital conv. check, there are no prev_data_misfit
         self.prev_data_misfit_mean = self.data_misfit_mean
@@ -330,7 +364,7 @@ class LMEnRML(AssimilationScheme):
         # mat_obs = np.dot(obs_data_vector.reshape((len(obs_data_vector),1)), np.ones((1, self.ne))) # use the perturbed
         # data instead.
 
-        data_misfit = at.calc_objectivefun(self.enObs, enPred, self.cov_data)
+        data_misfit = self.score()
         self.ensemble_misfit = data_misfit
         self.data_misfit_mean = np.mean(data_misfit)
         self.data_misfit_std = np.std(data_misfit)
@@ -351,13 +385,11 @@ class LMEnRML(AssimilationScheme):
 
             if self.data_misfit_mean >= self.prev_data_misfit_mean:
                 success = False
-                self.log_update(success=success)
                 self.logger(
                     f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
                     f'from {self.prior_data_misfit_mean:0.1f} to {self.prev_data_misfit_mean:0.1f}'
-            )
+                )
             else:
-                self.log_update(success=True)
                 self.logger.info(
                     f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
                     f'from {self.prior_data_misfit_mean:0.1f} to {self.data_misfit_mean:0.1f}'
@@ -394,12 +426,11 @@ class LMEnRML(AssimilationScheme):
             if self.data_misfit_mean < self.prev_data_misfit_mean and self.data_misfit_std < self.prev_data_misfit_std:
 
                 success = True
-                self.log_update(success=success)
 
                 # Reduce damping parameter
                 if self.lam > self.lam_min:
-                    self.lam = self.lam / self.gamma
-                    self.logger(f'λ reduced: {self.lam * self.gamma} ──> {self.lam}')
+                    self.lam = self.lam / self.lam_factor
+                    self.logger(f'λ reduced: {self.lam * self.lam_factor} ──> {self.lam}')
 
                 # Update ensemble weights
                 if hasattr(self, 'W'):
@@ -410,7 +441,6 @@ class LMEnRML(AssimilationScheme):
 
                 # accept itaration, but keep lam the same
                 success = True
-                self.log_update(success=success)
 
                 # Update ensemble weights
                 if hasattr(self, 'W'):
@@ -418,10 +448,9 @@ class LMEnRML(AssimilationScheme):
 
             else:  # Reject iteration, and increase lam
                 success = False
-                self.log_update(success=success)
-                self.lam = self.lam * self.gamma
+                self.lam = self.lam * self.lam_factor
                 # Increase damping parameter (divide calculations for ANALYSISDEBUG purpose)
-                self.logger(f'Data misfit increased! λ increased: {self.lam / self.gamma} ──> {self.lam}')
+                self.logger(f'Data misfit increased! λ increased: {self.lam / self.lam_factor} ──> {self.lam}')
 
             if not success:
                 # Back to the last accepted misfit, array included -- that is
@@ -437,8 +466,8 @@ class LMEnRML(AssimilationScheme):
             return why_stop
 
     def log_columns(self, prior_run: bool = False) -> dict:
-        """LM-EnRML reports the damping parameter."""
-        return {"λ": self.lam}
+        """LM-EnRML reports the damping the logged iteration ran with."""
+        return {"λ": getattr(self, "lam_used", self.lam)}
 
 
 
@@ -461,7 +490,8 @@ class GNEnRML(AssimilationScheme):
 
     Steps are accepted or rejected on the mean data misfit as in LM-EnRML. On
     acceptance :math:`\\gamma` is relaxed towards ``gamma_max``; on rejection it
-    is divided by ``gamma_factor`` and the iteration retried.
+    is divided by ``gamma_factor`` and the step re-solved, in the same
+    within-:meth:`update_step` loop LM-EnRML uses for :math:`\\lambda`.
 
     Parameters
     ----------
@@ -509,6 +539,9 @@ class GNEnRML(AssimilationScheme):
         Value the step length relaxes towards on success (default 0.5).
     ``gamma_factor``
         Divisor applied to the step length on rejection (default 2.5).
+    ``max_inner_iter``
+        Step-length attempts one iteration may make before the run gives up
+        (default 10). There is no ``gamma_min``, so this is what bounds it.
     ``data_misfit_tol``
         Relative misfit change treated as converged (default 0.01).
 
@@ -554,7 +587,7 @@ class GNEnRML(AssimilationScheme):
         ensemble = Ensemble(keys_da, keys_en, sim)
         # Zero tolerances switch off the base class's generic convergence
         # criteria; this scheme decides in check_convergence(). See
-        # AssimilationSchemeBase's `misfit_tol`/`step_tol` docs for why.
+        # AssimilationScheme's `misfit_tol`/`step_tol` docs for why.
         super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
 
         # Flavour is a parameter, so it selects an analysis object not a class.
@@ -570,6 +603,17 @@ class GNEnRML(AssimilationScheme):
             self.gamma = options.get('gamma', 0.2)
             self.gamma_max = options.get('gamma_max', 0.5)
             self.gamma_factor = options.get('gamma_factor', 2.5)
+            # How many times one iteration may shorten the step before giving
+            # up. The step-length loop lives inside update_step(), so this is
+            # what bounds it; unlike LM-EnRML's `lambda_max` there is no bound
+            # on gamma itself to stop it first.
+            self.max_inner_iter = options.get('max_inner_iter', 10)
+
+            # 'auto' means "pick a sensible default", which for the step
+            # length is a constant -- it needs nothing from the prior, so it
+            # is resolved here rather than after the prior forecast.
+            if self.gamma == 'auto':
+                self.gamma = 0.1
 
             if self.trunc_energy > 1:
                 self.trunc_energy /= 100.
@@ -605,26 +649,6 @@ class GNEnRML(AssimilationScheme):
 
             # ensure that the updates does not invoke the LM inflation of the Hessian.
             self.lam = 0
-
-    def score_prior(self):
-        """Score the prior forecast and fix the step length if left to 'auto'.
-
-        See :meth:`LMEnRML.score_prior`; the same reasoning applies, with
-        ``gamma`` in place of ``lam``.
-        """
-        self.enPred = self.pred_data.to_matrix()
-
-        data_misfit = at.calc_objectivefun(self.enObs, self.enPred, self.cov_data)
-
-        self.ensemble_misfit = data_misfit
-        self.data_misfit_mean = np.mean(data_misfit)
-        self.prior_data_misfit_mean = np.mean(data_misfit)
-        self.data_misfit_std = np.std(data_misfit)
-
-        if self.gamma == 'auto':
-            self.gamma = 0.1
-
-        self.log_update(success=True, prior_run=True)
 
     def calc_analysis(self):
         """
@@ -675,22 +699,45 @@ class GNEnRML(AssimilationScheme):
             self.enX_proposal.clip_matrix(limits)
 
     # ------------------------------------------------------------------
-    # AssimilationSchemeBase contract
+    # AssimilationScheme contract
     # ------------------------------------------------------------------
     def update_step(self) -> StepReport:
-        """Run one GN-EnRML step: analysis, forecast, then score and commit.
+        """Run one GN-EnRML iteration, shortening the step until it improves.
+
+        The same shape as :meth:`LMEnRML.update_step` -- one call is one
+        iteration, and the attempts within it are this scheme's business --
+        with the step length :math:`\\gamma` doing what :math:`\\lambda` does
+        there. A rejected attempt divides :math:`\\gamma` by ``gamma_factor``
+        and re-solves from the same state.
 
         Returns
         -------
-        bool
-            Whether the step was accepted. A rejected step leaves ``enX``
-            untouched and backs off, so the loop retries at the same iteration
-            number rather than advancing.
+        StepReport
+            ``accepted`` is whether an attempt improved the misfit. It is
+            ``False`` only when the scheme has also decided to stop, which
+            :meth:`check_convergence` then reports to the loop.
         """
-        self.calc_analysis()
-        self.after_analysis()
-        state = self.run_forecast(self.enX_proposal)
-        self.score_and_commit()
+        attempt = 0
+        while True:
+            self.calc_analysis()
+            self.after_analysis()
+            state = self.run_forecast(self.enX_proposal)
+            self.score_and_commit()
+
+            if self.step_accepted or self._converged:
+                break
+
+            attempt += 1
+            if attempt >= self.max_inner_iter:
+                # γ has no lower bound, so this is what stops the scheme from
+                # halving a step that is already far too small to matter.
+                self._converged = True
+                self.conv_msg = (f"No improving step after {attempt} "
+                                 f"step-length attempts (γ = {self.gamma:.3g})")
+                self.why_stop['inner_stop'] = True
+                self.logger.info(self.conv_msg)
+                break
+
         return StepReport(
             accepted=self.step_accepted,
             misfit=self.ensemble_misfit,
@@ -714,16 +761,18 @@ class GNEnRML(AssimilationScheme):
             Dict. with keys corresponding to conv. criteria, with logical variable telling which of them that has been
             met
         """
-        enPred = self.pred_data.to_matrix()
-
         # Initialize the initial success value
         success = False
+
+        # The γ this attempt took, captured before the branches below relax
+        # or shorten it -- see LMEnRML.score_and_commit.
+        self.gamma_used = self.gamma
 
         self.prev_data_misfit_mean = self.data_misfit_mean
         self.prev_data_misfit_std = self.data_misfit_std
         self.prev_ensemble_misfit = getattr(self, "ensemble_misfit", None)
 
-        data_misfit = at.calc_objectivefun(self.enObs, enPred, self.cov_data)
+        data_misfit = self.score()
         self.ensemble_misfit = data_misfit
 
         self.data_misfit_mean = np.mean(data_misfit)
@@ -744,12 +793,10 @@ class GNEnRML(AssimilationScheme):
 
             if self.data_misfit_mean >= self.prev_data_misfit_mean:
                 success = False
-                self.log_update(success=success)
                 self.logger.info(
                     f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
                     f'from {self.prior_data_misfit_mean:0.1f} to {self.prev_data_misfit_mean:0.1f}')
             else:
-                self.log_update(success=True)
                 self.logger.info(
                     f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
                     f'from {self.prior_data_misfit_mean:0.1f} to {self.data_misfit_mean:0.1f}')
@@ -778,7 +825,6 @@ class GNEnRML(AssimilationScheme):
             # If reduction in mean data misfit, reduce damping param
             if self.data_misfit_mean < self.prev_data_misfit_mean and self.data_misfit_std < self.prev_data_misfit_std:
                 success = True
-                self.log_update(success=success)
 
                 if self.gamma_factor > 1:
                     self.gamma = self.gamma + (self.gamma_max - self.gamma) * 2 ** (
@@ -791,14 +837,12 @@ class GNEnRML(AssimilationScheme):
             elif self.data_misfit_mean < self.prev_data_misfit_mean and self.data_misfit_std >= self.prev_data_misfit_std:
                 # accept itaration, but keep lam the same
                 success = True
-                self.log_update(success=success)
 
                 if hasattr(self, 'W'):
                     self.current_W = cp.deepcopy(self.W)
 
             else:  # Reject iteration, and increase lam
                 success = False
-                self.log_update(success=success)
 
                 if self.gamma_factor > 1:
                     self.gamma = self.gamma / self.gamma_factor
@@ -820,8 +864,8 @@ class GNEnRML(AssimilationScheme):
             return why_stop
 
     def log_columns(self, prior_run: bool = False) -> dict:
-        """GN-EnRML reports the step length."""
-        return {"γ": self.gamma}
+        """GN-EnRML reports the step length the logged iteration took."""
+        return {"γ": getattr(self, "gamma_used", self.gamma)}
 
 
 #: Historical names.

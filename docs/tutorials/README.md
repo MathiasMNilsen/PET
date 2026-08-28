@@ -7,6 +7,10 @@ Here are some tutorials.
 - [`tutorial_pipt.ipynb`](pipt/TinyBox/tutorial_pipt): Tutorial for running PIPT
 - [`tutorial_popt.ipynb`](popt/5Spot/tutorial_popt): Tutorial for running POPT
 
+## Data structures
+
+- [`tutorial_petdataframe.ipynb`](usefull/tutorial_petdataframe): The `PETDataFrame` container -- ragged data tables, `to_matrix()`, scaling and adjoints
+
 ## Localization
 
 - [`tutorial_auto_adaptive_localization.ipynb`](pipt/localization/5SPOT_PORO/tutorial_auto_adaptive_localization): Adaptive correlation-based tapering

@@ -8,8 +8,7 @@ from geostat.decomp import Cholesky                     # Making realizations
 
 # Internal imports
 from pipt.ensembles import AssimilationEnsemble as Ensemble
-from pipt.update_schemes.core.workflow import AssimilationScheme
-from pipt.update_schemes.core.scheme_base import StepReport
+from pipt.update_schemes.core import AssimilationScheme, StepReport
 from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.subspace import subspace_update
 # Misc. tools used in analysis schemes
@@ -115,7 +114,7 @@ class EnKF(AssimilationScheme):
         ensemble = Ensemble(keys_da, keys_en, sim)
         # Zero tolerances switch off the base class's generic convergence
         # criteria; this scheme decides in check_convergence(). See
-        # AssimilationSchemeBase's `misfit_tol`/`step_tol` docs for why.
+        # AssimilationScheme's `misfit_tol`/`step_tol` docs for why.
         super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
 
         # Flavour is a parameter, so it selects an analysis object not a class.
@@ -159,26 +158,17 @@ class EnKF(AssimilationScheme):
             self.enObs_conv = deepcopy(self.enObs)
             self.ensemble._ext_scaling()
 
-    def score_prior(self):
-        """Score the prior forecast.
+    def score(self, pred_data=None):
+        """Data misfit, weighted by the Cholesky factor of the data covariance.
 
-        Was an ``if self.prior_data_misfit_mean is None`` branch at the top of
-        :meth:`calc_analysis`, which ran after the iteration-0 artifacts had
-        already been written. ``ensemble_misfit`` is recorded here as well, so
-        the per-realisation misfits are available to ``savedata`` for the
-        prior as they are for every later iteration.
+        The EnKF family carries ``scale_data`` -- the factor ``gen_real``
+        returns alongside the perturbed observations -- and scores with that
+        rather than the full ``cov_data`` the iterative smoothers use.
         """
-        enPred = self.pred_data.to_matrix()
-
-        data_misfit = at.calc_objectivefun(self.enObs, enPred, self.scale_data)
-
-        self.ensemble_misfit = data_misfit
-        self.data_misfit_mean = np.mean(data_misfit)
-        self.prior_data_misfit_mean = np.mean(data_misfit)
-        self.data_misfit_std = np.std(data_misfit)
-
-        self.logger.info(
-            f'Prior run complete with data misfit: {self.prior_data_misfit_mean:0.1f}.')
+        pred = self.pred_data if pred_data is None else pred_data
+        return at.calc_objectivefun(
+            self.enObs, self._as_matrix(pred), self.scale_data
+        )
 
     def calc_analysis(self):
         """
@@ -241,7 +231,7 @@ class EnKF(AssimilationScheme):
             self.enX_proposal = entools.clip_matrix(self.enX_proposal, limits, self.idX)
 
     # ------------------------------------------------------------------
-    # AssimilationSchemeBase contract
+    # AssimilationScheme contract
     # ------------------------------------------------------------------
     def update_step(self) -> StepReport:
         """Run one EnKF step: analysis, forecast, then score and commit.
@@ -271,8 +261,7 @@ class EnKF(AssimilationScheme):
 
         # only calulate for the final (posterior) estimate
         if self.iteration + 1 == len(self.keys_da['assimindex']):
-            enPred = self.pred_data.to_matrix()
-            data_misfit = at.calc_objectivefun(self.enObs, enPred, self.scale_data)
+            data_misfit = self.score()
             self.ensemble_misfit = data_misfit
             self.data_misfit_mean = np.mean(data_misfit)
             self.data_misfit_std = np.std(data_misfit)

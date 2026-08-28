@@ -1,4 +1,4 @@
-"""Shared base class for iterative ensemble data-assimilation schemes.
+"""The class every iterative ensemble data-assimilation scheme inherits.
 
 This is the PIPT counterpart to
 :mod:`popt.optimization_methods.optimizer_base`, and deliberately mirrors its
@@ -26,6 +26,14 @@ can be substituted (a lightweight fake is used in the unit tests):
     A :class:`ensemble.logger.PetLogger`, a no-op :class:`ensemble.logger.NullLogger`
     (set when the ensemble's ``logit`` option is false), or ``None`` (e.g. a test
     double with no logger at all).
+``ensemble.keys_da``
+    The parsed ``dataassim`` config. Read at every hook, since which
+    diagnostics and artifacts a run produces is a matter of configuration.
+``ensemble.sim``
+    The forward simulator. Only ``input_dict`` is read here, to decide whether
+    QA/QC was asked for.
+``ensemble._saving_enabled``
+    Whether the run writes artifacts at all.
 
 Reaching the ensemble's state
 -----------------------------
@@ -33,7 +41,7 @@ A scheme reads plenty of ensemble state -- ``enX``, ``pred_data``,
 ``keys_da``, ``localization`` and friends -- and so do the analyses,
 through the scheme. Rather than forwarding unknown attributes
 at lookup time, each of those names is declared as an explicit
-:class:`property` on :class:`AssimilationSchemeBase` (see the block of
+:class:`property` on :class:`AssimilationScheme` (see the block of
 ``_ensemble_attr`` / ``_own_or_ensemble_attr`` declarations below). The
 scheme is therefore a *façade*: everything an analysis needs is
 reachable as ``scheme.<name>``, whether the value lives on the scheme or on
@@ -55,18 +63,28 @@ Here the ensemble is a *collaborator* rather than a superclass, matching how
 ``OptimizerBase`` composes with its callables.
 """
 
+import os
+import pickle
+import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass
+from importlib import import_module
 from typing import Any
 
 import numpy as np
+import pandas as pd
 from scipy.optimize import OptimizeResult
+
+from misc.structures import PETDataFrame
 from pipt.ensembles import AssimilationEnsemble
 from ensemble.checkpoint import RestartMixin
 from pipt.update_schemes.core.analysis_binding import AnalysisBindingMixin
+from pipt.misc_tools.qaqc_tools import QAQC
+import pipt.misc_tools.analysis_tools as at
+import pipt.misc_tools.extract_tools as extract
 
-__all__ = ["AssimilationSchemeBase", "AssimilationResult", "StepReport"]
+__all__ = ["AssimilationScheme", "AssimilationResult", "StepReport"]
 
 
 def _ensemble_attr(name):
@@ -119,9 +137,9 @@ class StepReport:
     """
 
     accepted: bool
-    """Keep this step? ``False`` makes the loop retry at the same iteration
-    number instead of advancing -- how the Levenberg-Marquardt family backs
-    off."""
+    """Keep this step? ``False`` says the scheme found no improving step and
+    has exhausted the attempts it makes inside :meth:`update_step`, so the
+    loop stops rather than asking for the same step again."""
 
     state: "Any"
     """The state this attempt produced, committed by the loop when
@@ -136,9 +154,9 @@ class StepReport:
     ``data_misfit`` and ``data_misfit_std`` from it, so the three can no
     longer drift apart the way separately-assigned attributes could.
 
-    "As of now" matters for a scheme that rejects: LM-EnRML restores the last
+    "As of now" matters for a scheme that gives up: LM-EnRML restores the last
     accepted misfit when it backs off, and returns *that*, so the value the
-    loop records is the one the next comparison is against."""
+    loop records and logs is the one the run actually reached."""
 
     why_stop: dict | None = None
     """Criterion record, merged into ``result.why_stop``."""
@@ -165,14 +183,27 @@ class AssimilationResult(OptimizeResult):
     """
 
 
-class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
-    """Base class for iterative ensemble data-assimilation schemes.
+class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
+    """What every iterative ensemble data-assimilation scheme inherits.
 
-    Subclasses implement :meth:`update_step`, which performs one analysis and
-    reports whether the resulting step was accepted. Everything shared between
-    schemes -- the loop, convergence bookkeeping, restart files, logging and
-    the result object -- lives here.
+    Subclasses implement :meth:`update_step`, which performs one iteration and
+    reports what it produced. Everything else is here: the loop, convergence
+    bookkeeping, restart files, the run table, the result object, and the
+    diagnostics and artifact saving that surround a run.
+
+    Those last two used to be a separate ``AssimilationWorkflowMixin`` that a
+    combined class mixed in ahead of the loop. The split bought nothing --
+    every shipped scheme wanted both halves -- and cost the reader two classes
+    and one load-bearing MRO order, in which listing the mixin second silently
+    stopped a run from saving anything.
     """
+
+    PRIOR_FORECAST_FILE = "prior_forecast.pkl"
+    POSTERIOR_STATE_FILE = "posterior_state_estimate.npz"
+    POSTERIOR_FORECAST_FILE = "posterior_forecast.pkl"
+    STOP_REASON_FILE = "why_iter_loop_stopped.pkl"
+
+    qaqc: QAQC | None = None
 
     def __init__(self, ensemble: AssimilationEnsemble, **options):
         """
@@ -326,19 +357,21 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
         """Run this scheme's assimilation to completion.
 
         Named for the job rather than the mechanism, and matching the
-        ``run_forecast``/``run_prior_forecast`` already on this class. The
-        counterpart in popt is ``OptimizerBase.run_optimization``.
+        ``run_forecast`` already on this class. The counterpart in popt is
+        ``OptimizerBase.run_optimization``.
 
-        Restores a checkpoint if configured, runs the prior forecast, then
-        repeatedly calls :meth:`update_step` until a convergence criterion
-        fires or ``maxiter`` accepted iterations have been taken. Rejected
-        steps do not advance the iteration counter, but they do count against
-        ``max_rejected`` so a scheme cannot loop forever refusing its own
-        updates. Convergence is checked after every attempt, accepted or not
-        -- a scheme's :meth:`check_convergence` can legitimately fire on a
-        step it is about to reject (a stalled misfit that did not actually
-        improve), and that verdict has to end the loop rather than being
-        silently discarded because the step failed.
+        Restores a checkpoint if configured, forecasts and scores the prior,
+        then calls :meth:`update_step` until a convergence criterion fires or
+        ``maxiter`` iterations have been taken. One call is one iteration: a
+        scheme that retries -- re-damping, backtracking a step length -- does
+        so inside :meth:`update_step`, so a report coming back rejected means
+        it has run out of attempts, and the run stops rather than asking again
+        for a step it just said it could not find.
+
+        Convergence is checked on rejected reports too, before that stop takes
+        effect: a scheme's :meth:`check_convergence` can legitimately fire on
+        a step it is about to reject (a stalled misfit that did not actually
+        improve), and that verdict decides how the run is reported.
 
         Returns
         -------
@@ -349,13 +382,14 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
             self.load_restart()
         elif not self.restart:
             self.clear_restart()
-            self.run_prior_forecast()
-            self.score_prior() # Implemented in subclasses.
+            # The prior goes through the same post-forecast hook as every
+            # later forecast, so outlier replacement applies to it too; that
+            # hook can resample members, so its result is what gets committed.
+            self.ensemble.enX = self.run_forecast(self.enX)
+            self.record_prior_score()  # Scores through score(), below.
             self.after_prior_forecast()
 
         converged = False
-        rejected = 0
-        max_rejected = self.options.get("max_rejected", 10 * self.maxiter)
 
         while self.iteration < self.maxiter:
             # Guarded: enX is (nx, ne), so schemes that never opt in pay nothing.
@@ -384,11 +418,11 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
                 self.why_stop.update(step.why_stop)
 
             if self.step_accepted:
-                rejected = 0
+                # Logged before the counter advances: the row is numbered
+                # `iteration + 1`, so this is the iteration just finished.
+                self.log_update(success=True)
                 self.iteration += 1
                 self.after_accepted_iteration()
-            else:
-                rejected += 1
 
             # After every attempt, not only accepted ones: a scheme can
             # converge on a step it is about to reject.
@@ -405,10 +439,11 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
             if converged:
                 break
 
-            if not self.step_accepted and rejected >= max_rejected:
-                self.conv_msg = (
-                    f"Stopped after {rejected} consecutive rejected steps"
-                )
+            if not self.step_accepted:
+                # The scheme has already retried as much as it intends to,
+                # inside update_step(). Asking again would repeat the step it
+                # just reported it could not improve on.
+                self.conv_msg = self.conv_msg or "No improving step found"
                 break
 
         if self.iteration >= self.maxiter and not converged:
@@ -417,28 +452,17 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
         self.after_loop(converged)
         return self._finalize(converged)
 
-    def run_prior_forecast(self) -> None:
-        """Run the iteration-zero forecast on the prior ensemble.
-
-        Goes through the same post-forecast hook as every later forecast, so
-        outlier replacement applies to the prior ensemble too rather than being
-        duplicated by the workflow mixin -- and because that hook can resample
-        members, the state it hands back is committed here.
-        """
-        self.ensemble.enX = self.run_forecast(self.enX)
-
     # ------------------------------------------------------------------
-    # Workflow hooks
+    # The run table
     # ------------------------------------------------------------------
-    # Extension points for work that surrounds the algorithm rather than being
-    # part of it -- diagnostics, artifact saving, outlier handling. They are
-    # no-ops here so the loop stays algorithm-only; PIPT supplies them through
-    # :class:`pipt.update_schemes.core.AssimilationWorkflowMixin`.
 
     def log_update(self, success=None, prior_run=False) -> None:
-        """Log one attempt as a row in the run table.
+        """Log one row of the run table.
 
-        The row is the same for every scheme apart from its control
+        Called by :meth:`run_assimilation` -- once for the prior and once per
+        accepted iteration -- so a scheme gets its rows without asking, and
+        the attempts it makes inside :meth:`update_step` stay its own
+        business. The row is the same for every scheme apart from its control
         parameter, which :meth:`log_columns` supplies.
         """
         if self.logger is None:
@@ -458,59 +482,163 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
         control parameter, e.g. ``{"λ": self.lam}``. Empty by default."""
         return {}
 
-    def score_prior(self) -> None:
-        """Score the prior forecast, before any iteration.
+    def score(self, pred_data=None) -> "np.ndarray | None":
+        r"""Per-realisation data misfit of a forecast.
 
-        Sets ``prior_data_misfit``, ``data_misfit`` and -- where the scheme
-        keeps it -- the per-realisation ``ensemble_misfit``, so the prior is
-        described by the same attributes as every later iteration.
+        Called every time a new state has been forecast and needs a number:
+        once for the prior, by :meth:`record_prior_score`, and then by each
+        scheme for every attempt it takes inside :meth:`update_step`. One
+        definition per scheme, rather than the same expression repeated in a
+        prior-scoring hook and again in the step.
 
-        Schemes used to do this inside the first ``calc_analysis``, which runs
-        *after* :meth:`after_prior_forecast`. The prior misfit therefore did
-        not exist yet when the iteration-0 artifacts were written, so
-        ``savedata`` could not capture it. It also meant a
-        scheme that rejects its first step -- the Levenberg-Marquardt family --
-        recomputed ``prior_data_misfit`` from the *rejected* forecast on every
-        retry.
+        Parameters
+        ----------
+        pred_data : optional
+            The forecast to score -- a ``PETDataFrame`` or an ``(nd, ne)``
+            matrix. Defaults to ``self.pred_data``, which is what the
+            ensemble's most recent forecast produced, so the usual call is
+            ``self.score()`` straight after ``run_forecast``. Pass one
+            explicitly to score a forecast the ensemble no longer holds.
 
-        The default is a no-op: a scheme that has no prior misfit to report
-        simply does not override it.
+        Returns
+        -------
+        np.ndarray or None
+            ``(ne,)`` misfit per realisation, or ``None`` when the scheme has
+            no observation ensemble bound -- a scheme that scores some other
+            way overrides this, and one that reports no misfit at all (the
+            base's own tests) leaves the loop's misfit bookkeeping alone.
+
+        Notes
+        -----
+        The default is the objective function every shipped scheme uses,
+
+        .. math::
+
+            \Phi_j = (g(m_j) - d_j)^{\mathsf T} C_d^{-1} (g(m_j) - d_j),
+
+        against the *perturbed* observations ``enObs`` and the data covariance
+        ``cov_data``. Schemes that score against something else override it:
+        ES-MDA keeps an un-inflated copy of the perturbations
+        (``enObs_conv``), and the EnKF family uses its Cholesky factor
+        ``scale_data`` in place of the full covariance.
         """
+        pred = self.pred_data if pred_data is None else pred_data
+        enObs = getattr(self, "enObs", None)
+        if enObs is None or pred is None:
+            return None
+        return at.calc_objectivefun(enObs, self._as_matrix(pred), self.cov_data)
 
-    def after_prior_forecast(self) -> None:
-        """Called once, after the prior forecast has been run and scored."""
+    @staticmethod
+    def _as_matrix(pred) -> "np.ndarray":
+        """A forecast as an ``(nd, ne)`` matrix, given either form."""
+        return pred.to_matrix() if hasattr(pred, "to_matrix") else np.asarray(pred)
 
-    # Note: there is deliberately no `after_analysis` hook here. It marks a
-    # point *inside* update_step(), and how a scheme performs its step is the
-    # scheme's business, not the base's -- the base only calls update_step().
-    # AssimilationWorkflowMixin declares and implements it for the schemes
-    # that opt into that workflow.
+    def record_prior_score(self) -> None:
+        """Score the prior forecast and record it, before any iteration.
 
-    def after_forecast(self, state):
-        """Called after each forecast, before the misfit is scored.
+        Sets ``prior_data_misfit_mean``, ``data_misfit_mean`` and the
+        per-realisation ``ensemble_misfit``, so the prior is described by the
+        same attributes as every later iteration -- and early enough that the
+        iteration-0 artifacts written by :meth:`after_prior_forecast` can
+        capture them.
 
-        Unlike the other hooks this one *transforms* rather than merely
-        observing: outlier replacement resamples members, so it takes the
-        state that was forecast and returns the state to carry forward.
-        Override it to return ``state`` unchanged if you only want a side
-        effect.
+        This used to be a ``score_prior()`` hook that each scheme implemented,
+        which meant every scheme spelled out both the misfit expression and
+        the five assignments around it. The expression is now :meth:`score`
+        and the bookkeeping is here; a scheme customises the former.
+
+        Does nothing when :meth:`score` reports no misfit, which is how a
+        scheme with nothing to score opts out.
         """
-        return state
+        misfit = self.score()
+        if misfit is None:
+            return
 
+        misfit = np.asarray(misfit, dtype=float)
+        self.ensemble_misfit = misfit
+        self.data_misfit_mean = float(misfit.mean())
+        self.data_misfit_std = float(misfit.std())
+        self.prior_data_misfit_mean = self.data_misfit_mean
+        self.prior_data_misfit_std = self.data_misfit_std
+
+        self.log_update(success=True, prior_run=True)
+
+    # ------------------------------------------------------------------
+    # Points in a run
+    # ------------------------------------------------------------------
     def run_forecast(self, state):
-        """Forecast ``state``, then run the post-forecast hook.
+        """Forecast ``state``, then run the post-forecast step.
 
-        Returns the state to carry forward -- the same one unless a hook
-        replaced members in it.
+        Returns the state to carry forward -- the same one unless
+        :meth:`after_forecast` replaced members in it.
         """
         self.ensemble.forecast(state)
         return self.after_forecast(state)
 
+    def after_prior_forecast(self) -> None:
+        """Handle the prior forecast: prior QA, saved artifacts.
+
+        Outlier replacement is not done here. The prior goes through
+        :meth:`after_forecast` like every other forecast, so it has already
+        happened by the time this runs -- and before :meth:`record_prior_score`
+        computes the misfit, which is the order that matters.
+        """
+        self.qaqc = self._build_qaqc()
+
+        self._run_prior_quality_assurance()
+        self._save_prior_forecast()
+        if self._savedata_keys:
+            self._save_iteration_data()
+        if "iterinfo" in self.keys_da:
+            self._save_iteration_information()
+        self._save_restart_snapshot()
+
+    def after_analysis(self) -> None:
+        """Between analysis and forecast: refresh screened QAQC variance.
+
+        The odd one out: it marks a point *inside* :meth:`update_step`, and
+        this class does not dictate the shape of a step, so a scheme calls it
+        itself. The rest of the hooks here are called by
+        :meth:`run_assimilation`.
+        """
+        self._refresh_screened_qaqc_datavar()
+
+    def after_forecast(self, state):
+        """Between forecast and scoring: replace outlier members.
+
+        Ordering matters -- outliers are replaced before the misfit is scored,
+        so the replacement feeds into the number the scheme sees. The
+        resampled state is returned rather than written back, so the caller
+        keeps ownership of what it is forecasting.
+        """
+        if "remove_outliers" in self.keys_da:
+            return self.ensemble.remove_outliers(state)
+        return state
+
     def after_accepted_iteration(self) -> None:
-        """Called after each accepted iteration, once the counter has advanced."""
+        """Persist iteration artifacts and run QA/QC after an accepted update."""
+        if "iterinfo" in self.keys_da:
+            self._save_iteration_information()
+        if self._savedata_keys:
+            self._save_iteration_data()
+
+        if self.qaqc is not None:
+            if "qc" in self.keys_da:
+                self._set_qaqc()
+                self.qaqc.calc_da_stat()
+            if "qa" in self.keys_da:
+                self._set_qaqc()
+                self.qaqc.calc_mahalanobis((1, "time", 2, "time", 1, None, 2, None))
+                self.qaqc.calc_kg()
+
+        self._save_restart_snapshot()
 
     def after_loop(self, converged: bool) -> None:
-        """Called once the loop has stopped, before the result is assembled."""
+        """Save the posterior and the reason the run stopped."""
+        if self._saving_enabled:
+            self._save_posterior_results()
+            self._save_stop_reason(converged)
+        self._log_convergence_summary()
 
     # ------------------------------------------------------------------
     # Shared convergence criteria
@@ -580,6 +708,195 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
         return self.results
 
     # ------------------------------------------------------------------
+    # QA/QC
+    # ------------------------------------------------------------------
+    def _build_qaqc(self) -> QAQC | None:
+        """Create QA/QC helper only when requested by the configuration."""
+        qaqc_requested = (
+            "qa" in self.keys_da
+            or "qa" in self.sim.input_dict
+            or "qc" in self.keys_da
+        )
+        if not qaqc_requested:
+            return None
+
+        return QAQC(
+            self.keys_da | self.sim.input_dict,
+            self.ensemble.obs_data,
+            self.ensemble.datavar,
+            self.logger,
+            self.prior_info,
+            self.sim,
+            self.prior_enX.to_dict(),
+        )
+
+    def _set_qaqc(self) -> None:
+        self.qaqc.set(self.pred_data, self.enX.to_dict(), self.lam)
+
+    def _run_prior_quality_assurance(self) -> None:
+        if self.qaqc is None or "qa" not in self.keys_da:
+            return
+
+        self._set_qaqc()
+        self.qaqc.calc_mahalanobis((1, "time", 2, "time", 1, None, 2, None))
+        self.qaqc.calc_coverage()
+        self.qaqc.calc_kg({"plot_all_kg": True, "only_log": False, "num_store": 5})
+
+    def _refresh_screened_qaqc_datavar(self) -> None:
+        """Update QAQC data variance after first-iteration data screening."""
+        if self.qaqc is None:
+            return
+        if "qa" not in self.keys_da:
+            return
+        if not extract.is_enabled(self.keys_da.get("screendata", False)):
+            return
+        if self.iteration != 1:
+            return
+
+        self.logger.info("Recomputing Mahalanobis distance with updated datavar")
+        self.qaqc.datavar = self.ensemble.datavar
+        self.qaqc.calc_mahalanobis((1, "time", 2, "time", 1, None, 2, None))
+
+    # ------------------------------------------------------------------
+    # Saving
+    # ------------------------------------------------------------------
+    def _save_restart_snapshot(self) -> None:
+        if extract.is_enabled(self.keys_da.get("restartsave", False)):
+            self.ensemble.save()
+
+    def _save_prior_forecast(self) -> None:
+        if not self._saving_enabled:
+            return
+        try:
+            self.sim_data.to_pickle(self._save_path(self.PRIOR_FORECAST_FILE))
+        except Exception:
+            np.savez(self._save_path(self.PRIOR_FORECAST_FILE), sim_data=self.sim_data)
+
+    def _save_posterior_results(self) -> None:
+        """Save posterior state and forecast, falling back to pickle if needed."""
+        try:
+            np.savez(self._save_path(self.POSTERIOR_STATE_FILE), **self.enX.to_dict())
+            self.sim_data.to_pickle(self._save_path(self.POSTERIOR_FORECAST_FILE))
+        except Exception:
+            with open(self._save_path(self.POSTERIOR_STATE_FILE), "wb") as file:
+                pickle.dump(self.enX.to_dict(), file)
+            with open(self._save_path(self.POSTERIOR_FORECAST_FILE), "wb") as file:
+                pickle.dump(self.sim_data, file)
+
+    def _save_stop_reason(self, converged: bool) -> None:
+        if converged:
+            reason = "Convergence criteria met. Stopping assimilation loop."
+        else:
+            reason = "Maximum iterations reached without convergence."
+        self.logger.info(reason)
+
+        why = self.why_stop.copy() if isinstance(self.why_stop, dict) else self.why_stop
+        if why is not None:
+            why["conv_string"] = reason
+
+        with open(self._save_path(self.STOP_REASON_FILE), "wb") as file:
+            pickle.dump(why, file, protocol=4)
+
+    def _log_convergence_summary(self) -> None:
+        # `logger` is None for a collaborator that has none at all, which the
+        # ensemble protocol allows; `log_update` guards the same way.
+        if self.logger is None or self.prev_data_misfit_mean is None:
+            return
+
+        out_str = "\n Convergence was met."
+        if self.prior_data_misfit_mean > self.data_misfit_mean:
+            out_str += (
+                f" Obj. function reduced from {self.prior_data_misfit_mean:0.1f} "
+                f"to {self.data_misfit_mean:0.1f}"
+            )
+        self.logger(out_str)
+
+    def _save_iteration_information(self) -> None:
+        """Run configured iteration-info hooks."""
+        for element in self._as_list(self.keys_da["iterinfo"]):
+            if ".py" not in element:
+                continue
+
+            module_name = element.removesuffix(".py")
+            iter_info_func = import_module(module_name)
+            iter_info_func.main(self)
+
+    @property
+    def _savedata_keys(self) -> list[str]:
+        """Variable names to record each iteration, from ``savedata``.
+
+        ``analysisdebug`` is the old spelling and is still honoured, with a
+        deprecation warning. The two are not merged: a config carrying both is
+        almost certainly mid-migration, and silently unioning them would hide
+        whichever one the user forgot to delete.
+        """
+        if "savedata" in self.keys_da:
+            return self._as_list(self.keys_da["savedata"])
+        if "analysisdebug" in self.keys_da:
+            warnings.warn(
+                "The 'analysisdebug' config key is deprecated; rename it to "
+                "'savedata'. Output files are now 'assimilation_result_{i}.npz' "
+                "rather than 'debug_analysis_step_{i}.npz'.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return self._as_list(self.keys_da["analysisdebug"])
+        return []
+
+    def _save_iteration_data(self) -> None:
+        """Save the scheme attributes named by ``savedata``.
+
+        One file per iteration, ``assimilation_result_{iteration}.npz``, with
+        iteration 0 describing the prior -- the assimilation counterpart of
+        popt's ``optimize_result_{i}.npz``. ``state`` is special-cased: it
+        expands to one array per state variable rather than a single entry.
+
+        A name the scheme does not carry is reported and skipped rather than
+        failing the run, since a variable can legitimately be absent for a
+        given scheme -- ``lam`` exists for the Levenberg-Marquardt family and
+        not for ES-MDA.
+        """
+        save_dict: dict[str, Any] = {}
+
+        for save_type in self._savedata_keys:
+            if hasattr(self, save_type):
+                save_attr = getattr(self, save_type)
+                if isinstance(save_attr, (pd.DataFrame, PETDataFrame)):
+                    save_dict[save_type] = save_attr.to_dict(orient="records")
+                else:
+                    save_dict[save_type] = save_attr
+            elif save_type == "state":
+                save_dict.update(self._state_debug_dict())
+            else:
+                print(
+                    f"Cannot save '{save_type}' at iteration {self.iteration}: "
+                    f"neither {type(self).__name__} nor its ensemble has an "
+                    f"attribute by that name.\n"
+                )
+
+        save_dict["savefolder"] = self.save_folder
+        at.save_assimilation_result(self.iteration, **save_dict)
+
+    def _state_debug_dict(self) -> dict[str, Any]:
+        if getattr(self.ensemble, "multilevel", None) is not None:
+            return {
+                f"state_level{level}": self.enX[level].to_dict()
+                for level in range(self.ensemble.tot_level)
+            }
+        return self.enX.to_dict()
+
+    @staticmethod
+    def _as_list(value: Any) -> list[Any]:
+        return value if isinstance(value, list) else [value]
+
+    # ------------------------------------------------------------------
+    # Paths
+    # ------------------------------------------------------------------
+    def _save_path(self, filename: str) -> str:
+        if self.save_folder is None:
+            raise RuntimeError("Cannot save results because saving is disabled.")
+        return os.path.join(self.save_folder, filename)
+    # ------------------------------------------------------------------
     # Restart hooks required by RestartMixin
     # ------------------------------------------------------------------
     def _get_base_restart_state(self) -> dict:
@@ -603,13 +920,6 @@ class AssimilationSchemeBase(AnalysisBindingMixin, RestartMixin, ABC):
         self.prev_data_misfit_mean = state["prev_data_misfit"]
         self.conv_msg = state.get("conv_msg", "")
         self.why_stop = dict(state.get("why_stop", {}))
-
-    def _get_restart_state(self) -> dict:
-        """Serialize subclass-owned state. Override as needed."""
-        return {}
-
-    def _set_restart_state(self, state: dict) -> None:
-        """Restore subclass-owned state. Override as needed."""
 
     # ------------------------------------------------------------------
     # Convenience entry point

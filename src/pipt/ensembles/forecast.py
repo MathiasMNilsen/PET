@@ -6,7 +6,7 @@ compression machinery, and it writes ``pred_data``. It lived on
 ``pipt.loop.assimilation.Assimilate`` only because that class historically drove
 every iteration.
 
-:class:`AssimilationSchemeBase` expects its ensemble collaborator to expose a
+:class:`AssimilationScheme` expects its ensemble collaborator to expose a
 public :meth:`ForecastMixin.forecast`, so the forecast lives here and the loop
 delegates to it. Mixed into :class:`pipt.ensembles.AssimilationEnsemble`.
 """

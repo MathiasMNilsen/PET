@@ -44,7 +44,7 @@ time::
            does the linear algebra, reading whatever context it needs off
            `self.scheme` -- the esmda_instance from step 3. `scheme.lam` is
            the scheme's own attribute; `scheme.keys_da` is its ensemble's,
-           exposed as a property on the scheme (see AssimilationSchemeBase).
+           exposed as a property on the scheme (see AssimilationScheme).
            The analysis does not need to know which is which.
 
 ``EnKF``/``ES`` never revisit a data group, so the prior-increment term

@@ -18,7 +18,7 @@ dependence entirely.
 #──────────────────────────────────────────────────────────────────────────────────────
 from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.esmda import ESMDA
-from pipt.update_schemes.core.scheme_base import StepReport
+from pipt.update_schemes.core import StepReport
 from pipt.misc_tools import analysis_tools as at
 from geostat.decomp import Cholesky
 from pipt.update_schemes.analysis.hybrid import hybrid_update
@@ -142,7 +142,7 @@ class esmda_hybrid(ESMDA):
             self.proj.append(proj_l)
 
     # ------------------------------------------------------------------
-    # AssimilationSchemeBase contract
+    # AssimilationScheme contract
     # ------------------------------------------------------------------
     def update_step(self) -> StepReport:
         """Run one multilevel ES-MDA step.
@@ -163,29 +163,19 @@ class esmda_hybrid(ESMDA):
         """ES-MDA runs its full schedule of inflated steps; nothing stops early."""
         return False
 
-    def score_prior(self):
-        """Score the prior forecast across all fidelity levels.
+    def score(self, pred_data=None):
+        """Data misfit over every fidelity level at once.
 
-        Same move as :meth:`pipt.update_schemes.esmda.ESMDA.score_prior`: out
-        of the ``iteration == 0`` branch of :meth:`calc_analysis` and into a
-        hook that runs before the iteration-0 artifacts are written.
+        ``pred_data`` is one frame per level here, so the levels are
+        concatenated along the ensemble axis and scored as a single ensemble
+        against the un-inflated perturbations, as
+        :meth:`pipt.update_schemes.esmda.ESMDA.score` does for one level.
         """
-        self.enPred = [self.pred_data[l].to_matrix() for l in range(self.tot_level)]
-
-        # Note, evaluate for high fidelity model
-        data_misfit = at.calc_objectivefun(
-            self.enObs_conv,
-            np.concatenate(self.enPred, axis=1),  # Is this correct, given the comment above??????
-            self.cov_data
+        pred = self.pred_data if pred_data is None else pred_data
+        levels = [self._as_matrix(frame) for frame in pred]
+        return at.calc_objectivefun(
+            self.enObs_conv, np.concatenate(levels, axis=1), self.cov_data
         )
-
-        self.ensemble_misfit = data_misfit
-        self.prior_data_misfit_mean = np.mean(data_misfit)
-        self.prior_data_misfit_std = np.std(data_misfit)
-        self.data_misfit_mean = np.mean(data_misfit)
-        self.data_misfit_std = np.std(data_misfit)
-
-        self.log_update(prior_run=True)
 
     def calc_analysis(self):
 
@@ -268,17 +258,7 @@ class esmda_hybrid(ESMDA):
         self.prev_data_misfit_mean = self.data_misfit_mean
         self.prev_data_misfit_std = self.data_misfit_std
 
-        # Prelude to calc. conv. check (everything done below is from calc_analysis)
-        enPred = []
-        for l in range(self.tot_level):
-            enPred_level = self.pred_data[l].to_matrix()
-            enPred.append(enPred_level)
-
-        data_misfit = at.calc_objectivefun(
-            self.enObs_conv,
-            np.concatenate(enPred,axis=1),
-            self.cov_data
-        )
+        data_misfit = self.score()
         self.ensemble_misfit = data_misfit
         self.data_misfit_mean = np.mean(data_misfit)
         self.data_misfit_std = np.std(data_misfit)
@@ -287,11 +267,6 @@ class esmda_hybrid(ESMDA):
         why_stop = {'rel_data_misfit': 1 - (self.data_misfit_mean / self.prev_data_misfit_mean),
                     'data_misfit': self.data_misfit_mean,
                     'prev_data_misfit': self.prev_data_misfit_mean}
-
-        # Log update results
-        success = self.data_misfit_mean < self.prev_data_misfit_mean
-        self.log_update(success=success)
-
 
         if hasattr(self, 'W'):
             self.current_W = deepcopy(self.W)

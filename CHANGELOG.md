@@ -313,16 +313,130 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Model(optimizer="adam").optimizer` is an optimizer instance.
   `pipt.localization` keeps its own, unrelated use of "strategy".
 
-- **Schemes inherit one base, `AssimilationScheme`,** instead of listing
-  `(AssimilationWorkflowMixin, StrategyMixin, AssimilationSchemeBase)`. The
-  order was load-bearing and easy to get wrong: the workflow mixin *overrides*
-  five hooks (`after_analysis`, `after_forecast`, `after_loop`,
-  `after_accepted_iteration`, `after_prior_forecast`) that the base defines as
-  no-op defaults, so listing it after the base would have silently stopped
-  every run from saving its artifacts. Combining them once removes that
-  hazard. `AssimilationWorkflowMixin` stays a usable standalone mixin, and a
-  scheme wanting the loop without the artifacts can still subclass
-  `AssimilationSchemeBase` directly.
+- **`score_prior()` is replaced by `score()`.** Every scheme spelled out its
+  own prior-scoring hook: the misfit expression, then the same five
+  assignments around it. The expression is now a `score()` method and the
+  bookkeeping belongs to the base, which calls it through
+  `record_prior_score()` before the loop. `run_prior_forecast()` went the same
+  way -- it wrapped a single line that now sits in the loop that used it.
+
+  ```python
+  # before: once per scheme
+  def score_prior(self):
+      misfit = at.calc_objectivefun(
+          self.enObs, self.pred_data.to_matrix(), self.cov_data)
+      self.ensemble_misfit = misfit
+      self.data_misfit_mean = np.mean(misfit)
+      self.prior_data_misfit_mean = np.mean(misfit)
+      self.data_misfit_std = np.std(misfit)
+
+  # after: the expression only, and only when it differs from the default
+  def score(self, pred_data=None):
+      pred = self.pred_data if pred_data is None else pred_data
+      return at.calc_objectivefun(
+          self.enObs_conv, self._as_matrix(pred), self.cov_data)
+  ```
+
+  `score()` is called for the prior *and* for every attempt inside a step, so
+  a scheme has one definition of its own misfit instead of two copies that
+  could drift. The base implements the default — perturbed observations
+  `enObs` against `cov_data` — so a scheme that binds those needs no override
+  at all; ES-MDA overrides it to score against its un-inflated `enObs_conv`,
+  and the EnKF family to use `scale_data`. A scheme with nothing to score
+  returns `None` and the base leaves its misfit bookkeeping alone.
+
+  Prior scoring now also logs its row through `log_update(prior_run=True)` for
+  every scheme, so the EnKF and ES print an iteration-0 row in the run table
+  where they previously printed a one-line info message.
+
+- **The damping loop moved into `update_step()`.** LM-EnRML and GN-EnRML used
+  to iterate λ and γ through the *base* loop: reject the step, return
+  `accepted=False`, and let `run_assimilation` retry at the same iteration
+  number. The retry now happens inside `update_step()`, so one call is one
+  iteration however many attempts it takes — the shape popt's optimizers
+  already had, where `EnOpt.update_step` backtracks over its own step length
+  before returning.
+
+  The sequence of analyses, forecasts and λ updates is unchanged, and the
+  numerical characterisation tests confirm the schemes produce identical
+  numbers. What changes is where the loop lives, and how a scheme that cannot
+  improve gives up: both schemes take a new `max_inner_iter` option
+  (default 10) in the `iteration` block and stop with `why_stop['inner_stop']`
+  when they exhaust it. GN-EnRML has no `gamma_min`, so previously it kept
+  shortening its step until the base loop's `max_rejected` valve fired after
+  `10 * max_iter` attempts; it now gives up after 10 consecutive failures.
+
+  With the retries inside the step, the base loop no longer counts rejections:
+  `max_rejected` and its "stopped after N consecutive rejected steps" ending
+  are gone. A report coming back `accepted=False` now means the scheme has
+  exhausted its own attempts, so the run stops — asking again would only
+  repeat the step it just said it could not improve on. Convergence is still
+  checked on that final report, so a scheme that rejects *and* converges (LM-
+  EnRML reaching `lambda_max`) is still reported as converged.
+
+- **The run table is logged by the loop.** `log_update()` was called from
+  inside each scheme's `score_and_commit`, twelve times across five schemes,
+  once per *attempt*. `run_assimilation` now logs one row per accepted
+  iteration, and the schemes do not log at all:
+
+  ```python
+  # scheme_base.run_assimilation()
+  if self.step_accepted:
+      self.log_update(success=True)
+      self.iteration += 1
+      self.after_accepted_iteration()
+  ```
+
+  Rejected attempts no longer produce a `Failed` row — with the damping loop
+  inside `update_step`, those attempts are the scheme's business. The EnKF and
+  ES, which never called `log_update` at all, now get rows like every other
+  scheme. `log_columns()` is unchanged and remains how a scheme adds its
+  control parameter; LM-EnRML and GN-EnRML report the λ and γ the logged
+  iteration actually ran with, since by the time the loop logs, the scheme has
+  already adjusted them for the next one.
+
+- **One class: `AssimilationScheme`.** Schemes used to inherit a combination
+  of `AssimilationWorkflowMixin` and `AssimilationSchemeBase`, in that order
+  and no other: the mixin *overrides* five hooks (`after_analysis`,
+  `after_forecast`, `after_loop`, `after_accepted_iteration`,
+  `after_prior_forecast`) that the base declared as no-op defaults, so listing
+  it second silently stopped a run from saving anything.
+
+  The split bought nothing — every shipped scheme wanted both halves — so the
+  two are now one class named `AssimilationScheme`, and
+  `pipt/update_schemes/core/workflow.py` is gone.
+
+  ```python
+  # before                                          # after
+  from ...core.workflow import AssimilationScheme   from ...core import AssimilationScheme, StepReport
+  from ...core.scheme_base import StepReport
+  ```
+
+  `AssimilationSchemeBase` and `AssimilationWorkflowMixin` no longer exist
+  under any name. Anything subclassing the mixin on its own — a test double,
+  say — should subclass `AssimilationScheme` and supply an ensemble stand-in,
+  since `keys_da`, `save_folder` and friends are read-only views of the
+  ensemble rather than attributes to assign.
+
+  The ensemble collaborator protocol grew accordingly: a scheme now always
+  carries the workflow, so its ensemble must also expose `keys_da`, `sim`
+  (for `input_dict`) and `_saving_enabled`. The module docstring lists it.
+
+- **LM-EnRML's damping factor is `lam_factor`, not `gamma`.** The config key
+  is unchanged (`lambda_factor`); only the attribute is renamed. `gamma` named
+  two different quantities in one file -- LM-EnRML's damping multiplier and
+  GN-EnRML's step length -- which is a poor trap to leave beside two classes
+  whose inner loops now read almost identically. A `savedata` entry or
+  `iterinfo` script reading `gamma` off an LM-EnRML scheme should read
+  `lam_factor` instead.
+
+- **Empty hook declarations are gone.** The five no-op `after_*` stubs
+  disappeared with the merge — the workflow bodies took their place — and
+  `_get_restart_state()` / `_set_restart_state()` moved to
+  `ensemble.checkpoint.RestartMixin` as defaults, so neither PIPT's schemes
+  nor popt's `OptimizerBase` declare an empty pair to satisfy the protocol.
+  Hosts that checkpoint their own state (`EnOpt`, `TrustRegion`, `LineSearch`,
+  `SmcOpt`) override them exactly as before.
 
 ### Added
 

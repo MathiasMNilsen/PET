@@ -13,6 +13,7 @@ import numpy as np
 
 # Internal imports
 from geostat.decomp import Cholesky
+from misc.structures.structures import _gen_real_limits
 
 
 def matrix_to_dict(matrix: np.ndarray, indecies: dict[tuple]) -> dict:
@@ -180,7 +181,7 @@ def generate_prior_ensemble(prior_info: dict, size: int, save: bool = True) -> t
             if limits is None:
                 real = generator.gen_real(mean_layer, cov, size)
             else:
-                real = generator.gen_real(mean_layer, cov, size, limits[idz])
+                real = generator.gen_real(mean_layer, cov, size, _gen_real_limits(limits, idz))
 
             # Stack realizations for each layer
             if idz == 0:

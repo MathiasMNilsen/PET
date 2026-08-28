@@ -346,7 +346,7 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
         """Run this optimizer to completion.
 
         Named for the job rather than the mechanism; the counterpart in pipt is
-        ``AssimilationSchemeBase.run_assimilation``.
+        ``AssimilationScheme.run_assimilation``.
 
         The loop handles restart restoration, optional EPF outer iterations,
         repeated calls to ``update_step()``, and shared convergence checks.
@@ -634,12 +634,6 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
             self.jac.nfev = state.get('njev', getattr(self.jac, 'nfev', 0))
         if self.hess:
             self.hess.nfev = state.get('nhev', getattr(self.hess, 'nfev', 0))
-
-    def _get_restart_state(self):
-        return {}
-
-    def _set_restart_state(self, state):
-        del state
 
 
 

@@ -7,7 +7,7 @@ its context explicitly off ``self.scheme`` -- always that one object, never
 ``trunc_energy``, ``iteration``) and some belong to its ensemble
 (``localization``, ``keys_da``, ``proj``, ``prior_enX``, ``state_scaling``),
 but the scheme exposes both as properties, so an analysis never has to know
-which -- see :class:`~pipt.update_schemes.core.AssimilationSchemeBase`.
+which -- see :class:`~pipt.update_schemes.core.AssimilationScheme`.
 
 The load-bearing test is
 :func:`test_bound_strategy_matches_mixed_in_result`: bound and mixed-in must

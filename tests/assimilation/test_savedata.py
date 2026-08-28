@@ -2,28 +2,39 @@
 
 Unit-level counterpart to the end-to-end assertions in
 ``test_assimilation_pipeline.py``. Those run a real scheme and are slow; these
-drive :class:`~pipt.update_schemes.core.AssimilationWorkflowMixin` directly, so
-the naming contract and the deprecated alias are cheap to pin.
+drive the saving path of :class:`~pipt.update_schemes.core.AssimilationScheme`
+directly, so the naming contract and the deprecated alias are cheap to pin.
 """
 
 import warnings
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from pipt.update_schemes.core.workflow import AssimilationWorkflowMixin
+from pipt.update_schemes.core import AssimilationScheme
 
 
-class FakeScheme(AssimilationWorkflowMixin):
-    """Enough of a scheme for the saving path, and nothing else."""
+class FakeScheme(AssimilationScheme):
+    """Enough of a scheme for the saving path, and nothing else.
+
+    ``keys_da`` and ``save_folder`` are read-only views of the ensemble, so
+    they are supplied through a stand-in for it rather than assigned.
+    """
 
     def __init__(self, keys_da, save_folder, iteration=0, **attrs):
-        self.keys_da = keys_da
-        self.save_folder = str(save_folder)
+        self.ensemble = SimpleNamespace(
+            keys_da=keys_da,
+            save_folder=str(save_folder),
+            multilevel=None,
+        )
         self.iteration = iteration
-        self.ensemble = None
         for name, value in attrs.items():
             setattr(self, name, value)
+
+    def update_step(self):
+        """Never called: declared only because the class is abstract."""
+        raise NotImplementedError
 
 
 def _saved(folder, iteration):

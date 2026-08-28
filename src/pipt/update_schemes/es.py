@@ -4,7 +4,6 @@ ES type schemes
 from pipt.update_schemes.enkf import EnKF
 
 import numpy as np
-from pipt.misc_tools import analysis_tools as at
 
 
 class ES(EnKF):
@@ -108,8 +107,7 @@ class ES(EnKF):
         self.prev_data_misfit_mean = self.prior_data_misfit_mean
         # only calulate for the final (posterior) estimate
         if self.iteration + 1 == len(self.keys_da['assimindex']):
-            enPred = self.pred_data.to_matrix()
-            data_misfit = at.calc_objectivefun(self.enObs, enPred, self.scale_data)
+            data_misfit = self.score()
             self.ensemble_misfit = data_misfit
             self.data_misfit_mean = np.mean(data_misfit)
             self.data_misfit_std = np.std(data_misfit)

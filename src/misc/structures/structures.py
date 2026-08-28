@@ -20,6 +20,30 @@ __all__ = [
     'PETStateArray',
 ]
 
+
+def _gen_real_limits(limits, layer):
+    """Translate a prior's ``limits`` entry into what ``gen_real`` expects.
+
+    Configs give ``limits`` as a single ``[lower, upper]`` pair -- the form
+    the update-step clipping and :func:`limit_state` also read -- while
+    ``gen_real`` wants a ``{'lower': ..., 'upper': ...}`` mapping. A per-layer
+    list of either form is accepted too, for a prior that bounds its layers
+    differently.
+    """
+    if isinstance(limits, dict):
+        entry = limits
+    elif isinstance(limits[0], (list, tuple, dict)):
+        entry = limits[layer]
+    else:
+        entry = limits
+
+    if isinstance(entry, dict):
+        return entry
+
+    lower, upper = entry
+    return {'lower': lower, 'upper': upper}
+
+
 class PETDataFrame(pd.DataFrame):
     """
     Pandas DataFrame subclass that preserves all pandas behavior
@@ -112,11 +136,15 @@ class PETDataFrame(pd.DataFrame):
         """Return a new PETDataFrame filtered to the specified columns and index."""
         filtered = self.copy()
         if index is not None:
-            if hasattr(index, "dtype") and index.dtype != filtered.index.dtype:
+            # Let .loc decide whether the labels are present: comparing dtypes
+            # rejects indices that select perfectly well (datetime.date labels
+            # against a DatetimeIndex, for instance).
+            try:
+                filtered = filtered.loc[index]
+            except KeyError as exc:
                 raise ValueError(
-                    "Provided index has different dtype than DataFrame index."
-                )
-            filtered = filtered.loc[index]
+                    f"Provided index does not match DataFrame index: {exc}"
+                ) from exc
         if columns is not None:
             filtered = filtered.filter(items=columns)
 
@@ -420,7 +448,9 @@ class PETStateArray(np.ndarray):
                 if info.get('limits', None) is None:
                     fieldz = Cholesky().gen_real(meanz, cov, ne)
                 else:
-                    fieldz = Cholesky().gen_real(meanz, cov, ne, limits=info['limits'][z])
+                    fieldz = Cholesky().gen_real(
+                        meanz, cov, ne, limits=_gen_real_limits(info['limits'], z)
+                    )
 
                 if z == 0:
                     field = fieldz

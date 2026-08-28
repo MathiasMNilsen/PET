@@ -13,7 +13,8 @@ A host class must provide:
 - ``_get_base_restart_state()`` / ``_set_base_restart_state(state)``: serialize
   and restore the state owned by the algorithm base class.
 - ``_get_restart_state()`` / ``_set_restart_state(state)``: the same, for state
-  owned by the concrete subclass.
+  owned by the concrete subclass. Both default to storing nothing, so only a
+  host that carries its own iteration state needs to implement them.
 
 Checkpoints record the writing class, so a file written by one algorithm cannot
 silently be loaded into another.
@@ -31,6 +32,18 @@ class RestartMixin:
     """Reusable checkpoint and restart functionality for iterative algorithms."""
 
     RESTART_VERSION = 1
+
+    def _get_restart_state(self) -> dict:
+        """Serialize state owned by the concrete algorithm. Override as needed.
+
+        Defaulted here so a host with nothing of its own to checkpoint -- every
+        PIPT scheme, as it happens -- inherits the pair rather than declaring
+        two empty methods to satisfy the protocol.
+        """
+        return {}
+
+    def _set_restart_state(self, state: dict) -> None:
+        """Restore state owned by the concrete algorithm. Override as needed."""
 
     def save_restart(self):
         """Save the current optimizer state to a restart file."""

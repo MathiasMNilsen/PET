@@ -32,7 +32,7 @@ parameter ``self.scheme.lam``, ``self.scheme.trunc_energy``,
 ``self.scheme.localization``, ``self.scheme.prior_enX``,
 ``self.scheme.cov_data``, and so on. Some of those are the scheme's own
 attributes and some belong to its ensemble, but the scheme exposes both as
-properties (see :class:`~pipt.update_schemes.core.AssimilationSchemeBase`),
+properties (see :class:`~pipt.update_schemes.core.AssimilationScheme`),
 so an analysis never has to know which -- and there is no forwarding
 machinery on this side at all. A new flavour that needs a value no existing
 one uses just reads ``self.scheme.<name>``; if the scheme does not already

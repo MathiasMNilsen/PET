@@ -9,8 +9,7 @@ from geostat.decomp import Cholesky
 
 # Internal imports
 from pipt.ensembles import AssimilationEnsemble as Ensemble
-from pipt.update_schemes.core.workflow import AssimilationScheme
-from pipt.update_schemes.core.scheme_base import StepReport
+from pipt.update_schemes.core import AssimilationScheme, StepReport
 from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.full import full_update
 from pipt.update_schemes.analysis.subspace import subspace_update
@@ -120,7 +119,7 @@ class ESMDA(AssimilationScheme):
         ensemble = self.ENSEMBLE_CLASS(keys_da, keys_en, sim)
         # Zero tolerances switch off the base class's generic convergence
         # criteria; this scheme decides in check_convergence(). See
-        # AssimilationSchemeBase's `misfit_tol`/`step_tol` docs for why.
+        # AssimilationScheme's `misfit_tol`/`step_tol` docs for why.
         super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
 
         # The analysis flavour is a parameter of the algorithm, not a different
@@ -180,7 +179,7 @@ class ESMDA(AssimilationScheme):
         self.prev_data_misfit_mean = None
 
     # ------------------------------------------------------------------
-    # AssimilationSchemeBase contract
+    # AssimilationScheme contract
     # ------------------------------------------------------------------
     def update_step(self) -> StepReport:
         """Run one ES-MDA assimilation step.
@@ -209,28 +208,19 @@ class ESMDA(AssimilationScheme):
         """ES-MDA runs its full schedule of inflated steps; nothing stops early."""
         return False
 
-    def score_prior(self):
-        """Score the prior forecast.
+    def score(self, pred_data=None):
+        """Data misfit against the *un-inflated* perturbed observations.
 
-        Runs before any artifacts are written, so ``ensemble_misfit`` and the
-        two mean misfits are present in the iteration-0 output rather than
-        only from iteration 1 onwards.
+        ``enObs`` is redrawn each step with the covariance inflated by
+        ``alpha[iteration]``, so scoring against it would compare every
+        iteration to a different yardstick. ``enObs_conv`` is the copy taken
+        before any inflation, which is what makes the misfit trajectory
+        comparable across the schedule.
         """
-        self.enPred = self.pred_data.to_matrix()
-
-        data_misfit = at.calc_objectivefun(
-            self.enObs_conv,
-            self.enPred,
-            Cd=self.cov_data
+        pred = self.pred_data if pred_data is None else pred_data
+        return at.calc_objectivefun(
+            self.enObs_conv, self._as_matrix(pred), self.cov_data
         )
-
-        self.ensemble_misfit = data_misfit
-        self.prior_data_misfit_mean = np.mean(data_misfit)
-        self.prior_data_misfit_std = np.std(data_misfit)
-        self.data_misfit_mean = np.mean(data_misfit)
-        self.data_misfit_std = np.std(data_misfit)
-
-        self.log_update(prior_run=True)
 
     def calc_analysis(self):
         r"""
@@ -261,8 +251,8 @@ class ESMDA(AssimilationScheme):
         self.enPred = self.pred_data.to_matrix()
 
         # The prior misfit used to be computed here, behind an `iteration == 0`
-        # branch. It is `score_prior`'s job now, which runs early enough for the
-        # iteration-0 artifacts to record it.
+        # branch. The base scores it through `score()` before the loop now,
+        # early enough for the iteration-0 artifacts to record it.
         self.data_random_state = deepcopy(np.random.get_state())
         self.enObs, self.scale_data = Cholesky().gen_real(
             self.vecObs,
@@ -328,10 +318,7 @@ class ESMDA(AssimilationScheme):
         self.prev_data_misfit_mean = self.data_misfit_mean
         self.prev_data_misfit_std = self.data_misfit_std
 
-        # Get Ensemble of predicted data
-        enPred = self.pred_data.to_matrix()
-
-        data_misfit = at.calc_objectivefun(self.enObs_conv, enPred, self.cov_data)
+        data_misfit = self.score()
         self.data_misfit_mean     = np.mean(data_misfit)
         self.data_misfit_std = np.std(data_misfit)
         self.ensemble_misfit = data_misfit
@@ -340,10 +327,6 @@ class ESMDA(AssimilationScheme):
         why_stop = {'rel_data_misfit': 1 - (self.data_misfit_mean / self.prev_data_misfit_mean),
                     'data_misfit': self.data_misfit_mean,
                     'prev_data_misfit': self.prev_data_misfit_mean}
-
-        # Log update results
-        success = self.data_misfit_mean < self.prev_data_misfit_mean
-        self.log_update(success=success)
 
         # Promote the trial state. Written through the ensemble so the next
         # forecast and any external reader see it.
