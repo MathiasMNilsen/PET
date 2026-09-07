@@ -1,4 +1,4 @@
-# This module contains functions and tools for ensembles
+"""Conversions between the stacked state matrix and per-variable dicts or lists, prior generation, and clipping."""
 
 __all__ = [
     'matrix_to_dict',

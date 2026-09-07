@@ -1,3 +1,4 @@
+"""Gaussian control perturbations: ensemble estimates of the gradient, the Hessian and the sensitivity used by SmcOpt."""
 # External imports
 import numpy as np
 import warnings

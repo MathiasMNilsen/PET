@@ -1,3 +1,4 @@
+"""Non-Gaussian control perturbations (beta, logistic, truncated-Gaussian marginals) with mutation-based gradient estimates."""
 # External imports
 import numpy as np
 import scipy.stats as stats

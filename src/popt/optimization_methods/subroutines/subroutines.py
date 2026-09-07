@@ -1,3 +1,4 @@
+"""Line searches, the BFGS inverse-Hessian update, Newton-CG, and trust-region subproblem solvers."""
 import numpy as np
 import numpy.linalg as la
 from functools import lru_cache

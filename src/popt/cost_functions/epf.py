@@ -1,3 +1,4 @@
+"""External penalty function for constrained optimisation."""
 import numpy as np
 
 def epf(r, c_eq=0, c_iq=0):

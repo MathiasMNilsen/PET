@@ -1,3 +1,4 @@
+"""Base ensemble for optimisation: the control vector as state, objective evaluation over the members, and multilevel bookkeeping."""
 # External imports
 import numpy as np
 import pandas as pd

@@ -1,4 +1,4 @@
-# This module includes functions for extracting information from input dicts
+"""Extraction and normalisation of options from the parsed configuration dictionaries."""
 
 __all__ = [
     'extract_prior_info',

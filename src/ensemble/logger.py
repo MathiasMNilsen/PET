@@ -1,3 +1,4 @@
+"""Run logging: a table-formatting file logger and a no-op stand-in for when logging is off."""
 import logging
 
 __all__ = ["PetLogger", "NullLogger"]

@@ -1,3 +1,4 @@
+"""Local-analysis localization strategy. Not functional at present; see the CHANGELOG's Known issues."""
 import pipt.misc_tools.analysis_tools as at
 import numpy as np
 from typing import Union
