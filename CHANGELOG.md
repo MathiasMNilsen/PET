@@ -707,6 +707,18 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Known issues
 
+- **The `subspace` analysis does not whiten the predicted anomalies before
+  its SVD** (`Y = enY @ PI` in `analysis/subspace.py`), while it does whiten
+  the residual and the observation perturbations. The weight-space step
+  therefore depends on the units of the data: with every data variance equal
+  to 1 it matches the pre-refactor `gn_enrml` step to 1e-16, with any other
+  scaling it differs by tens of percent. This dates from the strategy's first
+  extraction. The fix is one line, `Y = self.solve(scy, enY @ PI)`, and
+  reconciles the two to 1e-16 under every scaling tried, but it moves the
+  `subspace` goldens (`esmda`, `lmenrml`, `gnenrml`) and so awaits sign-off.
+  `tests/assimilation/test_subspace_scale_invariance.py` is marked xfail until
+  then.
+
 - **Local analysis is broken along both routes.** `localization = {name =
   "localanalysis"}` reaches a branch that warns and returns `None`, so no update
   is applied and the run completes reporting a misfit — the posterior is the
