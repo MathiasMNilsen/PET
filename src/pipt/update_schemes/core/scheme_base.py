@@ -80,7 +80,12 @@ from misc.structures import PETDataFrame
 from pipt.ensembles import AssimilationEnsemble
 from ensemble.checkpoint import RestartMixin
 from pipt.update_schemes.core.analysis_binding import AnalysisBindingMixin
-from pipt.misc_tools.qaqc_tools import QAQC
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # QAQC pulls in matplotlib and cv2; it is imported at runtime only inside
+    # _build_qaqc, when the configuration actually asks for QA/QC.
+    from pipt.misc_tools.qaqc_tools import QAQC
 import pipt.misc_tools.analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
 
@@ -203,7 +208,7 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
     POSTERIOR_FORECAST_FILE = "posterior_forecast.pkl"
     STOP_REASON_FILE = "why_iter_loop_stopped.pkl"
 
-    qaqc: QAQC | None = None
+    qaqc: "QAQC | None" = None
 
     def __init__(self, ensemble: AssimilationEnsemble, **options):
         """
@@ -710,7 +715,7 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
     # ------------------------------------------------------------------
     # QA/QC
     # ------------------------------------------------------------------
-    def _build_qaqc(self) -> QAQC | None:
+    def _build_qaqc(self) -> "QAQC | None":
         """Create QA/QC helper only when requested by the configuration."""
         qaqc_requested = (
             "qa" in self.keys_da
@@ -719,6 +724,8 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
         )
         if not qaqc_requested:
             return None
+
+        from pipt.misc_tools.qaqc_tools import QAQC  # heavy: matplotlib, cv2
 
         return QAQC(
             self.keys_da | self.sim.input_dict,

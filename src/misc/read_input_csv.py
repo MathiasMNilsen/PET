@@ -29,7 +29,6 @@ from copy import deepcopy
 import pandas as pd
 import numpy as np
 
-from pipt.misc_tools.wavelet_tools import SparseRepresentation
 from misc.structures import PETDataFrame
 
 def convert_to_array(array_str):
@@ -690,7 +689,11 @@ class DataReader:
                 msg = 'min_noise must either be scalar or list with one number for each vintage'
                 raise ValueError(msg)
 
-        # Apply wavelet compression
+        # Apply wavelet compression. Imported here: PyWavelets is needed only
+        # for sparse compression, and keeping the import out of module scope
+        # means importing misc does not import pipt.
+        from pipt.misc_tools.wavelet_tools import SparseRepresentation
+
         sparsrep = SparseRepresentation(options)
         arr_compressed, wdec_rec = sparsrep.compress(arr, th_mult=options['th_mult'])
         self.sparse_data.append(sparsrep) # Store the information

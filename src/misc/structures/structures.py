@@ -9,7 +9,6 @@ subclass for state vectors with PET-specific indexing metadata.
 import pandas as pd
 import numpy  as np
 
-from geostat.decomp import Cholesky
 from pandas._typing import Axes, Dtype
 from numpy._typing  import ArrayLike
 
@@ -407,6 +406,10 @@ class PETStateArray(np.ndarray):
         PETStateArray
             Generated prior ensemble as a PETStateArray.
         '''
+        # Imported here so that misc.structures does not need geostat (a git
+        # dependency) unless a prior is actually generated.
+        from geostat.decomp import Cholesky
+
         # Initialize empty array and indices
         enX = None
         idX = {}
