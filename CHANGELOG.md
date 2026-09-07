@@ -568,6 +568,13 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The characterisation suite pins thirteen `(scheme, analysis)` pairs instead
+  of eight: LM-EnRML and GN-EnRML with `full` and `subspace`, and GN-EnRML with
+  `margis`, are now under golden reference for the first time. The reference
+  file was regenerated to add them; the eight existing entries moved by at
+  most 3e-13 relative, the floating-point noise from the `eigh` and column-sum
+  changes in the analysis kernel accumulated over three iterations.
+
 - Tests run in a temporary directory by default (a suite-wide fixture in
   `tests/conftest.py`), so no test writes into the repository or the launch
   directory. The three end-to-end pipeline tests are seeded and carry a
