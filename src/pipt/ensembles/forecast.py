@@ -262,6 +262,10 @@ class OutlierMixin:
         self.pred_data = self.pred_data.map(filter_outliers)
         self.sim_data = self.sim_data.map(filter_outliers)
 
-        return enX[:, idx]
+        # The adjoint belongs to the member it was evaluated at, so it moves
+        # with the state and the predictions -- a member whose gradient came
+        # from a different member is not a member of anything.
         if getattr(self, "adjoints", None) is not None:
             self.adjoints = self.adjoints.map(filter_outliers)
+
+        return enX[:, idx]
