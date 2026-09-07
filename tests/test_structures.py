@@ -470,3 +470,40 @@ class TestStateArrayOperators:
         )
 
 
+
+
+# ---------------------------------------------------------------------------
+# PETStateArray: generation from prior info
+# ---------------------------------------------------------------------------
+
+class TestGenerateFromPriorInfo:
+    """A prior with more than one variable used to raise ``KeyError``: the
+    second variable's offset was read from an ``idX`` entry that did not exist
+    yet, so no multi-variable prior could be generated at all."""
+
+    @staticmethod
+    def _scalar(mean, variance):
+        # One cell, one layer: exercises the scalar path of gen_real and keeps
+        # the field-covariance machinery out of the picture.
+        return {"mean": [mean], "variance": [variance], "nx": 1, "ny": 1, "nz": 1}
+
+    def test_variables_are_stacked_with_consecutive_indices(self):
+        prior_info = {
+            "a": self._scalar(1.0, 0.1),
+            "b": self._scalar(2.0, 0.2),
+            "c": self._scalar(3.0, 0.3),
+        }
+        np.random.seed(0)
+        enX = PETStateArray.generate_from_prior_info(prior_info, ne=NE, save=False)
+
+        assert enX.shape == (3, NE)
+        assert enX.indices == {"a": (0, 1), "b": (1, 2), "c": (2, 3)}
+
+    def test_indices_address_the_rows_of_their_own_variable(self):
+        prior_info = {"a": self._scalar(1.0, 1e-12), "b": self._scalar(2.0, 1e-12)}
+        np.random.seed(0)
+        enX = PETStateArray.generate_from_prior_info(prior_info, ne=NE, save=False)
+
+        as_dict = enX.to_dict()
+        np.testing.assert_allclose(as_dict["a"], 1.0, atol=1e-4)
+        np.testing.assert_allclose(as_dict["b"], 2.0, atol=1e-4)

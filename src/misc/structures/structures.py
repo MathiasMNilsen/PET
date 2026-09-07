@@ -462,8 +462,13 @@ class PETStateArray(np.ndarray):
                 enX = field
                 idX[name] = (0, field.shape[0])
             else:
+                # This variable starts after everything already stacked. The
+                # offset used to be read from idX[name], which does not exist
+                # yet -- so any state with more than one variable raised
+                # KeyError here before a single realisation came back.
+                start = enX.shape[0]
                 enX = np.vstack((enX, field))
-                idX[name] = (idX[name][0], idX[name][0] + field.shape[0])
+                idX[name] = (start, start + field.shape[0])
 
         # Make StateArray and save
         enX = cls(enX, indices=idX)
