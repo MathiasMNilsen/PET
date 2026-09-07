@@ -48,11 +48,13 @@ def test_five_algorithms_cover_every_registered_combination():
         assert flavours, f"{scheme} has no registered flavours"
 
 
-def test_registry_size_matches_five_algorithms_plus_two_specials():
+def test_registry_size_matches_the_algorithms_specials_and_historical_names():
     """Down from eighteen hand-written classes: 5 algorithms x 3 flavours,
-    plus the two combinations backed by a distinct implementation."""
-    assert len(registry.available_schemes()) == 5 * 3 + 2
-    assert len(ALGORITHMS) == 5
+    the two combinations backed by a distinct implementation, and the two
+    historical names (co_lm_enrml, gn_enrml) that each pin a single flavour."""
+    assert len(registry.available_schemes()) == 5 * 3 + 2 + 2
+    assert len(ALGORITHMS) == 5               # the public constructors above
+    assert len(registry.ALGORITHMS) == 5 + 2  # plus the two historical names
 
 
 def test_build_scheme_still_dispatches_through_the_registry(monkeypatch):

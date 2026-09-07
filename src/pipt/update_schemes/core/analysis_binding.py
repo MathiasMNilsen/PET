@@ -78,8 +78,8 @@ but that can leave the *analysis's* ``update()`` shadowed by
 regardless of what ``bind_analysis`` decides. That bit both ``esmda_hybrid``
 and ``gnenrml_margis`` (the latter fixed with an explicit ``update``
 override before margis was converted to bind normally; see the CHANGELOG).
-The one class still doing this is ``co_lm_enrml`` (``pipt.update_schemes.
-enrml``) -- kept in the source but never constructed, so the risk is inert.
+No class in this repository mixes an analysis in any more; ``co_lm_enrml``,
+the last one, is a thin ``LMEnRML`` subclass that binds normally.
 Prefer binding (a ``COMPATIBLE_ANALYSES`` entry) over mixing in for any new
 flavour that fits the ``(enX, enY, enE, **kwargs)`` shape; mixing in is only
 for an analysis that genuinely cannot, the way ``margIS_update`` used to.

@@ -41,7 +41,7 @@ editing this file::
 from functools import partial
 
 from pipt.update_schemes.enkf import EnKF
-from pipt.update_schemes.enrml import GNEnRML, LMEnRML
+from pipt.update_schemes.enrml import GNEnRML, LMEnRML, co_lm_enrml, gn_enrml
 from pipt.update_schemes.es import ES
 from pipt.update_schemes.esmda import ESMDA
 # esmda_hybrid is a multilevel variant and lives with the multilevel machinery.
@@ -64,6 +64,11 @@ ALGORITHMS: dict[str, type] = {
     "esmda": ESMDA,
     "lmenrml": LMEnRML,
     "gnenrml": GNEnRML,
+    # Historical names still found in configs. Each is a thin subclass whose
+    # COMPATIBLE_ANALYSES holds the one flavour the name always meant, so
+    # asking it for another flavour fails the same way as any other scheme.
+    "co_lm_enrml": co_lm_enrml,
+    "gn_enrml": gn_enrml,
 }
 
 #: Combinations backed by a distinct implementation rather than a registered

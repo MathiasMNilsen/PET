@@ -568,6 +568,20 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **`co_lm_enrml` and `gn_enrml` are constructible and selectable again.**
+  Both had been left in `enrml.py` as pre-refactor bodies that could not be
+  constructed (a one-argument `__init__` against a three-argument parent) and
+  read ensemble attributes that no longer exist. Neither was a distinct
+  algorithm: `co_lm_enrml` only ever mixed the approximate analysis into
+  LM-EnRML, and `gn_enrml`'s inline weight-space update is the `subspace`
+  analysis with GN-EnRML's step-length schedule under the name `lambda`. They
+  are now thin subclasses -- `co_lm_enrml` is `LMEnRML(analysis="approx")`,
+  `gn_enrml` is `GNEnRML(analysis="subspace")` -- registered under their own
+  names so a migrated config saying `scheme = "co_lm_enrml"` or
+  `scheme = "gn_enrml"` runs, with a test that their results are identical to
+  the algorithm they alias. Asking either for a different flavour raises the
+  registry's usual "no such flavour" error.
+
 - **Packaging and import time.** `mako`, `psutil` and `six` are no longer
   dependencies: nothing in PET imports the first two, and `six` served only
   Python 2 shims in the vendored Eclipse reader, now written with the

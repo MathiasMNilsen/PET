@@ -10,13 +10,15 @@ from pipt.update_schemes import registry
 # Registry
 # ----------------------------------------------------------------------
 
-def test_algorithms_cover_the_five_public_classes():
+def test_algorithms_cover_the_public_classes_and_the_historical_names():
     from pipt.update_schemes.enkf import EnKF
-    from pipt.update_schemes.enrml import GNEnRML, LMEnRML
+    from pipt.update_schemes.enrml import GNEnRML, LMEnRML, co_lm_enrml, gn_enrml
     from pipt.update_schemes.es import ES
     from pipt.update_schemes.esmda import ESMDA
 
-    assert set(registry.ALGORITHMS.values()) == {EnKF, ES, ESMDA, LMEnRML, GNEnRML}
+    assert set(registry.ALGORITHMS.values()) == {
+        EnKF, ES, ESMDA, LMEnRML, GNEnRML, co_lm_enrml, gn_enrml,
+    }
 
 
 def test_hybrid_is_a_special_scheme_not_a_registered_flavour():
@@ -53,13 +55,23 @@ def test_margis_is_a_gnenrml_specific_flavour_not_a_special_scheme():
     assert ctor.keywords == {"analysis": "margis"}
 
 
-def test_co_lm_enrml_kept_but_inactive():
-    """Retained in the source and importable, but not selectable."""
-    from pipt.update_schemes.enrml import co_lm_enrml
-
-    assert co_lm_enrml is not None
-    assert co_lm_enrml not in registry.ALGORITHMS.values()
-    assert co_lm_enrml not in registry.SPECIAL_SCHEMES.values()
+@pytest.mark.parametrize(
+    "name, parent_name, flavour, other",
+    [("co_lm_enrml", "lmenrml", "approx", "full"),
+     ("gn_enrml", "gnenrml", "subspace", "approx")],
+)
+def test_historical_names_pin_one_flavour_of_a_live_algorithm(name, parent_name, flavour, other):
+    """``co_lm_enrml`` and ``gn_enrml`` resolve like any scheme, to a subclass
+    of the algorithm they always were, and offer exactly the flavour the
+    name meant -- so a config asking for another flavour gets the usual
+    "no such flavour" error rather than silently running something else."""
+    cls = registry.ALGORITHMS[name]
+    assert issubclass(cls, registry.ALGORITHMS[parent_name])
+    assert cls.COMPATIBLE_ANALYSES == {flavour: registry.ALGORITHMS[parent_name].COMPATIBLE_ANALYSES[flavour]}
+    assert (name, flavour) in registry.available_schemes()
+    assert registry.get_scheme(name, flavour).func is cls
+    with pytest.raises(KeyError, match=f"no '{other}' analysis flavour"):
+        registry.get_scheme(name, other)
 
 
 def test_get_scheme_binds_the_algorithm_and_flavour():
@@ -95,6 +107,8 @@ def test_every_algorithm_gets_every_registered_flavour():
 
     combos = set(registry.available_schemes())
     for algo in registry.ALGORITHMS:
+        if algo in ("co_lm_enrml", "gn_enrml"):
+            continue  # historical names pin one flavour by design
         for flavour in available_analyses():
             assert (algo, flavour) in combos
 
