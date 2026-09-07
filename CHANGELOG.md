@@ -568,6 +568,16 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Packaging and import time.** `mako`, `psutil` and `six` are no longer
+  dependencies: nothing in PET imports the first two, and `six` served only
+  Python 2 shims in the vendored Eclipse reader, now written with the
+  standard library. `geostat` is pinned to a commit instead of tracking
+  `main`, so a fresh install gets the code the tests were run against.
+  `import pipt` no longer imports matplotlib, OpenCV or PyWavelets: QA/QC and
+  sparse compression import them when a run asks for them, and
+  `misc.structures` imports geostat only when it generates a prior. Cold
+  import time drops from about 0.85 s to 0.5 s.
+
 - **`truncSVD` keeps at least the requested energy fraction.** For
   `energy=e` the rank used to be the index at which the cumulative
   singular-value fraction first *reaches* `e`, which keeps everything before
