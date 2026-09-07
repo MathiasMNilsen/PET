@@ -575,11 +575,13 @@ def calc_objectivefun(pert_obs, pred_data, Cd):
     #ne = pred_data.shape[1]
     ne = pert_obs.shape[1]
     r = (pred_data[:, :ne] - pert_obs)  # Only use ne members (gies code has ne+1 predicted data)
+    # The per-member misfit is the diagonal of r.T @ (Cd^-1 r). Summing the
+    # columns gives the same numbers without forming the (ne, ne) product.
     if len(Cd.shape) == 1:
-        precission = Cd**(-1)
-        data_misfit = np.diag(r.T.dot(r*precission[:, None]))
+        precision = Cd**(-1)
+        data_misfit = np.sum(r * (r*precision[:, None]), axis=0)
     else:
-        data_misfit = np.diag(r.T.dot(linalg.solve(Cd, r)))
+        data_misfit = np.sum(r * linalg.solve(Cd, r), axis=0)
 
     return data_misfit
 

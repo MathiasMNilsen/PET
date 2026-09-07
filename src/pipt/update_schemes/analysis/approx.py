@@ -30,22 +30,32 @@ class approx_update(AnalysisBase):
                 Ensemble of perturbed observations (nd, ne)
         '''
         scheme = self.scheme
+        # The scheme protocol allows ``logger`` to be None (or absent on a
+        # test double), so only log when there is something to log to.
+        log = getattr(scheme, 'logger', None)
+        if log is not None:
+            log("[approx_update] Performing update....")
 
         # Shapes
         nx, ne = enX.shape
         ny, _  = enY.shape
 
-        # Scaling factors and other attributes needed for the update
-        cov = getattr(scheme, 'cov_data', np.eye(ny))  # Data covariance matrix (ny,ny) or (ny,)
+        # Scaling factors and other attributes needed for the update. The
+        # fallbacks are built only when the scheme lacks the attribute:
+        # ``getattr(obj, name, default)`` evaluates ``default`` eagerly, which
+        # here would allocate an (ny, ny) identity and factorise it on every
+        # call, even though a real scheme always provides these.
+        cov = scheme.cov_data if hasattr(scheme, 'cov_data') else np.eye(ny)  # (ny, ny) or (ny,)
         scx = getattr(scheme, 'scale_state', np.ones(nx))
-        scy = getattr(scheme, 'scale_data', self.sqrtm(cov))
-        PI  = getattr(
-            scheme, 'proj',
-            (np.eye(ne) - np.ones((ne, ne)) / ne)/ np.sqrt(ne-1)
-        )  # shape: (ne, ne) such that A@PI = A - mean(A)/sqrt(ne-1) for any ensemble matrix A of shape (na, ne)
+        scy = scheme.scale_data if hasattr(scheme, 'scale_data') else self.sqrtm(cov)
+        PI  = (scheme.proj if hasattr(scheme, 'proj')
+               else (np.eye(ne) - np.ones((ne, ne)) / ne) / np.sqrt(ne-1))
+        # PI shape: (ne, ne) such that A@PI = A - mean(A)/sqrt(ne-1) for any ensemble matrix A of shape (na, ne)
 
         # Check for adjoint-based update
         if kwargs.get('enAdj', None) is not None:
+            if log is not None:
+                log("[approx_update] Using adjoint-based update.")
             Y = kwargs['enAdj'].mean(axis=-1) @ enX @ PI    # shape: (nd, ne)
         else:
             Y = enY @ PI                                    # shape: (nd, ne) --> Such that Cyy ≈ Y @ Y.T
@@ -67,7 +77,7 @@ class approx_update(AnalysisBase):
             E_anom = self.solve(scy, enE @ PI)              # shape: (nd, ne)
             invSr = (1/Sr)[:, None]                         # shape: (nr, 1)
             X0 = invSr * (Ur.T @ E_anom)                    # shape: (nr, ne)
-            eigval, eigvec = np.linalg.eig(X0 @ X0.T)       # shape: (nr, nr), (nr, nr)
+            eigval, eigvec = np.linalg.eigh(X0 @ X0.T)      # shape: (nr,), (nr, nr); symmetric, so eigh
             d = (scheme.lam + 1) * eigval + 1                 # shape: (nr, )
             rhs = eigvec.T @ (invSr * X1)                   # shape: (nr, ne)
             X2 = invSr * (eigvec @ self.solve(d, rhs))      # shape: (nr, ne)
@@ -81,7 +91,7 @@ class approx_update(AnalysisBase):
             assert y_proj in ['rank-r', 'ensemble'], "Projection method must be either 'rank-r' or 'ensemble'."
 
             if y_proj == 'rank-r':
-                Y_anom_proj = np.diag(Sr) @ VrT             # shape: (nr, ne) --> Y_proj = U.T @ Y_anom
+                Y_anom_proj = Sr[:, None] * VrT             # shape: (nr, ne) --> Y_proj = U.T @ Y_anom
                 T_loc = localization(                       # shape: (nx, nr) --> nr < ne << ny (typically)
                     X = scx[:, None]*X_anom,                # shape: (nx, ne)
                     Y = Y_anom_proj
@@ -133,5 +143,5 @@ class approx_update(AnalysisBase):
 
         # NO LOCALIZATION
         else:
-            X3 = VrT.T @ np.diag(Sr) @ X2                   # shape: (ne, ne)
+            X3 = (VrT.T * Sr[None, :]) @ X2                 # shape: (ne, ne); column-scale instead of a dense diag
             return scx[:, None] * X_anom @ X3               # shape: (nx, ne)

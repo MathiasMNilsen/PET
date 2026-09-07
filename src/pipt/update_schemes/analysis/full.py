@@ -49,12 +49,13 @@ class full_update(AnalysisBase):
         nx, ne = enX.shape
         ny, _  = enY.shape
 
-        # Scaling factors and projection matrix
-        cov    = getattr(scheme, 'cov_data', np.eye(ny))
+        # Scaling factors and projection matrix. Fallbacks are built only when
+        # the scheme lacks the attribute; see approx_update for why.
+        cov    = scheme.cov_data if hasattr(scheme, 'cov_data') else np.eye(ny)
         scx    = getattr(scheme, 'scale_state', np.ones(nx))
-        scy    = getattr(scheme, 'scale_data', self.sqrtm(cov))
-        PI     = getattr(scheme, 'proj',
-                         (np.eye(ne) - np.ones((ne, ne)) / ne) / np.sqrt(ne - 1))
+        scy    = scheme.scale_data if hasattr(scheme, 'scale_data') else self.sqrtm(cov)
+        PI     = (scheme.proj if hasattr(scheme, 'proj')
+                  else (np.eye(ne) - np.ones((ne, ne)) / ne) / np.sqrt(ne - 1))
 
         priorX = kwargs.get('prior', scheme.prior_enX)
 
@@ -73,7 +74,7 @@ class full_update(AnalysisBase):
         # ── Data-misfit term (δm₁) ──────────────────────────────────────────
         X1 = Ur.T @ D_anom                              # shape: (nr, ne)
         X2 = self.solve(1 + scheme.lam + Sr ** 2, X1)   # shape: (nr, ne)
-        X3 = VrT.T @ np.diag(Sr) @ X2                   # shape: (ne, ne)
+        X3 = (VrT.T * Sr[None, :]) @ X2                 # shape: (ne, ne); column-scale instead of a dense diag
         delta_m1 = (scx[:, None] * X_anom) @ X3         # shape: (nx, ne)
 
         # ── Regularisation term (δm₂) -- model-space prior pull ─────────────

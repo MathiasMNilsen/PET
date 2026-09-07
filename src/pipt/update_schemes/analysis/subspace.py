@@ -51,9 +51,11 @@ class subspace_update(AnalysisBase):
         scheme = self.scheme
         ny, ne = enY.shape
 
-        scy = getattr(scheme, 'scale_data', np.ones(ny))
-        PI  = getattr(scheme, 'proj',
-                      (np.eye(ne) - np.ones((ne, ne)) / ne) / np.sqrt(ne - 1))
+        # Fallbacks are built only when the scheme lacks the attribute; see
+        # approx_update for why.
+        scy = scheme.scale_data if hasattr(scheme, 'scale_data') else np.ones(ny)
+        PI  = (scheme.proj if hasattr(scheme, 'proj')
+               else (np.eye(ne) - np.ones((ne, ne)) / ne) / np.sqrt(ne - 1))
 
         # Initialise weight matrix and projected observation perturbations once
         if scheme.iteration == 0:
@@ -75,7 +77,7 @@ class subspace_update(AnalysisBase):
 
         # Projected observation perturbations in reduced space
         X  = Sinv * (Us.T @ self.solve(scy, scheme.E))       # shape: (nr, ne)
-        eigval, eigvec = np.linalg.eig(X @ X.T)             # shape: (nr,), (nr, nr)
+        eigval, eigvec = np.linalg.eigh(X @ X.T)            # shape: (nr,), (nr, nr); symmetric, so eigh
         X2 = (Us * Sinv.T) @ eigvec                          # shape: (nd, nr)
         X3 = S.T @ X2                                        # shape: (ne, nr)
 
