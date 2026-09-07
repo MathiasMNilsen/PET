@@ -13,7 +13,6 @@ from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.subspace import subspace_update
 # Misc. tools used in analysis schemes
 from pipt.misc_tools import analysis_tools as at
-import pipt.misc_tools.ensemble_tools as entools
 import pipt.misc_tools.extract_tools as extract
 
 
@@ -227,7 +226,7 @@ class EnKF(AssimilationScheme):
 
             # Ensure limits are respected
             limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.idX.keys()}
-            self.enX_proposal = entools.clip_matrix(self.enX_proposal, limits, self.idX)
+            self.enX_proposal.clip_matrix(limits)
 
     # ------------------------------------------------------------------
     # AssimilationScheme contract

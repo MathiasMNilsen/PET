@@ -664,6 +664,12 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- **`pipt.misc_tools.ensemble_tools` keeps only `matrix_to_dict`.**
+  `matrix_to_list`, `list_to_matrix` and `generate_prior_ensemble` had no
+  callers, and `clip_matrix` duplicated `PETStateArray.clip_matrix` line for
+  line; EnKF, its one caller, now clips through the state array's method like
+  every other scheme (checked identical on tuple, dict and list limits).
+
 - **Twelve unreferenced functions in `pipt.misc_tools.analysis_tools`**:
   `data_mismatch`, `calc_crosscov`, `update_datavar`,
   `extract_tot_empirical_cov`, `calc_kalmangain`, `calc_subspace_kalmangain`,
