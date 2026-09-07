@@ -472,9 +472,6 @@ class LMEnRML(AssimilationScheme):
 
 
 
-#: Historical names.
-lmenrmlMixIn = LMEnRML
-
 
 class GNEnRML(AssimilationScheme):
     """Gauss-Newton Ensemble Randomized Maximum Likelihood (GN-EnRML).
@@ -867,9 +864,6 @@ class GNEnRML(AssimilationScheme):
         """GN-EnRML reports the step length the logged iteration took."""
         return {"γ": getattr(self, "gamma_used", self.gamma)}
 
-
-#: Historical names.
-gnenrmlMixIn = GNEnRML
 
 
 class co_lm_enrml(LMEnRML, approx_update):

@@ -425,7 +425,3 @@ class ESMDA(AssimilationScheme):
 
         # Return list assim. steps
         return assim_steps
-
-
-#: Historical name. ``multilevel.esmda_hybrid`` still subclasses it.
-esmdaMixIn = ESMDA

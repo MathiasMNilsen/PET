@@ -635,6 +635,25 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The legacy `.pipt`/`.popt` parser's nested try/except cascade was rewritten as
   named helpers with identical behaviour.
 
+### Removed
+
+- **Dead code with no callers anywhere in the repository**, confirmed by grep
+  over src, tests and docs: `pipt.misc_tools.data_tools` (every function
+  duplicated a `PETDataFrame` method); `popt.misc_tools.basic_tools`
+  (duplicated `input_output.get_ecl_key_val`); the `CMA` class in
+  `popt.optimization_methods.subroutines`; the `lmenrmlMixIn`,
+  `gnenrmlMixIn`, `esmdaMixIn`, `enkfMixIn` and `esMixIn` aliases; six
+  functions in `popt.misc_tools.optim_tools` (`aug_optim_state`,
+  `update_optim_state`, `corr2BlockDiagonal`, `time_correlation`, `corr2cov`
+  and `get_optimize_result`, the last of which built its result with `eval`
+  and referenced a module that no longer exists); the empty
+  `pipt.update_schemes.update_methods_ns` directory; and a never-collected
+  plotting helper in `test_autoadaloc.py` together with the ruff exemption
+  that existed only for it. Code outside this repository that imported any of
+  these should use the surviving equivalent: the `PETDataFrame` methods for
+  `data_tools`, `get_ecl_key_val` for `basic_tools`, and the class names for
+  the aliases.
+
 ### Known issues
 
 - **Local analysis is broken along both routes.** `localization = {name =

@@ -146,7 +146,3 @@ class ES(EnKF):
 
         self.why_stop = why_stop
         return why_stop
-
-
-#: Historical name.
-esMixIn = ES

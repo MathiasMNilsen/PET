@@ -287,7 +287,3 @@ class EnKF(AssimilationScheme):
                     f'EnKF update complete! Objective function increased from {self.prior_data_misfit_mean:0.1f} to {self.data_misfit_mean:0.1f}.')
         self.why_stop = why_stop
         return why_stop
-
-
-#: Historical name, kept for subclasses outside this module.
-enkfMixIn = EnKF
