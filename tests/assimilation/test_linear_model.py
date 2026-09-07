@@ -115,13 +115,14 @@ def test_lin_1d(tmp_path):
 
     # --- Validate results. `result.x` is the posterior state ensemble.
     ensemble_mean = result.x.mean(axis=-1)
+    # Regenerated 2026-09-07 for the truncSVD energy-rank change (see CHANGELOG).
     expected = np.array([
-        -0.07294738,
-         0.00353635,
-        -0.06393236,
-         0.45394362,
-         0.44388684,
-         0.37096157,
+        -0.08340785,
+         0.00542748,
+        -0.04776080,
+         0.47335038,
+         0.45950017,
+         0.37760764,
     ])
     result = ensemble_mean[[1, 2, 3, -3, -2, -1]]
     np.testing.assert_array_almost_equal(result, expected, decimal=5)

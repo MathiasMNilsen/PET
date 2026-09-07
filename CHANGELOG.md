@@ -568,6 +568,33 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **`truncSVD` keeps at least the requested energy fraction.** For
+  `energy=e` the rank used to be the index at which the cumulative
+  singular-value fraction first *reaches* `e`, which keeps everything before
+  that point and so always retained *less* than `e`. It is now that index plus
+  one, so the retained fraction is the first value at or above `e` -- the
+  reading anyone gives "retain 98 percent", the scikit-learn convention, and
+  what `full_update.ext_Am` in the same package already did, so the two
+  truncations inside one `full` analysis now agree.
+
+  ```
+  S = [3, 2, 1], energy = 0.8
+  before: rank 1, retains 0.50        after: rank 2, retains 0.83
+  ```
+
+  Two edge cases change with it. `energy=1` fell into the percentage branch
+  and meant 1 percent, keeping a single singular value; `1` and `100` now both
+  mean keep everything, with the fraction/percentage split at `energy > 1`. A
+  zero spectrum keeps everything instead of dividing by zero.
+
+  **Every analysis keeps one more singular value than before at the same
+  `trunc_energy`**, so posteriors shift -- by up to 5.7 percent in the
+  synthetic characterisation case. No config needs changing. The
+  characterisation reference and the `test_lin_1d` expected values were
+  regenerated for this change and nothing else. The fraction is still of the
+  singular values themselves (the nuclear norm), not their squares; switching
+  to Frobenius energy would be a modelling change and is not made here.
+
 - **A scheme reaches its ensemble through declared properties, not
   `__getattr__`.** Reads a scheme does not own (`enX`, `pred_data`,
   `keys_da`, `localization`, ...) were forwarded to the ensemble by a blanket

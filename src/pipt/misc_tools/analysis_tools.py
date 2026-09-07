@@ -1587,7 +1587,12 @@ def truncSVD(matrix, r=None, energy=None, full_matrices=False):
         Rank to truncate the SVD to. If None, energy must be specified.
 
     energy : float, optional
-        Percentage of energy to retain in the truncated SVD. If None, r must be specified.
+        Fraction of the singular-value sum to retain, given either as a fraction
+        in (0, 1] or as a percentage in (1, 100]. The smallest rank whose
+        retained fraction reaches this value is used, so the requested amount is
+        met rather than approached from below. Note this accumulates the
+        singular values themselves, not their squares -- it is a fraction of the
+        nuclear norm, not of the Frobenius energy. If None, r must be specified.
 
     full_matrices : bool, optional
         Whether to compute full or reduced SVD. Default is False.
@@ -1608,15 +1613,24 @@ def truncSVD(matrix, r=None, energy=None, full_matrices=False):
 
     # If not specified rank, energy must be given
     if r is None:
-        if energy is not None:
-            # Energy is given as fraction
-            if energy < 1:
-                r = np.searchsorted(np.cumsum(S)/np.sum(S), energy)
-            # Energy is given as a percentage
-            else:
-                r = np.searchsorted(np.cumsum(S)/np.sum(S), energy/100)
-        else:
+        if energy is None:
             raise ValueError("Either rank 'r' or 'energy' must be specified for truncSVD.")
+
+        # Accept a percentage (1, 100] as well as a fraction (0, 1]. The bound is
+        # exclusive so that energy=1 keeps everything rather than meaning 1%.
+        fraction = energy/100 if energy > 1 else energy
+
+        total = np.sum(S)
+        if total == 0:
+            # No spectrum to apportion; nothing is more representative than
+            # anything else, so keep it all rather than dividing by zero.
+            r = len(S)
+        else:
+            # searchsorted gives the first index at which the cumulative
+            # fraction REACHES `fraction`; that index must be kept, hence +1.
+            # Clamped here rather than below so that energy=1 does not trip the
+            # "specified rank" warning on a rounding error in the last entry.
+            r = min(int(np.searchsorted(np.cumsum(S)/total, fraction)) + 1, len(S))
 
     if r == 0:
         r = 1  # Ensure at least one singular value is retained
