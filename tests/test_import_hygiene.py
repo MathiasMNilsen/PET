@@ -15,7 +15,7 @@ import sys
 
 import pytest
 
-TOP_LEVEL_PACKAGES = ["ensemble", "misc", "input_output", "pipt", "popt", "simulator"]
+TOP_LEVEL_PACKAGES = ["ensemble", "misc", "input_output", "pet_cli", "pipt", "popt", "simulator"]
 
 
 @pytest.mark.parametrize("package", TOP_LEVEL_PACKAGES)
