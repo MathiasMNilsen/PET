@@ -155,7 +155,6 @@ class EnKF(AssimilationScheme):
             # Get the perturbed observations and observation scaling
             self.vecObs = self.data_df.to_matrix()
             self.enObs = self.ensemble.perturb_observations(self.vecObs)
-            self.enObs_conv = deepcopy(self.enObs)
             self.ensemble._ext_scaling()
 
     def score(self, pred_data=None):

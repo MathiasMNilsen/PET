@@ -409,9 +409,13 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
             )
             self.step_accepted = step.accepted
 
-            # Update the state ensemble
+            # Update the state ensemble. No copy: the report's state is the
+            # array the scheme built and forecast on this iteration (enX + step,
+            # or its outlier-resampled successor), and nothing mutates a state
+            # matrix in place afterwards, so a copy would only double the
+            # peak memory at commit for an (nx, ne) array nobody else changes.
             if self.step_accepted:
-                self.ensemble.enX = deepcopy(step.state)
+                self.ensemble.enX = step.state
 
             # Update the misfit and convergence bookkeeping
             misfit = np.asarray(step.misfit, dtype=float)
