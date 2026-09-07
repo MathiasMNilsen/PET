@@ -29,6 +29,11 @@ every selectable `(scheme, analysis)` pair from those tables. The two
 notebooks under *Extending PIPT* in the tutorials walk through adding an
 analysis and adding a scheme.
 
+A forward simulator is anything satisfying `ensemble.protocols.ForwardSimulator`:
+an `input_dict` and a `run_fwd_sim(state, member_index)` method, plus the
+optional hooks the protocol's docstring lists. The analytical models in
+`simulator/` are the smallest complete examples.
+
 `popt` has the same shape: an optimizer
 (`popt.optimization_methods.optimizer_base.OptimizerBase`) owns its loop and is
 handed `fun`/`jac`/`hess` callables, typically the methods of an ensemble from

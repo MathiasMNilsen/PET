@@ -440,6 +440,15 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`ensemble.protocols.ForwardSimulator`** writes down the simulator
+  contract the base ensemble drives: `input_dict` and
+  `run_fwd_sim(state, member_index)` are required, and the docstring lists
+  the optional hooks (`setup_fwd_run`, `true_order`, `datatype`,
+  `compute_adjoints`) and the four return shapes the ensemble accepts. It is
+  a runtime-checkable `Protocol`, so `isinstance(sim, ForwardSimulator)`
+  works, and a test holds every bundled simulator to it. Until now the
+  contract could only be recovered by reading `calc_prediction`.
+
 - **One constructor per algorithm**, with the flavour as an argument, so five
   names reach what previously took eighteen:
 
