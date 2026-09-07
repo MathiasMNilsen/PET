@@ -49,6 +49,7 @@ pet = "pet_cli.__main__:main"
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "pytest-cov",
     "ruff",
 ]
 doc = [
@@ -74,6 +75,9 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: end-to-end assimilation with a parallel forecast; deselect with -m 'not slow'",
+]
 
 [tool.ruff]
 line-length = 120

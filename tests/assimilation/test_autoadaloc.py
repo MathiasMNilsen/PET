@@ -8,7 +8,6 @@ from pipt.localization import (
     build_localization_instance,
 )
 
-np.random.seed(128928)  # For reproducibility
 
 NX = 8
 NY = 4
@@ -111,6 +110,7 @@ def test_autoadaloc_full_trunc():
 
 
 def test_approx_update_with_autoadaloc():
+    np.random.seed(128928)  # the perturbed observations below are drawn from the global state
 
     loc_info = {
         "name": "autoadaloc",

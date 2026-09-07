@@ -43,6 +43,12 @@ def num_cores():
 # Test utilities
 # ----------------------------------------------------------------------
 
+#: Members in the synthetic prior and in the config that consumes it. The
+#: quality thresholds in assert_assimilation_quality hold at this size; at
+#: 300 the posterior mean of mu misses the 0.2 x prior-error bar.
+ENSEMBLE_SIZE = 1000
+
+
 def setup_synthetic_case(seed: int = 12345):
     """
     Create synthetic prior ensemble and observation data.
@@ -58,7 +64,7 @@ def setup_synthetic_case(seed: int = 12345):
     x1_true, x2_true, mu_true = 1.0, 0.0, 1.0
 
     # Prior ensemble
-    ne = 1000
+    ne = ENSEMBLE_SIZE
     X1 = 0.05 + 0.1 * rng.standard_normal(ne)
     X2 = 0.05 + 0.1 * rng.standard_normal(ne)
     MU = 1.5 + 0.5 * rng.standard_normal(ne)
@@ -102,7 +108,7 @@ def create_config_file(filename: str, data_assimilation_cfg: dict, parallel_runs
     Write YAML configuration file for data assimilation run.
     """
     ensemble_cfg = {
-        "ne": 1000,
+        "ne": ENSEMBLE_SIZE,
         "state": ["x1", "x2", "mu"],
         "importstate": "prior_ensemble.npz",
         "prior_x1": {"var": 1.0},
@@ -229,12 +235,16 @@ def prepare_test_environment(tmp_path: Path, folder_name: str):
     path.mkdir()
     os.chdir(path)
     setup_synthetic_case(seed=12345)
+    # The schemes perturb observations from the global numpy state; seed it so
+    # the quality thresholds below are checked against the same run every time.
+    np.random.seed(12345)
 
 
 # ----------------------------------------------------------------------
 # Tests
 # ----------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_esmda_approx(tmp_path, num_cores):
     """Test ESMDA (approx analysis)."""
     prepare_test_environment(tmp_path, "esmda_test")
@@ -260,6 +270,7 @@ def test_esmda_approx(tmp_path, num_cores):
     assert_savedata_files(ensemble, ["pred_data", "ensemble_misfit", "x1", "x2", "mu"])
 
 
+@pytest.mark.slow
 def test_lm_enrml_approx(tmp_path, num_cores):
     """Test LM-EnRML (approx analysis)."""
     prepare_test_environment(tmp_path, "lm_enrml_test")
@@ -287,6 +298,7 @@ def test_lm_enrml_approx(tmp_path, num_cores):
     assert_savedata_files(ensemble, ["pred_data", "ensemble_misfit", "x1", "x2", "mu"])
 
 
+@pytest.mark.slow
 def test_gn_enrml_approx(tmp_path, num_cores):
     """Test GN-EnRML (approx analysis)."""
     prepare_test_environment(tmp_path, "gn_enrml_test")

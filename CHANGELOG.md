@@ -568,6 +568,12 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Tests run in a temporary directory by default (a suite-wide fixture in
+  `tests/conftest.py`), so no test writes into the repository or the launch
+  directory. The three end-to-end pipeline tests are seeded and carry a
+  `slow` marker for `pytest -m "not slow"`. CI
+  reports line coverage (`pytest-cov` is in the `dev` extra).
+
 - **`co_lm_enrml` and `gn_enrml` are constructible and selectable again.**
   Both had been left in `enrml.py` as pre-refactor bodies that could not be
   constructed (a one-argument `__init__` against a three-argument parent) and
