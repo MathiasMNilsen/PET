@@ -89,7 +89,7 @@ plugins:
       handlers:
         python:
           # load_external_modules: true
-          paths: [.]
+          paths: [src]
           # NB: The following does not work coz pipt and popt contain submodules with the same name.
           # paths: [pipt, popt, simulator, ensemble, misc, input_output, tests]
           import:

@@ -688,12 +688,12 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pre-ensemble-matrix API (`self.state`, `self.obs_data`) and calls
   `self._ext_obs()`, which does not exist. Reproduced unchanged before the
   Phase 8 work, so this predates it.
-- `docs/tutorials/pipt/tutorial_pipt.ipynb` has been updated to the current API
-  but **not re-executed** — running it needs the OPM `flow` simulator, so its
-  stored outputs are from the old code.
-- `docs/tutorials/popt/tutorial_popt.ipynb` imports `popt.loop.optimize`,
-  `popt.update_schemes.enopt` and `popt.cost_functions.npv`, none of which
-  exist — popt now provides `optimization_methods/` and `ensembles/`, and the
-  NPV cost function moved to the simulator wrappers. Pre-existing; the
-  published POPT tutorial cannot run. Fixing it needs the notebook re-executed
-  against the OPM `flow` simulator.
+- `docs/tutorials/pipt/TinyBox/tutorial_pipt.ipynb` has been updated to the
+  current API but **not re-executed** — running it needs the OPM `flow`
+  simulator through the external `subsurface` package, so its stored outputs
+  are from the old code.
+- `docs/tutorials/popt/5Spot/tutorial_popt.ipynb` targets the current API
+  (`popt.optimization_methods.LineSearch`, `popt.ensembles.GaussianEnsemble`)
+  but likewise needs `subsurface.multphaseflow.opm.flow`, which is not a
+  dependency of this repository, so neither notebook is executed by the docs
+  build or CI.

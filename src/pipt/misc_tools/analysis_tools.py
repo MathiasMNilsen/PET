@@ -1325,10 +1325,12 @@ def calc_scaling(enX, idX, prior_info):
 
     Parameters
     ----------
-    state : dict
-        Dictionary containing the state
-    list_state : list
-        List of states for augmenting
+    enX : np.ndarray
+        State ensemble matrix, shape ``(nx, ne)``; only its row count per
+        variable is used.
+    idX : dict
+        Row range ``(start, stop)`` of each state variable in ``enX``, in the
+        order the state was stacked.
     prior_info : dict
         Nested dictionary containing prior information
 
