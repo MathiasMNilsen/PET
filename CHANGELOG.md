@@ -664,6 +664,15 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- **Twelve unreferenced functions in `pipt.misc_tools.analysis_tools`**:
+  `data_mismatch`, `calc_crosscov`, `update_datavar`,
+  `extract_tot_empirical_cov`, `calc_kalmangain`, `calc_subspace_kalmangain`,
+  `compute_x`, `resample_state`, `block_diag_cov`, `calc_kalman_filter_eq`,
+  `subsample_state` and `get_obs_size`. Their last callers were the
+  pre-refactor `co_lm_enrml`/`gn_enrml` bodies; the Kalman-gain trio was the
+  superseded predecessor of the `analysis` package. The module's private
+  `_is_enabled` was a copy of `extract_tools.is_enabled` and is gone too.
+
 - **Dead code with no callers anywhere in the repository**, confirmed by grep
   over src, tests and docs: `pipt.misc_tools.data_tools` (every function
   duplicated a `PETDataFrame` method); `popt.misc_tools.basic_tools`

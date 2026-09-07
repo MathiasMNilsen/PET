@@ -9,12 +9,12 @@ implementing, leave it in that class.
 __all__ = [
     'parallel_upd',
     'calc_autocov',
-    'calc_crosscov',
     'calc_objectivefun'
 ]
 
 # External imports
 import numpy as np          # Numerical tools
+import pipt.misc_tools.extract_tools as extract
 from scipy import linalg    # Linear algebra tools
 from misc.system_tools.environ_var import OpenBlasSingleThread  # only single thread
 import multiprocessing as mp  # parallel updates
@@ -24,20 +24,6 @@ import warnings
 from importlib import import_module  # To import packages
 
 from scipy.spatial import cKDTree
-
-
-def _is_enabled(value, default=False):
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        lowered = value.strip().lower()
-        if lowered in ('yes', 'true'):
-            return True
-        if lowered in ('no', 'false'):
-            return False
-    return bool(value)
 
 
 def parallel_upd(list_state, prior_info, states_dict, X, local_mask_info, obs_data, pred_data, parallel, actnum=None,
@@ -544,14 +530,6 @@ def calc_autocov(pert):
     # Return the auto-covariance matrix
     return cov_auto
 
-def data_mismatch(d, Y, cov):
-    r = Y - d[:,np.newaxis]
-    if len(cov.shape) == 1:
-        cinv = 1/cov
-        return r.T.dot(r*cinv[:, None])
-    else:
-        return r.T @ linalg.solve(cov, r)
-
 def calc_objectivefun(pert_obs, pred_data, Cd):
     """
     Calculate the objective function.
@@ -584,90 +562,6 @@ def calc_objectivefun(pert_obs, pred_data, Cd):
         data_misfit = np.sum(r * linalg.solve(Cd, r), axis=0)
 
     return data_misfit
-
-
-def calc_crosscov(pert1, pert2):
-    """
-    Calculate sample cross-covariance matrix.
-
-    Parameters
-    ----------
-    pert1, pert2: ndarray
-        Perturbation matrices (matrix of variables perturbed with their mean).
-
-    Returns
-    -------
-    cov_cross : ndarray
-        Sample cross-covariance matrix
-    """
-    # TODO: Implement sqrt-covariance matrices
-
-    # No of samples
-    ne = pert1.shape[1]
-
-    # Standard calc. of sample cross-covariance
-    cov_cross = (1 / (ne - 1)) * np.dot(pert1, pert2.T)
-
-    # Return the cross-covariance matrix
-    return cov_cross
-
-
-def update_datavar(cov_data, datavar, assim_index, list_data):
-    """
-    Extract the separate variance from an augmented vector. It is assumed that the augmented variance
-    is made gen_covdata, hence this is the reverse method of gen_covdata.
-
-    Parameters
-    ----------
-    cov_data : array-like
-        Augmented vector of variance.
-
-    datavar : dict
-        Dictionary of separate variances.
-
-    assim_index : list
-        Assimilation order as a list.
-
-    list_data : list
-        List of data keys.
-
-    Returns
-    -------
-    datavar : dict
-        Updated dictionary of separate variances."""
-
-    # Loop over all entries in list_state and extract a vector with same number of elements as the key in datavar
-    # determines from aug and replace the values in datavar[key].
-
-    # Make sure assim_index is list
-    if isinstance(assim_index[1], list):  # Check if prim. ind. is a list
-        l_prim = [int(x) for x in assim_index[1]]
-    else:
-        l_prim = [int(assim_index[1])]
-
-    # Extract the diagonal if cov_data is a matrix
-    if len(cov_data.shape) == 2:
-        cov_data = np.diag(cov_data)
-
-    # Initialize a variable to keep track of which row in 'cov_data' we start from in each loop
-    aug_row = 0
-    # Loop over all primary indices
-    for ix in range(len(l_prim)):
-        # Loop over data types and augment the data variance
-        for i in range(len(list_data)):
-            if datavar[l_prim[ix]][list_data[i]] is not None:
-
-                # If there is an observed data here, update it
-                no_rows = datavar[l_prim[ix]][list_data[i]].shape[0]
-
-                # Extract the rows from aug and update 'state[key]'
-                datavar[l_prim[ix]][list_data[i]] = cov_data[aug_row:aug_row + no_rows]
-
-                # Update tracking variable for row in 'aug'
-                aug_row += no_rows
-
-    # Return
-    return datavar
 
 
 def save_assimilation_result(ind_save, **kwargs):
@@ -907,7 +801,7 @@ def screen_data(cov_data, pred_data, obs_data_vector, keys_da, iteration):
         Updated data covariance matrix
     """
 
-    if _is_enabled(keys_da.get('restart', False)) or (iteration != 0):
+    if extract.is_enabled(keys_da.get('restart', False)) or (iteration != 0):
         with open('cov_data.p', 'rb') as f:
             cov_data = pickle.load(f)
     else:
@@ -947,54 +841,6 @@ def store_ensemble_sim_information(saveinfo, member):
             # Note: the function must be named main, and we pass the full current instance of the object pluss the
             # current member.
             sim_info_func.main(member)
-
-
-def extract_tot_empirical_cov(data_var, assim_index, list_data, ne):
-    """
-    Extract realizations of noise from data_var (if imported), or generate realizations if only variance is specified
-    (assume uncorrelated)
-
-    Parameters
-    ----------
-    data_var : list
-        List of dictionaries containing the varianse as read from the input
-    assim_index : int
-        Index of the assimilation
-    list_data : list
-        List of data types
-    ne : int
-        Ensemble size
-
-    Returns
-    -------
-    E : ndarray
-        Sorted (according to assim_index and list_data) matrix of data realization noise.
-    """
-
-    if isinstance(assim_index[1], list):  # Check if prim. ind. is a list
-        l_prim = [int(x) for x in assim_index[1]]
-    else:
-        l_prim = [int(assim_index[1])]
-
-    tmp_E = []
-    for el in l_prim:
-        tmp_tmp_E = {}
-        for dat in list_data:
-            if data_var[el][dat] is not None:
-                if len(data_var[el][dat].shape) == 1:
-                    tmp_tmp_E[dat] = np.sqrt(
-                        data_var[el][dat][:, np.newaxis])*np.random.randn(data_var[el][dat].shape[0], ne)
-                else:
-                    if data_var[el][dat].shape[0] == data_var[el][dat].shape[1]:
-                        tmp_tmp_E[dat] = np.dot(linalg.cholesky(
-                            data_var[el][dat]), np.random.randn(data_var[el][dat].shape[1], ne))
-                    else:
-                        tmp_tmp_E[dat] = data_var[el][dat]
-        tmp_E.append(tmp_tmp_E)
-    E = np.concatenate(tuple(tmp_E[i][dat] for i, el in enumerate(
-        l_prim) for dat in list_data if data_var[el][dat] is not None))
-
-    return E
 
 
 def aug_obs_pred_data(obs_data, pred_data, assim_index, list_data):
@@ -1075,202 +921,6 @@ def aug_obs_pred_data(obs_data, pred_data, assim_index, list_data):
     #
     # # Return augmented arrays
     return obs, pred
-
-
-def calc_kalmangain(cov_cross, cov_auto, cov_data, opt=None):
-    r"""
-    Calculate the Kalman gain
-
-    Parameters
-    ----------
-    cov_cross : ndarray
-        Cross-covariance matrix between state and predicted data
-    cov_auto : ndarray
-        Auto-covariance matrix of predicted data
-    cov_data : ndarray
-        Variance on observed data (diagonal matrix)
-    opt : str
-        Which method should we use to calculate Kalman gain
-        <ul>
-            <li>'lu': LU decomposition (default)</li>
-            <li>'chol': Cholesky decomposition</li>
-        </ul>
-
-    Returns
-    -------
-    kalman_gain : ndarray
-        Kalman gain
-
-    Notes
-    -----
-    In the following Kalman gain is $K$, cross-covariance is $C_{mg}$, predicted data auto-covariance is $C_{g}$,
-    and data covariance is $C_{d}$.
-
-    With `'lu'` option, we solve the transposed linear system:
-    $$
-        K^T = (C_{g} + C_{d})^{-T}C_{mg}^T
-    $$
-
-    With `'chol'` option we use Cholesky on auto-covariance matrix,
-    $$
-       L L^T = (C_{g} + C_{d})^T
-    $$
-    and solve linear system with the square-root matrix from Cholesky:
-    $$
-        L^T Y = C_{mg}^T\\
-        LK = Y
-    $$
-    """
-    if opt is None:
-        calc_opt = 'lu'
-
-    # Add data and predicted data auto-covariance matrices
-    if len(cov_data.shape) == 1:
-        cov_data = np.diag(cov_data)
-    c_auto = cov_auto + cov_data
-
-    if calc_opt == 'lu':
-        kg = linalg.solve(c_auto.T, cov_cross.T)
-        kalman_gain = kg.T
-
-    elif calc_opt == 'chol':
-        # Cholesky decomp (upper triangular matrix)
-        u = linalg.cho_factor(c_auto.T, check_finite=False)
-
-        # Solve linear system with cholesky square-root
-        kalman_gain = linalg.cho_solve(u, cov_cross.T, check_finite=False)
-
-    # Return Kalman gain
-    return kalman_gain
-
-
-def calc_subspace_kalmangain(cov_cross, data_pert, cov_data, energy):
-    """
-    Compute the Kalman gain in a efficient subspace determined by how much energy (i.e. percentage of singluar values)
-    to retain. For more info regarding the implementation, see Chapter 14 in [`evensen2009a`][].
-
-    Parameters
-    cov_cross : ndarray
-        Cross-covariance matrix between state and predicted data
-    data_pert : ndarray
-            Predicted data - mean of predicted data
-    cov_data : ndarray
-        Variance on observed data (diagonal matrix)
-
-    Returns
-    -------
-    k_g : ndarray
-        Subspace Kalman gain
-    """
-    # No. ensemble members
-    ne = data_pert.shape[1]
-
-    # Perform SVD on pred. data perturbations
-    u_d, s_d, v_d = np.linalg.svd(np.sqrt(1 / (ne - 1)) * data_pert, full_matrices=False)
-
-    # If no. measurements is more than ne - 1, we only keep ne - 1 sing. val.
-    if data_pert.shape[0] >= ne:
-        u_d, s_d, v_d = u_d[:, :-1].copy(), s_d[:-1].copy(), v_d[:-1, :].copy()
-
-    # If energy is less than 100 we truncate the SVD matrices
-    if energy < 100:
-        ti = (np.cumsum(s_d) / sum(s_d)) * 100 <= energy
-        u_d, s_d, v_d = u_d[:, ti].copy(), s_d[ti].copy(), v_d[ti, :].copy()
-
-    # Calculate x_0 and its eigenvalue decomp.
-    if len(cov_data.shape) == 1:
-        x_0 = np.dot(np.diag(s_d[:]**(-1)), np.dot(u_d[:, :].T, np.expand_dims(cov_data, axis=1)*np.dot(u_d[:, :],
-                                                                                                        np.diag(s_d[:]**(-1)).T)))
-    else:
-        x_0 = np.dot(np.diag(s_d[:] ** (-1)), np.dot(u_d[:, :].T, np.dot(cov_data, np.dot(u_d[:, :],
-                                                                                          np.diag(s_d[:] ** (-1)).T))))
-    s, u = np.linalg.eig(x_0)
-
-    # Calculate x_1
-    x_1 = np.dot(u_d[:, :], np.dot(np.diag(s_d[:]**(-1)).T, u))
-
-    # Calculate Kalman gain based on the subspace matrices we made above
-    k_g = np.dot(cov_cross, np.dot(x_1, linalg.solve(
-        (np.eye(s.shape[0]) + np.diag(s)), x_1.T)))
-
-    # Return subspace Kalman gain
-    return k_g
-
-
-def compute_x(pert_preddata, cov_data, keys_da, alfa=None):
-    """
-    INSERT DESCRIPTION
-
-    Parameters
-    ----------
-    pert_preddata : ndarray
-        Perturbed predicted data
-    cov_data : ndarray
-        Data covariance matrix
-    keys_da : dict
-        Dictionary with every input in `DATAASSIM`
-    alfa : None, optional
-        INSERT DESCRIPTION
-
-    Returns
-    -------
-    X : ndarray
-        INSERT DESCRIPTION
-    """
-    X = []
-    if 'kalmangain' in keys_da and keys_da['kalmangain'][0] == 'subspace':
-
-        # TSVD energy
-        energy = keys_da['kalmangain'][1]
-
-        # No. ensemble members
-        ne = pert_preddata.shape[1]
-
-        # Calculate x_0 and its eigenvalue decomp.
-        if len(cov_data.shape) == 1:
-            scale = np.expand_dims(np.sqrt(cov_data), axis=1)
-        else:
-            scale = np.expand_dims(np.sqrt(np.diag(cov_data)), axis=1)
-
-        # Perform SVD on pred. data perturbations
-        u_d, s_d, v_d = np.linalg.svd(pert_preddata/scale, full_matrices=False)
-
-        # If no. measurements is more than ne - 1, we only keep ne - 1 sing. val.
-        if pert_preddata.shape[0] >= ne:
-            u_d, s_d, v_d = u_d[:, :-1].copy(), s_d[:-1].copy(), v_d[:-1, :].copy()
-
-        # If energy is less than 100 we truncate the SVD matrices
-        if energy < 100:
-            ti = (np.cumsum(s_d) / sum(s_d)) * 100 <= energy
-            u_d, s_d, v_d = u_d[:, ti].copy(), s_d[ti].copy(), v_d[ti, :].copy()
-
-        # Calculate x_0 and its eigenvalue decomp.
-        if len(cov_data.shape) == 1:
-            x_0 = np.dot(np.diag(s_d[:] ** (-1)),
-                         np.dot(u_d[:, :].T, np.expand_dims(cov_data, axis=1) * np.dot(u_d[:, :],
-                                                                                       np.diag(s_d[:] ** (-1)).T)))
-        else:
-            x_0 = np.dot(np.diag(s_d[:] ** (-1)), np.dot(u_d[:, :].T, np.dot(cov_data, np.dot(u_d[:, :],
-                                                                                              np.diag(s_d[:] ** (-1)).T))))
-        s, u = np.linalg.eig(x_0)
-
-        # Calculate x_1
-        x_1 = np.dot(u_d[:, :], np.dot(np.diag(s_d[:] ** (-1)).T, u))/scale
-
-        # Calculate X based on the subspace matrices we made above
-        X = np.dot(np.dot(pert_preddata.T, x_1), linalg.solve(
-            (np.eye(s.shape[0]) + np.diag(s)), x_1.T))
-
-    else:
-        if len(cov_data.shape) == 1:
-            X = linalg.solve(np.dot(pert_preddata, pert_preddata.T) +
-                             np.diag(cov_data), pert_preddata)
-        else:
-            X = linalg.solve(np.dot(pert_preddata, pert_preddata.T) +
-                             cov_data, pert_preddata)
-        X = X.T
-
-    return X
 
 
 def aug_state(state, list_state, cell_index=None):
@@ -1406,117 +1056,6 @@ def update_state(aug_state, state, list_state, cell_index=None):
     return state
 
 
-def resample_state(aug_state, state, list_state, new_en_size):
-    """
-    Extract the seperate state variables from an augmented state matrix. Calculate the mean and covariance, and resample
-    this.
-
-    Parameters
-    ----------
-    aug_state : ndarray
-        Augmented matrix of state variables
-    state : dict
-        Dict. af state variables
-    list_state : list
-        List of state variable
-    new_en_size : int
-        Size of the new ensemble
-
-    Returns
-    -------
-    state : dict
-        Dict. of resampled members
-    """
-
-    aug_row = 0
-    curr_ne = state[list_state[0]].shape[1]
-    new_state = {}
-    for elem in list_state:
-        # determine how many rows to extract
-        no_rows = state[elem].shape[0]
-        new_state[elem] = np.empty((no_rows, new_en_size))
-
-        mean_state = np.mean(aug_state[aug_row:aug_row + no_rows, :], 1)
-        pert_state = np.sqrt(1/(curr_ne - 1)) * (aug_state[aug_row:aug_row + no_rows, :] - np.dot(np.resize(mean_state,
-                                                                                                            (len(mean_state), 1)), np.ones((1, curr_ne))))
-        for i in range(new_en_size):
-            new_state[elem][:, i] = mean_state + \
-                np.dot(pert_state, np.random.normal(0, 1, pert_state.shape[1]))
-
-        aug_row += no_rows
-
-    return new_state
-
-
-def block_diag_cov(cov, list_state):
-    """
-    Block diagonalize a covariance matrix dictionary.
-
-    Parameters
-    ----------
-    cov : dict
-        Dict. with cov. matrices
-    list_state : list
-        Fixed list of keys in state dict.
-
-    Returns
-    -------
-    cov_out : ndarray
-        Block diag. matrix with prior covariance matrices for each state.
-    """
-    # TODO: Change if there are cross-correlation between different states
-
-    # Init. block in matrix
-    cov_out = cov[list_state[0]]
-
-    # Test if scalar has been given in init. block
-    if not hasattr(cov_out, '__len__'):
-        cov_out = np.array([[cov_out]])
-
-    # Loop of rest of the state-names and add in block diag. matrix
-    for i in range(1, len(list_state)):
-        cov_out = linalg.block_diag(cov_out, cov[list_state[i]])
-
-    # Return
-    return cov_out
-
-
-def calc_kalman_filter_eq(aug_state, kalman_gain, obs_data, pred_data):
-    """
-    Calculate the updated augment state using the Kalman filter equations
-
-    Parameters
-    ----------
-    aug_state : ndarray
-        Augmented state variable (all the parameters defined in `STATICVAR` augmented in one array)
-    kalman_gain : ndarray
-        Kalman gain
-    obs_data : ndarray
-        Augmented observed data vector (all `OBSNAME` augmented in one array)
-    pred_data : ndarray
-        Augmented predicted data vector (all `OBSNAME` augmented in one array)
-
-    Returns
-    -------
-    aug_state_upd : ndarray
-        Updated augmented state variable using the Kalman filter equations
-    """
-    # TODO: Implement svd updating algorithm
-
-    # Matrix version
-    # aug_state_upd = aug_state + np.dot(kalman_gain, (obs_data - pred_data))
-
-    # For-loop version
-    aug_state_upd = np.zeros(aug_state.shape)  # Init. updated state
-
-    for i in range(aug_state.shape[1]):  # Loop over ensemble members
-        aug_state_upd[:, i] = aug_state[:, i] + \
-            np.dot(kalman_gain, (obs_data[:, i] - pred_data[:, i]))
-
-    # Return the updated state
-    return aug_state_upd
-
-
 def limits(state, prior_info):
     """
     Check if any state variables overshoots the limits given by the prior info. If so, modify these values
@@ -1539,44 +1078,6 @@ def limits(state, prior_info):
             state[var][state[var] > prior_info[var]['limits'][1]] = prior_info[var]['limits'][1]
     return state
 
-
-def subsample_state(index, aug_state, pert_state):
-    """
-    Draw a subsample from the original state, given by the index
-
-    Parameters
-    ----------
-    index : ndarray
-        Index of parameters to draw.
-    aug_state : ndarray
-        Original augmented state.
-    pert_state : ndarray
-        Perturbed augmented state, for error covariance.
-
-    Returns
-    -------
-    new_state : dict
-        Subsample of state.
-    """
-
-    new_state = np.empty((aug_state.shape[0], len(index)))
-    for i in range(len(index)):
-        new_state[:, i] = aug_state[:, index[i]] + \
-            np.dot(pert_state, np.random.normal(0, 1, pert_state.shape[1]))
-        # select some elements
-
-    return new_state
-
-
-def get_obs_size(obs_data, time_index, datatypes):
-    """Return a 2D list of sizes for each observation array."""
-    return [
-        [
-            obs_data[int(time)][data].size if obs_data[int(time)][data] is not None else 0
-            for data in datatypes
-        ]
-        for time in time_index
-    ]
 
 def truncSVD(matrix, r=None, energy=None, full_matrices=False):
     '''
