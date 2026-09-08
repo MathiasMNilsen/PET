@@ -30,12 +30,304 @@ except ImportError:  # pragma: no cover - depends on a package outside this repo
 
 
 __all__ = [
+    'IterativeEnRML',
     'LMEnRML',
     'GNEnRML',
 ]
 
 
-class LMEnRML(AssimilationScheme):
+class IterativeEnRML(AssimilationScheme):
+    """What LM-EnRML and GN-EnRML share: everything but the control parameter.
+
+    Both solve the randomized maximum likelihood problem by repeated
+    linearisation, accept or reject each step on the mean data misfit, retry
+    a rejected step from the same state inside :meth:`update_step`, and stop
+    on the relative misfit change, on ``max_inner_iter`` failed attempts in
+    one iteration, or on ``max_iter``. They differ only in the *control
+    parameter* that reacts to an attempt: LM-EnRML's damping :math:`\\lambda`
+    inflates the Hessian and grows on rejection; GN-EnRML's step length
+    :math:`\\gamma` scales the step and shrinks on rejection. A subclass
+    supplies that behaviour through the hooks below and nothing else.
+
+    Hooks
+    -----
+    ``_read_damping_options(options)``
+        Read the control parameter(s) from the ``iteration`` block.
+    ``_step_scale()``
+        Factor applied to the analysis step: 1 for LM-EnRML, :math:`\\gamma`
+        for GN-EnRML.
+    ``_record_control()``
+        Remember the control the attempt ran with, for the run table.
+    ``_control_exhausted()`` and ``_exhausted_message()``
+        Whether the control itself says stop (LM-EnRML: :math:`\\lambda \\ge`
+        ``lambda_max``), and the stop reason to report then.
+    ``_why_stop_control()``
+        The control's entries in ``why_stop``.
+    ``_on_improved()``
+        Accepted with a smaller misfit spread: relax the control.
+    ``_on_rejected()``
+        Rejected: tighten the control.
+    ``_give_up_message(attempt)``
+        Stop reason when ``max_inner_iter`` attempts all failed.
+    ``log_columns()``
+        The control's column in the run table.
+    """
+
+    def __init__(self, keys_da, keys_en, sim, analysis=None):
+        """Build the ensemble from the config and bind the analysis.
+
+        See the subclass docstrings for the parameters.
+        """
+        # Build the collaborator, then hand it to the scheme base -- which
+        # adopts the ensemble's own logger, so log output is unchanged.
+        ensemble = Ensemble(keys_da, keys_en, sim)
+        # Zero tolerances switch off the base class's generic convergence
+        # criteria; this scheme decides in check_convergence(). See
+        # AssimilationScheme's `misfit_tol`/`step_tol` docs for why.
+        super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
+
+        # Flavour is a parameter, so it selects an analysis object not a class.
+        self.bind_analysis(self.resolve_analysis(analysis, keys_da))
+
+        if self.restart is False:
+            options = self.keys_da['iteration']
+            if isinstance(options, list):
+                options = extract.list_to_dict(options)
+
+            self.data_misfit_tol = options.get('data_misfit_tol', 0.01)
+            self.trunc_energy = options.get('energy', 0.95)
+            # How many times one iteration may retry before giving up. The
+            # retry loop lives inside update_step(), so this bounds it there.
+            self.max_inner_iter = options.get('max_inner_iter', 10)
+            self._read_damping_options(options)
+
+            # Ensure that it is given as percentage
+            if self.trunc_energy > 1:
+                self.trunc_energy /= 100.
+
+            # Initalize some variables
+            self.iteration = 0
+            # Mirrored for ensemble-side helpers that consult it.
+            self.ensemble.iteration = 0
+            # The prior forecast is no longer one of the counted iterations,
+            # so the loop budget is one less than the legacy max_iter.
+            self.max_iter = extract.extract_maxiter(self.keys_da)
+            self.maxiter = self.max_iter - 1
+            self._converged = False
+            self.ensemble.prior_enX = cp.deepcopy(self.enX)
+            self.prev_data_misfit_mean = None  # Data misfit at previous iteration
+            self.ensemble.list_datatypes = list(self.data_df.columns)
+
+            # Load ACTNUM if given
+            self.actnum = None
+            if 'actnum' in self.keys_da.keys():
+                try:
+                    self.actnum = np.load(self.keys_da['actnum'])['actnum']
+                except Exception:
+                    print('ACTNUM file cannot be loaded!')
+
+            # At the moment, the iterative loop is threated as an iterative smoother and thus we check if assim. indices
+            # are given as in the Simultaneous loop.
+            self.ensemble.check_assimindex_simultaneous()
+            self.ensemble.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
+
+            # Get the perturbed observations and scaling
+            self.data_random_state = cp.deepcopy(np.random.get_state())
+            self.vecObs = self.data_df.to_matrix()
+            self.enObs = self.ensemble.perturb_observations(self.vecObs)
+            self.ensemble._ext_scaling()
+
+    # ------------------------------------------------------------------
+    # Hooks a subclass supplies
+    # ------------------------------------------------------------------
+    def _read_damping_options(self, options):
+        raise NotImplementedError
+
+    def _step_scale(self):
+        return 1.0
+
+    def _record_control(self):
+        raise NotImplementedError
+
+    def _control_exhausted(self):
+        return False
+
+    def _exhausted_message(self):
+        raise NotImplementedError
+
+    def _why_stop_control(self):
+        raise NotImplementedError
+
+    def _on_improved(self):
+        raise NotImplementedError
+
+    def _on_rejected(self):
+        raise NotImplementedError
+
+    def _give_up_message(self, attempt):
+        raise NotImplementedError
+
+    # ------------------------------------------------------------------
+    # Shared machinery
+    # ------------------------------------------------------------------
+    def calc_analysis(self):
+        """Compute the trial state: the analysis step, scaled and clipped."""
+        # Get Ensemble of predicted data
+        self.enPred = self.pred_data.to_matrix()
+
+        if 'localanalysis' in self.keys_da:
+            self.ensemble.local_analysis_update()
+            # The one path that still writes ensemble.enX_temp, which nothing
+            # reads now -- so take its result explicitly.
+            proposed = getattr(self.ensemble, "enX_temp", None)
+            self.enX_proposal = self.enX if proposed is None else proposed
+        else:
+            # Check for adjoint
+            if hasattr(self, 'adjoints'):
+                enAdj = self.adjoints.to_matrix(is_jacobian=True) # In this case: Shape (ny, nx, ne)
+            else:
+                enAdj = None
+
+            # Perform the update and turn its result into the trial state
+            self.enX_proposal = self.propose_state(self.update(
+                enX = self.enX,
+                enY = self.enPred,
+                enE = self.enObs,
+                # kwargs
+                prior = self.prior_enX,
+                enAdj = enAdj
+            ), step_scale=self._step_scale())
+
+            # Ensure limits are respected
+            limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
+            self.enX_proposal.clip_matrix(limits)
+
+    def update_step(self) -> StepReport:
+        """Run one iteration, retrying until an attempt improves the misfit.
+
+        The retry loop is here rather than in the base loop: one call is one
+        iteration, and the attempts it took to get there are this scheme's
+        business. That mirrors popt, where ``EnOpt.update_step`` backtracks
+        over its own step length and returns only once it has an improving
+        step or has run out of attempts.
+
+        Each attempt re-solves the analysis with the current control
+        parameter, forecasts the proposal and scores it. A worse misfit
+        tightens the control (:meth:`_on_rejected`) and tries again from the
+        *same* state -- nothing was committed -- so the retries cost
+        forecasts, not correctness.
+
+        Returns
+        -------
+        StepReport
+            ``accepted`` is whether an attempt improved the misfit. It is
+            ``False`` only when the scheme has also decided to stop, which
+            :meth:`check_convergence` then reports to the loop.
+        """
+        attempt = 0
+        while True:
+            self.calc_analysis()
+            self.after_analysis()
+            state = self.run_forecast(self.enX_proposal)
+            self.score_and_commit()
+
+            if self.step_accepted or self._converged:
+                break
+
+            attempt += 1
+            if attempt >= self.max_inner_iter:
+                # Reported as a stopping criterion, with its reason in
+                # `why_stop`: there is no smaller step left to try.
+                self._converged = True
+                self.conv_msg = self._give_up_message(attempt)
+                self.why_stop['inner_stop'] = True
+                self.logger.info(self.conv_msg)
+                break
+
+        return StepReport(accepted=self.step_accepted, misfit=self.ensemble_misfit,
+                          state=state)
+
+    def check_convergence(self) -> bool:
+        """Report the verdict reached by the preceding :meth:`score_and_commit`."""
+        return self._converged
+
+    def score_and_commit(self):
+        """Score the forecast, decide on the attempt, and adjust the control.
+
+        Returns
+        -------
+        why_stop : dict
+            The convergence criteria with their values, including the
+            control's own entries.
+        """
+        # The control this attempt ran with, captured before the branches
+        # below adjust it: that is what the row for this iteration reports,
+        # since the loop logs after the adjustment has happened.
+        self._record_control()
+
+        self.prev_data_misfit_mean = self.data_misfit_mean
+        self.prev_data_misfit_std = self.data_misfit_std
+        self.prev_ensemble_misfit = getattr(self, "ensemble_misfit", None)
+
+        data_misfit = self.score()
+        self.ensemble_misfit = data_misfit
+        self.data_misfit_mean = np.mean(data_misfit)
+        self.data_misfit_std = np.std(data_misfit)
+
+        relative_change = 1 - (self.data_misfit_mean / self.prev_data_misfit_mean)
+        tolerance_met = abs(relative_change) < self.data_misfit_tol
+        why_stop = {'data_misfit_stop': relative_change < self.data_misfit_tol,
+                    'data_misfit': self.data_misfit_mean,
+                    'prev_data_misfit': self.prev_data_misfit_mean,
+                    **self._why_stop_control()}
+
+        if tolerance_met or self._control_exhausted():
+            # Converged. A step that increased the misfit is not taken, and
+            # the reduction reported is to the last accepted misfit.
+            success = bool(self.data_misfit_mean < self.prev_data_misfit_mean)   # a Python bool, as StepReport expects
+            reported = self.data_misfit_mean if success else self.prev_data_misfit_mean
+            self.logger.info(
+                f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
+                f'from {self.prior_data_misfit_mean:0.1f} to {reported:0.1f}'
+            )
+            self._converged = True
+            # Without this the run reports "no stopping reason recorded" on a
+            # perfectly ordinary convergence: only the base class's generic
+            # criteria set conv_msg, and these schemes disable those.
+            self.conv_msg = (
+                f"Data misfit change satisfies |1 - d/d_prev| < {self.data_misfit_tol}"
+                if tolerance_met else self._exhausted_message()
+            )
+            self.step_accepted = success
+            self.why_stop = why_stop
+            return why_stop
+
+        if self.data_misfit_mean < self.prev_data_misfit_mean:
+            success = True
+            # A smaller spread as well: relax the control. Otherwise accept
+            # the step but leave the control alone.
+            if self.data_misfit_std < self.prev_data_misfit_std:
+                self._on_improved()
+            # Commit the ensemble weights of a weight-space analysis.
+            if hasattr(self, 'W'):
+                self.current_W = cp.deepcopy(self.W)
+        else:
+            success = False
+            self._on_rejected()
+            # Back to the last accepted misfit, array included -- that is
+            # what update_step reports and the next comparison uses.
+            self.data_misfit_mean = self.prev_data_misfit_mean
+            self.data_misfit_std = self.prev_data_misfit_std
+            if self.prev_ensemble_misfit is not None:
+                self.ensemble_misfit = self.prev_ensemble_misfit
+
+        self._converged = False
+        self.step_accepted = success
+        self.why_stop = why_stop
+        return why_stop
+
+
+class LMEnRML(IterativeEnRML):
     """Levenberg-Marquardt Ensemble Randomized Maximum Likelihood (LM-EnRML).
 
     An iterative ensemble smoother that solves the randomized maximum
@@ -132,6 +424,7 @@ class LMEnRML(AssimilationScheme):
 
     See Also
     --------
+    IterativeEnRML : The loop, scoring and bookkeeping both schemes share.
     GNEnRML : Gauss-Newton form, damped by a step length instead.
     ESMDA : Fixed schedule rather than convergence-driven iteration.
     """
@@ -142,168 +435,11 @@ class LMEnRML(AssimilationScheme):
         "subspace": subspace_update,
     }
 
-    def __init__(self, keys_da, keys_en, sim, analysis=None):
-        """Build the ensemble from the config and bind the analysis.
-
-        See the class docstring for the parameters.
-        """
-        # Build the collaborator, then hand it to the scheme base -- which
-        # adopts the ensemble's own logger, so log output is unchanged.
-        ensemble = Ensemble(keys_da, keys_en, sim)
-        # Zero tolerances switch off the base class's generic convergence
-        # criteria; this scheme decides in check_convergence(). See
-        # AssimilationScheme's `misfit_tol`/`step_tol` docs for why.
-        super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
-
-        # Flavour is a parameter, so it selects an analysis object not a class.
-        self.bind_analysis(self.resolve_analysis(analysis, keys_da))
-
-        if self.restart is False:
-
-            # Set parameters needed for LM-EnRML
-            options = self.keys_da['iteration']
-            if isinstance(options, list):
-                options = extract.list_to_dict(options)
-
-            # ------------------------------------------------------------
-            # LM-EnRML Options
-            # ------------------------------------------------------------
-            self.data_misfit_tol = options.get('data_misfit_tol', 0.01)
-            self.trunc_energy = options.get('energy', 0.95)
-            self.lam       = options.get('lambda', 100)
-            self.lam_max   = options.get('lambda_max', 1e10)
-            self.lam_min   = options.get('lambda_min', 0.01)
-            self.lam_factor = options.get('lambda_factor', 5)
-            # How many times one iteration may re-damp before giving up. The
-            # damping loop lives inside update_step(), so this bounds it
-            # there rather than relying on the base loop's rejected-step
-            # valve; `lambda_max` is normally what stops it first.
-            self.max_inner_iter = options.get('max_inner_iter', 10)
-            # ------------------------------------------------------------
-
-            # Ensure that it is given as percentage
-            if self.trunc_energy > 1:
-                self.trunc_energy /= 100.
-
-            # Initalize some variables
-            self.iteration = 0
-            # Mirrored for ensemble-side helpers that consult it.
-            self.ensemble.iteration = 0
-            # The prior forecast is no longer one of the counted iterations,
-            # so the loop budget is one less than the legacy max_iter.
-            self.max_iter = extract.extract_maxiter(self.keys_da)
-            self.maxiter = self.max_iter - 1
-            self._converged = False
-            self.ensemble.prior_enX = cp.deepcopy(self.enX) # (Not sure if this is wise!)
-            self.prev_data_misfit_mean = None  # Data misfit at previous iteration
-            self.ensemble.list_datatypes = list(self.data_df.columns)
-
-            # Load ACTNUM if given
-            self.actnum = None
-            if 'actnum' in self.keys_da.keys():
-                try:
-                    self.actnum = np.load(self.keys_da['actnum'])['actnum']
-                except Exception:
-                    print('ACTNUM file cannot be loaded!')
-
-            # At the moment, the iterative loop is threated as an iterative smoother and thus we check if assim. indices
-            # are given as in the Simultaneous loop.
-            self.ensemble.check_assimindex_simultaneous()
-            self.ensemble.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
-
-            # Get the perturbed observations and scaling
-            self.data_random_state = cp.deepcopy(np.random.get_state())
-            self.vecObs = self.data_df.to_matrix()
-            self.enObs = self.ensemble.perturb_observations(self.vecObs)
-            self.ensemble._ext_scaling()
-
-
-
-    def calc_analysis(self):
-        """
-        Calculate the update step in LM-EnRML, which is just the Levenberg-Marquardt update algorithm with
-        the sensitivity matrix approximated by the ensemble.
-        """
-        # Get Ensemble of predicted data
-        self.enPred = self.pred_data.to_matrix()
-
-        if 'localanalysis' in self.keys_da:
-            self.ensemble.local_analysis_update()
-            # The one path that still writes ensemble.enX_temp, which nothing
-            # reads now -- so take its result explicitly.
-            proposed = getattr(self.ensemble, "enX_temp", None)
-            self.enX_proposal = self.enX if proposed is None else proposed
-        else:
-
-            # Check for adjoint
-            if hasattr(self, 'adjoints'):
-                enAdj = self.adjoints.to_matrix(is_jacobian=True) # In this case: Shape (ny, nx, ne)
-            else:
-                enAdj = None
-
-            # Perform the update and turn its result into the trial state
-            self.enX_proposal = self.propose_state(self.update(
-                enX = self.enX,
-                enY = self.enPred,
-                enE = self.enObs,
-                # kwargs
-                prior = self.prior_enX,
-                enAdj = enAdj
-            ))
-
-            # Ensure limits are respected
-            limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
-            self.enX_proposal.clip_matrix(limits)
-
-    # ------------------------------------------------------------------
-    # AssimilationScheme contract
-    # ------------------------------------------------------------------
-    def update_step(self) -> StepReport:
-        """Run one LM-EnRML iteration, re-damping until it finds a step.
-
-        The damping loop is here rather than in the base loop: one call is one
-        iteration, and the :math:`\\lambda` attempts it took to get there are
-        this scheme's business. That mirrors popt, where ``EnOpt.update_step``
-        backtracks over its own step length and returns only once it has an
-        improving step or has run out of attempts.
-
-        Each attempt re-solves the analysis at the current :math:`\\lambda`,
-        forecasts the proposal and scores it. A worse misfit multiplies
-        :math:`\\lambda` by ``lambda_factor`` and tries again from the *same*
-        state -- nothing was committed -- so the retries cost forecasts, not
-        correctness.
-
-        Returns
-        -------
-        StepReport
-            ``accepted`` is whether an attempt improved the misfit. It is
-            ``False`` only when the scheme has also decided to stop, which
-            :meth:`check_convergence` then reports to the loop.
-        """
-        attempt = 0
-        while True:
-            self.calc_analysis()
-            self.after_analysis()
-            state = self.run_forecast(self.enX_proposal)
-            self.score_and_commit()
-
-            if self.step_accepted or self._converged:
-                break
-
-            attempt += 1
-            if attempt >= self.max_inner_iter:
-                # Reported the way `lambda_max` is -- a stopping criterion
-                # with its reason in `why_stop` -- because it is the same
-                # event: no smaller step left to try.
-                self._converged = True
-                self.conv_msg = (f"No improving step after {attempt} damping "
-                                 f"attempts (λ = {self.lam:.3g})")
-                self.why_stop['inner_stop'] = True
-                self.logger.info(self.conv_msg)
-                break
-
-        return StepReport(accepted=self.step_accepted, misfit=self.ensemble_misfit,
-                          state=state)
+    def _read_damping_options(self, options):
+        self.lam       = options.get('lambda', 100)
+        self.lam_max   = options.get('lambda_max', 1e10)
+        self.lam_min   = options.get('lambda_min', 0.01)
+        self.lam_factor = options.get('lambda_factor', 5)
 
     def score(self, pred_data=None):
         r"""Data misfit, sizing ``lambda='auto'`` the first time there is one.
@@ -319,150 +455,37 @@ class LMEnRML(AssimilationScheme):
             self.lam = 0.5 * float(np.mean(misfit)) / self.enObs.shape[0]
         return misfit
 
-    def check_convergence(self) -> bool:
-        """Report the verdict reached by the preceding :meth:`score_and_commit`."""
-        return self._converged
-
-    def score_and_commit(self):
-        """
-        Check if LM-EnRML have converged based on evaluation of change sizes of objective function, state and damping
-        parameter.
-
-        Returns
-        -------
-        conv: bool
-            Logic variable telling if algorithm has converged
-        why_stop: dict
-            Dict. with keys corresponding to conv. criteria, with logical variable telling which of them that has been
-            met
-        """
-        # Initialize the initial success value
-        success = False
-
-        # The λ this attempt was damped with. Captured before the branches
-        # below adjust it, because that is what the row for this iteration
-        # reports -- the loop logs after the adjustment has happened.
+    def _record_control(self):
         self.lam_used = self.lam
 
-        # if inital conv. check, there are no prev_data_misfit
-        self.prev_data_misfit_mean = self.data_misfit_mean
-        self.prev_data_misfit_std = self.data_misfit_std
-        self.prev_ensemble_misfit = getattr(self, "ensemble_misfit", None)
+    def _control_exhausted(self):
+        return self.lam >= self.lam_max
 
-        # Calc. std dev of data misfit (used to update lamda)
-        # mat_obs = np.dot(obs_data_vector.reshape((len(obs_data_vector),1)), np.ones((1, self.ne))) # use the perturbed
-        # data instead.
+    def _exhausted_message(self):
+        return f"Damping parameter reached lambda_max ({self.lam_max})"
 
-        data_misfit = self.score()
-        self.ensemble_misfit = data_misfit
-        self.data_misfit_mean = np.mean(data_misfit)
-        self.data_misfit_std = np.std(data_misfit)
+    def _why_stop_control(self):
+        return {'lambda': self.lam, 'lambda_stop': self.lam >= self.lam_max}
 
-        # # Calc. mean data misfit for convergence check, using the updated state variable
-        # self.data_misfit_mean = np.dot((mean_preddata - obs_data_vector).T,
-        #                      solve(cov_data, (mean_preddata - obs_data_vector)))
+    def _on_improved(self):
+        # Reduce damping parameter
+        if self.lam > self.lam_min:
+            self.lam = self.lam / self.lam_factor
+            self.logger(f'λ reduced: {self.lam * self.lam_factor} ──> {self.lam}')
 
-        # Convergence check: Relative step size of data misfit or state change less than tolerance
-        if abs(1 - (self.data_misfit_mean / self.prev_data_misfit_mean)) < self.data_misfit_tol \
-                or self.lam >= self.lam_max:
-            # Logical variables for conv. criteria
-            why_stop = {'data_misfit_stop': 1 - (self.data_misfit_mean / self.prev_data_misfit_mean) < self.data_misfit_tol,
-                        'data_misfit': self.data_misfit_mean,
-                        'prev_data_misfit': self.prev_data_misfit_mean,
-                        'lambda': self.lam,
-                        'lambda_stop': self.lam >= self.lam_max}
+    def _on_rejected(self):
+        self.lam = self.lam * self.lam_factor
+        self.logger(f'Data misfit increased! λ increased: {self.lam / self.lam_factor} ──> {self.lam}')
 
-            if self.data_misfit_mean >= self.prev_data_misfit_mean:
-                success = False
-                self.logger(
-                    f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
-                    f'from {self.prior_data_misfit_mean:0.1f} to {self.prev_data_misfit_mean:0.1f}'
-                )
-            else:
-                self.logger.info(
-                    f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
-                    f'from {self.prior_data_misfit_mean:0.1f} to {self.data_misfit_mean:0.1f}'
-                )
-
-            self._converged = True
-            # Without this the run reports "no stopping reason recorded" on a
-            # perfectly ordinary convergence: only the base class's generic
-            # criteria set conv_msg, and these schemes disable those.
-            self.conv_msg = (
-                f"Data misfit change satisfies |1 - d/d_prev| < "
-                f"{self.data_misfit_tol}"
-                if abs(1 - (self.data_misfit_mean / self.prev_data_misfit_mean))
-                < self.data_misfit_tol
-                else f"Damping parameter reached lambda_max ({self.lam_max})"
-            )
-            self.step_accepted = success
-            self.why_stop = why_stop
-            return why_stop
-
-        else:  # conv. not met
-            # Logical variables for conv. criteria
-            why_stop = {'data_misfit_stop': 1 - (self.data_misfit_mean / self.prev_data_misfit_mean) < self.data_misfit_tol,
-                        'data_misfit': self.data_misfit_mean,
-                        'prev_data_misfit': self.prev_data_misfit_mean,
-                        'lambda': self.lam,
-                        'lambda_stop': self.lam >= self.lam_max}
-
-
-            ###############################################
-            ##### update Lambda step-size values ##########
-            ###############################################
-            # If reduction in mean data misfit, reduce damping param
-            if self.data_misfit_mean < self.prev_data_misfit_mean and self.data_misfit_std < self.prev_data_misfit_std:
-
-                success = True
-
-                # Reduce damping parameter
-                if self.lam > self.lam_min:
-                    self.lam = self.lam / self.lam_factor
-                    self.logger(f'λ reduced: {self.lam * self.lam_factor} ──> {self.lam}')
-
-                # Update ensemble weights
-                if hasattr(self, 'W'):
-                    self.current_W = cp.deepcopy(self.W)
-
-
-            elif self.data_misfit_mean < self.prev_data_misfit_mean and self.data_misfit_std >= self.prev_data_misfit_std:
-
-                # accept itaration, but keep lam the same
-                success = True
-
-                # Update ensemble weights
-                if hasattr(self, 'W'):
-                    self.current_W = cp.deepcopy(self.W)
-
-            else:  # Reject iteration, and increase lam
-                success = False
-                self.lam = self.lam * self.lam_factor
-                # Increase damping parameter (divide calculations for ANALYSISDEBUG purpose)
-                self.logger(f'Data misfit increased! λ increased: {self.lam / self.lam_factor} ──> {self.lam}')
-
-            if not success:
-                # Back to the last accepted misfit, array included -- that is
-                # what update_step reports and the next comparison uses.
-                self.data_misfit_mean = self.prev_data_misfit_mean
-                self.data_misfit_std = self.prev_data_misfit_std
-                if self.prev_ensemble_misfit is not None:
-                    self.ensemble_misfit = self.prev_ensemble_misfit
-
-            self._converged = False
-            self.step_accepted = success
-            self.why_stop = why_stop
-            return why_stop
+    def _give_up_message(self, attempt):
+        return f"No improving step after {attempt} damping attempts (λ = {self.lam:.3g})"
 
     def log_columns(self, prior_run: bool = False) -> dict:
         """LM-EnRML reports the damping the logged iteration ran with."""
         return {"λ": getattr(self, "lam_used", self.lam)}
 
 
-
-
-
-class GNEnRML(AssimilationScheme):
+class GNEnRML(IterativeEnRML):
     """Gauss-Newton Ensemble Randomized Maximum Likelihood (GN-EnRML).
 
     Solves the same randomized maximum likelihood problem as :class:`LMEnRML`,
@@ -553,6 +576,7 @@ class GNEnRML(AssimilationScheme):
 
     See Also
     --------
+    IterativeEnRML : The loop, scoring and bookkeeping both schemes share.
     LMEnRML : Levenberg-Marquardt form, damped via the Hessian.
     """
 
@@ -563,277 +587,42 @@ class GNEnRML(AssimilationScheme):
         "margis": margIS_update,
     }
 
-    def __init__(self, keys_da, keys_en, sim, analysis=None):
-        """Build the ensemble from the config and bind the analysis.
+    def _read_damping_options(self, options):
+        self.gamma = options.get('gamma', 0.2)
+        self.gamma_max = options.get('gamma_max', 0.5)
+        self.gamma_factor = options.get('gamma_factor', 2.5)
+        # 'auto' means "pick a sensible default", which for the step length
+        # is a constant -- it needs nothing from the prior.
+        if self.gamma == 'auto':
+            self.gamma = 0.1
+        # Analyses read `lam`; Gauss-Newton takes undamped steps.
+        self.lam = 0
 
-        See the class docstring for the parameters.
-        """
-        # Build the collaborator, then hand it to the scheme base -- which
-        # adopts the ensemble's own logger, so log output is unchanged.
-        ensemble = Ensemble(keys_da, keys_en, sim)
-        # Zero tolerances switch off the base class's generic convergence
-        # criteria; this scheme decides in check_convergence(). See
-        # AssimilationScheme's `misfit_tol`/`step_tol` docs for why.
-        super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
+    def _step_scale(self):
+        return self.gamma
 
-        # Flavour is a parameter, so it selects an analysis object not a class.
-        self.bind_analysis(self.resolve_analysis(analysis, keys_da))
-
-        if self.restart is False:
-            options = self.keys_da['iteration']
-            if isinstance(options, list):
-                options = extract.list_to_dict(options)
-
-            self.data_misfit_tol = options.get('data_misfit_tol', 0.01)
-            self.trunc_energy = options.get('energy', 0.95)
-            self.gamma = options.get('gamma', 0.2)
-            self.gamma_max = options.get('gamma_max', 0.5)
-            self.gamma_factor = options.get('gamma_factor', 2.5)
-            # How many times one iteration may shorten the step before giving
-            # up. The step-length loop lives inside update_step(), so this is
-            # what bounds it; unlike LM-EnRML's `lambda_max` there is no bound
-            # on gamma itself to stop it first.
-            self.max_inner_iter = options.get('max_inner_iter', 10)
-
-            # 'auto' means "pick a sensible default", which for the step
-            # length is a constant -- it needs nothing from the prior, so it
-            # is resolved here rather than after the prior forecast.
-            if self.gamma == 'auto':
-                self.gamma = 0.1
-
-            if self.trunc_energy > 1:
-                self.trunc_energy /= 100.
-
-            self.iteration = 0
-            # Mirrored for ensemble-side helpers that consult it.
-            self.ensemble.iteration = 0
-            # The prior forecast is no longer one of the counted iterations,
-            # so the loop budget is one less than the legacy max_iter.
-            self.max_iter = extract.extract_maxiter(self.keys_da)
-            self.maxiter = self.max_iter - 1
-            self._converged = False
-            self.ensemble.prior_enX = cp.deepcopy(self.enX)
-            self.prev_data_misfit_mean = None
-            self.ensemble.list_datatypes = list(self.data_df.columns)
-
-            self.actnum = None
-            if 'actnum' in self.keys_da.keys():
-                try:
-                    self.actnum = np.load(self.keys_da['actnum'])['actnum']
-                except Exception:
-                    print('ACTNUM file cannot be loaded!')
-
-            # At the moment, the iterative loop is threated as an iterative smoother and thus we check if assim. indices
-            # are given as in the Simultaneous loop.
-            self.ensemble.check_assimindex_simultaneous()
-            self.ensemble.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
-
-            self.data_random_state = cp.deepcopy(np.random.get_state())
-            self.vecObs = self.data_df.to_matrix()
-            self.enObs = self.ensemble.perturb_observations(self.vecObs)
-            self.ensemble._ext_scaling()
-
-            # ensure that the updates does not invoke the LM inflation of the Hessian.
-            self.lam = 0
-
-    def calc_analysis(self):
-        """
-        Calculate the update step in LM-EnRML, which is just the Levenberg-Marquardt update algorithm with
-        the sensitivity matrix approximated by the ensemble.
-
-        """
-
-        self.enPred = self.pred_data.to_matrix()
-
-        if 'localanalysis' in self.keys_da:
-            self.ensemble.local_analysis_update()
-            # The one path that still writes ensemble.enX_temp, which nothing
-            # reads now -- so take its result explicitly.
-            proposed = getattr(self.ensemble, "enX_temp", None)
-            self.enX_proposal = self.enX if proposed is None else proposed
-        else:
-
-            if hasattr(self, 'adjoints'):
-                enAdj = self.adjoints.to_matrix(is_jacobian=True)
-            else:
-                enAdj = None
-
-            # The step length gamma scales whatever kind of step comes back.
-            self.enX_proposal = self.propose_state(self.update(
-                enX=self.enX,
-                enY=self.enPred,
-                enE=self.enObs,
-                prior=self.prior_enX,
-                enAdj=enAdj
-            ), step_scale=self.gamma)
-
-            limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
-            self.enX_proposal.clip_matrix(limits)
-
-    # ------------------------------------------------------------------
-    # AssimilationScheme contract
-    # ------------------------------------------------------------------
-    def update_step(self) -> StepReport:
-        """Run one GN-EnRML iteration, shortening the step until it improves.
-
-        The same shape as :meth:`LMEnRML.update_step` -- one call is one
-        iteration, and the attempts within it are this scheme's business --
-        with the step length :math:`\\gamma` doing what :math:`\\lambda` does
-        there. A rejected attempt divides :math:`\\gamma` by ``gamma_factor``
-        and re-solves from the same state.
-
-        Returns
-        -------
-        StepReport
-            ``accepted`` is whether an attempt improved the misfit. It is
-            ``False`` only when the scheme has also decided to stop, which
-            :meth:`check_convergence` then reports to the loop.
-        """
-        attempt = 0
-        while True:
-            self.calc_analysis()
-            self.after_analysis()
-            state = self.run_forecast(self.enX_proposal)
-            self.score_and_commit()
-
-            if self.step_accepted or self._converged:
-                break
-
-            attempt += 1
-            if attempt >= self.max_inner_iter:
-                # γ has no lower bound, so this is what stops the scheme from
-                # halving a step that is already far too small to matter.
-                self._converged = True
-                self.conv_msg = (f"No improving step after {attempt} "
-                                 f"step-length attempts (γ = {self.gamma:.3g})")
-                self.why_stop['inner_stop'] = True
-                self.logger.info(self.conv_msg)
-                break
-
-        return StepReport(
-            accepted=self.step_accepted,
-            misfit=self.ensemble_misfit,
-            state=state
-        )
-
-    def check_convergence(self) -> bool:
-        """Report the verdict reached by the preceding :meth:`score_and_commit`."""
-        return self._converged
-
-    def score_and_commit(self):
-        """
-        Check if LM-EnRML have converged based on evaluation of change sizes of objective function, state and damping
-        parameter.
-
-        Returns
-        -------
-        conv: bool
-            Logic variable telling if algorithm has converged
-        why_stop: dict
-            Dict. with keys corresponding to conv. criteria, with logical variable telling which of them that has been
-            met
-        """
-        # Initialize the initial success value
-        success = False
-
-        # The γ this attempt took, captured before the branches below relax
-        # or shorten it -- see LMEnRML.score_and_commit.
+    def _record_control(self):
         self.gamma_used = self.gamma
 
-        self.prev_data_misfit_mean = self.data_misfit_mean
-        self.prev_data_misfit_std = self.data_misfit_std
-        self.prev_ensemble_misfit = getattr(self, "ensemble_misfit", None)
+    def _exhausted_message(self):
+        raise AssertionError("GN-EnRML has no bound on gamma that stops it")
 
-        data_misfit = self.score()
-        self.ensemble_misfit = data_misfit
+    def _why_stop_control(self):
+        return {'gamma': self.gamma}
 
-        self.data_misfit_mean = np.mean(data_misfit)
-        self.data_misfit_std = np.std(data_misfit)
-
-        # # Calc. mean data misfit for convergence check, using the updated state variable
-        # self.data_misfit_mean = np.dot((mean_preddata - obs_data_vector).T,
-        #                      solve(cov_data, (mean_preddata - obs_data_vector)))
-
-        # Convergence check: Relative step size of data misfit or state change less than tolerance
-        if abs(1 - (self.data_misfit_mean / self.prev_data_misfit_mean)) < self.data_misfit_tol:
-            # Logical variables for conv. criteria
-            why_stop = {'data_misfit_stop': 1 - (self.data_misfit_mean / self.prev_data_misfit_mean) < self.data_misfit_tol,
-                        'data_misfit': self.data_misfit_mean,
-                        'prev_data_misfit': self.prev_data_misfit_mean,
-                        'gamma': self.gamma,
-                        }
-
-            if self.data_misfit_mean >= self.prev_data_misfit_mean:
-                success = False
-                self.logger.info(
-                    f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
-                    f'from {self.prior_data_misfit_mean:0.1f} to {self.prev_data_misfit_mean:0.1f}')
-            else:
-                self.logger.info(
-                    f'Iterations have converged after {self.iteration + 1} iterations. Objective function reduced '
-                    f'from {self.prior_data_misfit_mean:0.1f} to {self.data_misfit_mean:0.1f}')
-            self._converged = True
-            # Without this the run reports "no stopping reason recorded" on a
-            # perfectly ordinary convergence: only the base class's generic
-            # criteria set conv_msg, and these schemes disable those.
-            self.conv_msg = (
-                f"Data misfit change satisfies |1 - d/d_prev| < "
-                f"{self.data_misfit_tol}"
+    def _on_improved(self):
+        if self.gamma_factor > 1:
+            self.gamma = self.gamma + (self.gamma_max - self.gamma) * 2 ** (
+                -(self.iteration + 1) / (self.gamma_factor - 1)
             )
-            self.step_accepted = success
-            self.why_stop = why_stop
-            return why_stop
 
-        else:  # conv. not met
-            # Logical variables for conv. criteria
-            why_stop = {'data_misfit_stop': 1 - (self.data_misfit_mean / self.prev_data_misfit_mean) < self.data_misfit_tol,
-                        'data_misfit': self.data_misfit_mean,
-                        'prev_data_misfit': self.prev_data_misfit_mean,
-                        'gamma': self.gamma}
+    def _on_rejected(self):
+        if self.gamma_factor > 1:
+            self.gamma = self.gamma / self.gamma_factor
+        self.logger(f'Data misfit increased! New Gamma for repeated analysis: {self.gamma}')
 
-            ###############################################
-            ##### update Lambda step-size values ##########
-            ###############################################
-            # If reduction in mean data misfit, reduce damping param
-            if self.data_misfit_mean < self.prev_data_misfit_mean and self.data_misfit_std < self.prev_data_misfit_std:
-                success = True
-
-                if self.gamma_factor > 1:
-                    self.gamma = self.gamma + (self.gamma_max - self.gamma) * 2 ** (
-                        -(self.iteration + 1) / (self.gamma_factor - 1)
-                    )
-
-                if hasattr(self, 'W'):
-                    self.current_W = cp.deepcopy(self.W)
-
-            elif self.data_misfit_mean < self.prev_data_misfit_mean and self.data_misfit_std >= self.prev_data_misfit_std:
-                # accept itaration, but keep lam the same
-                success = True
-
-                if hasattr(self, 'W'):
-                    self.current_W = cp.deepcopy(self.W)
-
-            else:  # Reject iteration, and increase lam
-                success = False
-
-                if self.gamma_factor > 1:
-                    self.gamma = self.gamma / self.gamma_factor
-
-                self.logger(
-                    f'Data misfit increased! New Gamma for repeated analysis: {self.gamma}'
-                )
-
-            if not success:
-                # Back to the last accepted misfit, array included.
-                self.data_misfit_mean = self.prev_data_misfit_mean
-                self.data_misfit_std = self.prev_data_misfit_std
-                if self.prev_ensemble_misfit is not None:
-                    self.ensemble_misfit = self.prev_ensemble_misfit
-
-            self._converged = False
-            self.step_accepted = success
-            self.why_stop = why_stop
-            return why_stop
+    def _give_up_message(self, attempt):
+        return f"No improving step after {attempt} step-length attempts (γ = {self.gamma:.3g})"
 
     def log_columns(self, prior_run: bool = False) -> dict:
         """GN-EnRML reports the step length the logged iteration took."""

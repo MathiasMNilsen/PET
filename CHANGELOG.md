@@ -662,6 +662,20 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **LM-EnRML and GN-EnRML share one implementation.** `IterativeEnRML`
+  holds the construction, the analysis call, the retry loop inside
+  `update_step`, the scoring and the accept/reject bookkeeping the two
+  schemes had as near-verbatim copies (about 400 lines); each subclass now
+  supplies only how its control parameter reacts -- LM-EnRML's damping
+  `lambda` (grows on rejection, stops at `lambda_max`) and GN-EnRML's step
+  length `gamma` (scales the step, shrinks on rejection) -- through ten small
+  hooks. A new iterative smoother with a different damping policy is those
+  hooks and nothing else. Numbers, `why_stop` contents, stop messages and
+  the run table are unchanged, pinned by the goldens for all six LM/GN pairs;
+  the one visible difference is that LM-EnRML's "converged after an increase"
+  log line no longer carries a leading space, since both schemes log it the
+  same way now.
+
 - **Analyses return their result instead of writing it onto the scheme.**
   `update()` now returns an `AnalysisResult` holding exactly one of `step`
   (state space), `w_step` (ensemble-weight space, `W_0 = 0`) or `W_step`
