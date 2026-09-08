@@ -156,18 +156,6 @@ class EnKF(AssimilationScheme):
             self.enObs = self.ensemble.perturb_observations(self.vecObs)
             self.ensemble._ext_scaling()
 
-    def score(self, pred_data=None):
-        """Data misfit, weighted by the Cholesky factor of the data covariance.
-
-        The EnKF family carries ``scale_data`` -- the factor ``gen_real``
-        returns alongside the perturbed observations -- and scores with that
-        rather than the full ``cov_data`` the iterative smoothers use.
-        """
-        pred = self.pred_data if pred_data is None else pred_data
-        return at.calc_objectivefun(
-            self.enObs, self._as_matrix(pred), self.scale_data
-        )
-
     def calc_analysis(self):
         """
         Calculate the analysis step of the EnKF procedure. The updating is done using the Kalman filter equations, using

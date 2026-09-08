@@ -483,6 +483,16 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **EnKF and ES reported the misfit divided by sigma, not sigma squared.**
+  `EnKF.score` passed `scale_data` -- the square root (or Cholesky factor) of
+  the data covariance -- into the objective, which expects a variance. The
+  override is gone and the family scores with `cov_data` like every other
+  scheme, so its misfits are comparable with ES-MDA's and mean what the run
+  table says. The posterior states are unchanged (neither scheme feeds the
+  misfit back into its update); the ES and EnKF `data_misfit` and
+  `prior_data_misfit` goldens were regenerated, and the regeneration step
+  asserted that no state entry moved.
+
 - **The `subspace` analysis now whitens the predicted anomalies before its
   SVD.** It took the SVD of `enY @ PI` while whitening only the residual and
   the observation perturbations, so the weight-space step depended on the

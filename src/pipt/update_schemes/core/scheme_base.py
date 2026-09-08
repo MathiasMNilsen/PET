@@ -526,10 +526,9 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
             \Phi_j = (g(m_j) - d_j)^{\mathsf T} C_d^{-1} (g(m_j) - d_j),
 
         against the *perturbed* observations ``enObs`` and the data covariance
-        ``cov_data``. Schemes that score against something else override it:
-        ES-MDA keeps an un-inflated copy of the perturbations
-        (``enObs_conv``), and the EnKF family uses its Cholesky factor
-        ``scale_data`` in place of the full covariance.
+        ``cov_data``. ES-MDA overrides it to score against an un-inflated copy
+        of the perturbations (``enObs_conv``); the multilevel scheme to score
+        all fidelity levels at once.
         """
         pred = self.pred_data if pred_data is None else pred_data
         enObs = getattr(self, "enObs", None)

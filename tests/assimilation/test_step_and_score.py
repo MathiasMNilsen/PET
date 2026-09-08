@@ -140,7 +140,7 @@ class TestRecordPriorScore:
 
 
 class TestSchemeOverrides:
-    """The three schemes that do not score the base's way."""
+    """ES-MDA scores its own way; the EnKF family scores the base's way."""
 
     @staticmethod
     def _bare(cls, **attrs):
@@ -161,14 +161,17 @@ class TestSchemeOverrides:
 
         assert np.allclose(scheme.score(), 5.0)
 
-    def test_enkf_scores_with_the_cholesky_factor(self):
+    def test_enkf_scores_with_the_data_covariance(self):
+        """It used to pass ``scale_data`` -- a square root -- where the
+        objective expects a variance, so the misfit came out as r**2/sigma
+        instead of r**2/sigma**2."""
         scheme = self._bare(
             EnKF,
             enObs=np.zeros((5, 4)),
             ensemble=SimpleNamespace(pred_data=np.ones((5, 4))),
         )
-        scheme.scale_data = np.full(5, 4.0)      # not cov_data
-        scheme.cov_data = np.ones(5)
+        scheme.scale_data = np.full(5, 99.0)     # must not be used
+        scheme.cov_data = np.full(5, 4.0)        # variance: 5 data x 1 / 4
 
         assert np.allclose(scheme.score(), 5 * (1 / 4.0))
 
