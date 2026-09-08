@@ -483,6 +483,21 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The `approx` and `full` analyses now apply the state scaling.** Both read
+  a `scale_state` attribute that nothing ever set, so the per-row prior
+  standard deviation the ensemble computes as `state_scaling` was silently
+  replaced by ones. For `approx` this cancels exactly (anomalies are divided
+  by it and the step multiplied back), except in the empirical-covariance
+  branch of distance localization, whose gain matrix now returns to physical
+  units like the other branches. For `full` it did not cancel: `Am` was built
+  from the prior anomalies *multiplied* by the standard deviation while the
+  anomalies and the prior misfit were left unscaled, so the regularisation
+  term was off by the squared standard deviation for any variable whose prior
+  standard deviation was not 1. `Am` is now built in the same scaled space as
+  the rest of the update. A test checks that rescaling one variable's units
+  rescales only its rows of the step. The goldens are unchanged: every prior
+  variance in the characterisation case is 1.
+
 - **EnKF and ES reported the misfit divided by sigma, not sigma squared.**
   `EnKF.score` passed `scale_data` -- the square root (or Cholesky factor) of
   the data covariance -- into the objective, which expects a variance. The

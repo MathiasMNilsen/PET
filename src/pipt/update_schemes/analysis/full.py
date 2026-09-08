@@ -52,7 +52,10 @@ class full_update(AnalysisBase):
         # Scaling factors and projection matrix. Fallbacks are built only when
         # the scheme lacks the attribute; see approx_update for why.
         cov    = scheme.cov_data if hasattr(scheme, 'cov_data') else np.eye(ny)
-        scx    = getattr(scheme, 'scale_state', np.ones(nx))
+        # State scaling (prior standard deviation per row): anomalies and the
+        # prior misfit are divided by it, Am is built in the same scaled space,
+        # and the step is multiplied back.
+        scx    = scheme.state_scaling if hasattr(scheme, 'state_scaling') else np.ones(nx)
         scy    = scheme.scale_data if hasattr(scheme, 'scale_data') else self.sqrtm(cov)
         PI     = (scheme.proj if hasattr(scheme, 'proj')
                   else (np.eye(ne) - np.ones((ne, ne)) / ne) / np.sqrt(ne - 1))
@@ -93,9 +96,17 @@ class full_update(AnalysisBase):
     # ------------------------------------------------------------------
 
     def ext_Am(self):
-        """Compute and cache the Am matrix from the scaled prior ensemble."""
+        """Compute and cache the Am matrix from the scaled prior anomalies.
+
+        The anomalies are divided by ``state_scaling``, the same scaled space
+        ``update`` puts ``X_anom`` and the prior misfit in, so that
+        ``Am @ Am.T`` approximates the inverse of the *scaled* prior
+        covariance. Multiplying by the scaling instead, as this once did,
+        made the regularisation term off by the squared standard deviation
+        for any variable whose prior standard deviation was not 1.
+        """
         scheme = self.scheme
-        delta = scheme.state_scaling[:, None] * (scheme.prior_enX @ scheme.proj)
+        delta = self.solve(scheme.state_scaling, scheme.prior_enX @ scheme.proj)
         U, S, _ = np.linalg.svd(delta, full_matrices=False)
 
         # Truncate to the energy threshold

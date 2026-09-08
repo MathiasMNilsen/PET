@@ -46,7 +46,10 @@ class approx_update(AnalysisBase):
         # here would allocate an (ny, ny) identity and factorise it on every
         # call, even though a real scheme always provides these.
         cov = scheme.cov_data if hasattr(scheme, 'cov_data') else np.eye(ny)  # (ny, ny) or (ny,)
-        scx = getattr(scheme, 'scale_state', np.ones(nx))
+        # State scaling: the prior standard deviation per state row. Anomalies
+        # are divided by it and the step multiplied back, so the update works
+        # in a scaled space whatever units the variables have.
+        scx = scheme.state_scaling if hasattr(scheme, 'state_scaling') else np.ones(nx)
         scy = scheme.scale_data if hasattr(scheme, 'scale_data') else self.sqrtm(cov)
         PI  = (scheme.proj if hasattr(scheme, 'proj')
                else (np.eye(ne) - np.ones((ne, ne)) / ne) / np.sqrt(ne-1))
@@ -113,7 +116,7 @@ class approx_update(AnalysisBase):
 
             # Gain-factor matrix X shape: (nr, nd)
             if scheme.keys_da.get('emp_cov', False):
-                A = X_anom * np.sqrt(ne - 1)                # Undo 1/sqrt(ne-1) normalisation; shape: (nx, ne)
+                A = scx[:, None] * X_anom * np.sqrt(ne - 1)  # Back to physical units, undo 1/sqrt(ne-1); shape: (nx, ne)
                 X = (VrT.T @ eigvec) @ self.solve(d, eigvec.T @ (invSr * Ur.T))
             else:
                 A = scx[:, None] * X_anom                   # shape: (nx, ne)
