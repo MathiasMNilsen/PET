@@ -308,3 +308,21 @@ def test_restart_file_rejects_foreign_scheme(in_tmp_dir):
     foreign.restart_file = scheme.restart_file
     with pytest.raises(RuntimeError, match="does not match"):
         foreign.load_restart()
+
+
+def test_convergence_summary_says_what_happened():
+    """It said 'Convergence was met.' after every run, including one that
+    stopped on the iteration limit."""
+    from pipt.update_schemes.esmda import ESMDA   # any concrete scheme; the base is abstract
+
+    lines = []
+    scheme = object.__new__(ESMDA)
+    scheme.logger = lines.append
+    scheme.prior_data_misfit_mean = 10.0
+    scheme.data_misfit_mean = 4.0
+    scheme.prev_data_misfit_mean = 5.0
+
+    scheme._log_convergence_summary(False)
+    assert "without convergence" in lines[-1] and "Convergence was met" not in lines[-1]
+    scheme._log_convergence_summary(True)
+    assert "Convergence was met" in lines[-1]

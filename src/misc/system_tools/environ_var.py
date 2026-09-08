@@ -104,7 +104,7 @@ class OpenBlasSingleThread:
         if len(self.num_threads):
             os.environ['OMP_NUM_THREADS'] = self.num_threads
         else:
-            os.environ.unsetenv('OMP_NUM_THREADS')
+            os.environ.pop('OMP_NUM_THREADS', None)
 
         # Reset Process context
         ctx._default_context = self.ctx
@@ -230,15 +230,15 @@ class CmgRunEnvironment:
         if len(self.path):
             os.environ['PATH'] = self.path
         else:
-            os.environ.unsetenv('PATH')
+            os.environ.pop('PATH', None)
 
         if len(self.ld_path):
             os.environ['LD_LIBRARY_PATH'] = self.ld_path
         else:
-            os.environ.unsetenv('LD_LIBRARY_PATH')
+            os.environ.pop('LD_LIBRARY_PATH', None)
 
         # We unset the CMG license server path
-        os.environ.unsetenv('CMG_LIC_HOST')
+        os.environ.pop('CMG_LIC_HOST', None)
 
         # Reset Process context
         ctx._default_context = self.ctx

@@ -89,3 +89,18 @@ def test_no_outliers_returns_the_same_state_object():
     host = Host(_predictions(outlier_member=None), with_adjoints=True)
     enX = _state()
     assert host.remove_outliers(enX) is enX
+
+
+def test_empty_cells_are_left_alone_when_members_are_resampled():
+    """Frames carry None where a data type has no value at a report point;
+    the outlier filter used to call .ndim on them."""
+    pred_cells = _predictions(outlier_member=0)
+    host = Host(pred_cells, with_adjoints=False)
+    host.pred_data.loc["t2", "obs"] = None
+    host.sim_data.loc["t2", "obs"] = None
+
+    np.random.seed(1)
+    new_enX = host.remove_outliers(_state())
+
+    assert int(new_enX[0, 0]) != 0
+    assert host.pred_data.loc["t2", "obs"] is None

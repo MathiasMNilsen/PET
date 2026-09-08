@@ -483,6 +483,19 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Six small crash and correctness fixes.** `OpenBlasSingleThread` (and the
+  other environment context managers) called `os.environ.unsetenv`, which does
+  not exist, so leaving the block raised whenever the variable had been unset
+  beforehand; they use `os.environ.pop`. The `lin_1d` and `nonlin_onedimmodel`
+  test simulators returned their shared output list, so in a serial forecast
+  every member aliased the last one evaluated; they return a copy. The
+  localization factory returned `None` for an unknown `name`, which then
+  failed far away on `localization.name`; it raises with the valid names. The
+  multilevel row batch could be zero for a single-row state. The outlier
+  filter called `.ndim` on empty (`None`) cells; they are left alone. And the
+  end-of-run summary said "Convergence was met." after every run, including
+  those stopped by the iteration limit; it now says which.
+
 - **popt: five verified bugs in the numerical subroutines.** Steihaug's
   boundary step divided only the square root by the squared direction length,
   so every step that hit the trust region had the wrong length. Adam, AdaMax

@@ -256,16 +256,17 @@ class OutlierMixin:
             idx[outlier] = new_idx
             self.logger(f"Replaced outlier {outlier} with member {new_idx}")
 
-        # Filter outliers from dataframes
+        # Filter outliers from dataframes. Cells with no data are None and are
+        # left alone (na_action), instead of failing on `.ndim`.
         def filter_outliers(cell):
             return cell[..., idx] if cell.ndim > 1 else cell[idx]
-        self.pred_data = self.pred_data.map(filter_outliers)
-        self.sim_data = self.sim_data.map(filter_outliers)
+        self.pred_data = self.pred_data.map(filter_outliers, na_action='ignore')
+        self.sim_data = self.sim_data.map(filter_outliers, na_action='ignore')
 
         # The adjoint belongs to the member it was evaluated at, so it moves
         # with the state and the predictions -- a member whose gradient came
         # from a different member is not a member of anything.
         if getattr(self, "adjoints", None) is not None:
-            self.adjoints = self.adjoints.map(filter_outliers)
+            self.adjoints = self.adjoints.map(filter_outliers, na_action='ignore')
 
         return enX[:, idx]

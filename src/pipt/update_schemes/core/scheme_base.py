@@ -646,7 +646,7 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
         if self._saving_enabled:
             self._save_posterior_results()
             self._save_stop_reason(converged)
-        self._log_convergence_summary()
+        self._log_convergence_summary(converged)
 
     # ------------------------------------------------------------------
     # Shared convergence criteria
@@ -807,13 +807,15 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
         with open(self._save_path(self.STOP_REASON_FILE), "wb") as file:
             pickle.dump(why, file, protocol=4)
 
-    def _log_convergence_summary(self) -> None:
+    def _log_convergence_summary(self, converged: bool) -> None:
         # `logger` is None for a collaborator that has none at all, which the
         # ensemble protocol allows; `log_update` guards the same way.
         if self.logger is None or self.prev_data_misfit_mean is None:
             return
 
-        out_str = "\n Convergence was met."
+        # Said "Convergence was met." whatever had happened, including a run
+        # that stopped on the iteration limit.
+        out_str = "\n Convergence was met." if converged else "\n Stopped without convergence."
         if self.prior_data_misfit_mean > self.data_misfit_mean:
             out_str += (
                 f" Obj. function reduced from {self.prior_data_misfit_mean:0.1f} "

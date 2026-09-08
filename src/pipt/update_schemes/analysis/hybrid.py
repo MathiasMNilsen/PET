@@ -64,10 +64,10 @@ class hybrid_update(AnalysisBase):
         # Calculate each row of step individually to avoid memory issues.
         step = [np.empty(enXcentered[l].shape) for l in range(scheme.tot_level)]
         scheme.step = step
-        step_size = min(1000, int(state_scaling.shape[0]/2)) # do maximum 1000 rows at a time.
-
-        # Generate row batches
+        # Generate row batches: at most 1000 rows at a time, and at least one,
+        # so a single-row state does not produce an empty range.
         nrows = state_scaling.shape[0]
+        step_size = max(1, min(1000, nrows // 2))
         row_step = [np.arange(s, min(s + step_size, nrows)) for s in range(0, nrows, step_size)]
 
         # Loop over rows

@@ -72,7 +72,10 @@ class lin_1d:
                     tmp_val.append(state[para][self.true_prim[1][prim_ind]])
                 self.pred_data[prim_ind][dat] = np.array(tmp_val)
 
-        return self.pred_data
+        # A fresh list per member: the serial forecast keeps every member's
+        # output, and handing back the shared attribute made them all alias
+        # the last one evaluated.
+        return deepcopy(self.pred_data)
 
 
 class nonlin_onedimmodel:
@@ -126,7 +129,10 @@ class nonlin_onedimmodel:
                         (7 / 12) * (state[para] ** 3) - (7 / 2) * (state[para] ** 2) + 8 * state[para])
                 self.pred_data[prim_ind][dat] = np.array(tmp_val)
 
-        return self.pred_data
+        # A fresh list per member: the serial forecast keeps every member's
+        # output, and handing back the shared attribute made them all alias
+        # the last one evaluated.
+        return deepcopy(self.pred_data)
 
 
 class sevenmountains:

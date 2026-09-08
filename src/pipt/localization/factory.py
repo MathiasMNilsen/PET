@@ -28,27 +28,32 @@ def build_localization_instance(
     info = normalize_parsed_info(parsed_info)
     loc_type = info.pop("name", None)
 
-    if loc_type is not None:
-        if loc_type == "autoadaloc":
-            return AutoAdaptiveLocalization(info)
+    if loc_type is None:
+        raise ValueError("Localization config has no 'name'; expected one of "
+                         "'autoadaloc', 'distance_loc', 'localanalysis'.")
 
-        if loc_type == "localanalysis":
-            return LocalAnalysisLocalization(
-                info=info,
-                data_indices=data_indices,
-                data_types=data_types,
-                parameters=parameters,
-                ensemble_size=ensemble_size,
-            )
-        if loc_type == "distance_loc":
-            return DistanceLocalization(
-                info=info,
-                data=data,
-                parameters=parameters,
-                ensemble_size=ensemble_size,
-                prior_info=prior_info,
-            )
-    else:
-        raise ValueError(f"Unknown localization type: {loc_type}")
+    if loc_type == "autoadaloc":
+        return AutoAdaptiveLocalization(info)
+
+    if loc_type == "localanalysis":
+        return LocalAnalysisLocalization(
+            info=info,
+            data_indices=data_indices,
+            data_types=data_types,
+            parameters=parameters,
+            ensemble_size=ensemble_size,
+        )
+    if loc_type == "distance_loc":
+        return DistanceLocalization(
+            info=info,
+            data=data,
+            parameters=parameters,
+            ensemble_size=ensemble_size,
+            prior_info=prior_info,
+        )
+    # Used to fall off the end and return None, which then failed far away
+    # on `localization.name`.
+    raise ValueError(f"Unknown localization type {loc_type!r}; expected one of "
+                     "'autoadaloc', 'distance_loc', 'localanalysis'.")
 
 
