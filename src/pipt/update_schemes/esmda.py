@@ -8,7 +8,6 @@ import numpy as np
 from geostat.decomp import Cholesky
 
 # Internal imports
-from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.core import AssimilationScheme, StepReport
 from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.full import full_update
@@ -101,7 +100,6 @@ class ESMDA(AssimilationScheme):
     #: Ensemble class this scheme composes. Subclasses needing a specialised
     #: collaborator -- the multilevel variant, for instance -- override it
     #: rather than duplicating the constructor.
-    ENSEMBLE_CLASS = Ensemble
 
     COMPATIBLE_ANALYSES = {
         "approx": approx_update,
@@ -109,14 +107,15 @@ class ESMDA(AssimilationScheme):
         "subspace": subspace_update,
     }
 
-    def __init__(self, keys_da, keys_en, sim, analysis=None):
-        """Build the ensemble from the config and bind the analysis.
+    def __init__(self, keys_da, keys_en, sim, analysis=None, ensemble=None):
+        """Build the ensemble from the config (or take the one given) and bind the analysis.
 
-        See the class docstring for the parameters.
+        See the class docstring for the parameters; ``ensemble`` is a
+        ready-made collaborator to run on instead of building one.
         """
-        # Build the collaborator, then hand it to the scheme base -- which
-        # adopts the ensemble's own logger, so the log output is unchanged.
-        ensemble = self.ENSEMBLE_CLASS(keys_da, keys_en, sim)
+        # The collaborator is handed to the scheme base, which adopts the
+        # ensemble's own logger, so the log output is unchanged.
+        ensemble = self.build_ensemble(keys_da, keys_en, sim, ensemble)
         # Zero tolerances switch off the base class's generic convergence
         # criteria; this scheme decides in check_convergence(). See
         # AssimilationScheme's `misfit_tol`/`step_tol` docs for why.

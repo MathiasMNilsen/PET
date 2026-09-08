@@ -4,7 +4,6 @@ EnRML type schemes
 # External imports
 import pipt.misc_tools.extract_tools as extract
 
-from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.core import AssimilationScheme, StepReport
 from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.full import full_update
@@ -73,14 +72,15 @@ class IterativeEnRML(AssimilationScheme):
         The control's column in the run table.
     """
 
-    def __init__(self, keys_da, keys_en, sim, analysis=None):
-        """Build the ensemble from the config and bind the analysis.
+    def __init__(self, keys_da, keys_en, sim, analysis=None, ensemble=None):
+        """Build the ensemble from the config (or take the one given) and bind the analysis.
 
-        See the subclass docstrings for the parameters.
+        See the subclass docstrings for the parameters; ``ensemble`` is a
+        ready-made collaborator to run on instead of building one.
         """
-        # Build the collaborator, then hand it to the scheme base -- which
-        # adopts the ensemble's own logger, so log output is unchanged.
-        ensemble = Ensemble(keys_da, keys_en, sim)
+        # The collaborator is handed to the scheme base, which adopts the
+        # ensemble's own logger, so log output is unchanged.
+        ensemble = self.build_ensemble(keys_da, keys_en, sim, ensemble)
         # Zero tolerances switch off the base class's generic convergence
         # criteria; this scheme decides in check_convergence(). See
         # AssimilationScheme's `misfit_tol`/`step_tol` docs for why.
@@ -641,11 +641,11 @@ class co_lm_enrml(LMEnRML):
 
     COMPATIBLE_ANALYSES = {"approx": approx_update}
 
-    def __init__(self, keys_da, keys_en, sim, analysis=None):
+    def __init__(self, keys_da, keys_en, sim, analysis=None, ensemble=None):
         # The name pins the flavour, so a config that does not say gets it.
         if analysis is None and "analysis" not in keys_da:
             analysis = "approx"
-        super().__init__(keys_da, keys_en, sim, analysis=analysis)
+        super().__init__(keys_da, keys_en, sim, analysis=analysis, ensemble=ensemble)
 
 
 class gn_enrml(GNEnRML):
@@ -661,7 +661,7 @@ class gn_enrml(GNEnRML):
 
     COMPATIBLE_ANALYSES = {"subspace": subspace_update}
 
-    def __init__(self, keys_da, keys_en, sim, analysis=None):
+    def __init__(self, keys_da, keys_en, sim, analysis=None, ensemble=None):
         if analysis is None and "analysis" not in keys_da:
             analysis = "subspace"
-        super().__init__(keys_da, keys_en, sim, analysis=analysis)
+        super().__init__(keys_da, keys_en, sim, analysis=analysis, ensemble=ensemble)

@@ -7,7 +7,6 @@ from copy import deepcopy
 from geostat.decomp import Cholesky                     # Making realizations
 
 # Internal imports
-from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.core import AssimilationScheme, StepReport
 from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.subspace import subspace_update
@@ -103,14 +102,14 @@ class EnKF(AssimilationScheme):
         "subspace": subspace_update,
     }
 
-    def __init__(self, keys_da, keys_en, sim, analysis=None):
+    def __init__(self, keys_da, keys_en, sim, analysis=None, ensemble=None):
         """Build the ensemble from the config and bind the analysis.
 
         See the class docstring for the parameters.
         """
         # Build the collaborator, then hand it to the scheme base -- which
         # adopts the ensemble's own logger, so log output is unchanged.
-        ensemble = Ensemble(keys_da, keys_en, sim)
+        ensemble = self.build_ensemble(keys_da, keys_en, sim, ensemble)
         # Zero tolerances switch off the base class's generic convergence
         # criteria; this scheme decides in check_convergence(). See
         # AssimilationScheme's `misfit_tol`/`step_tol` docs for why.

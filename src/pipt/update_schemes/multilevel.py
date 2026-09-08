@@ -132,8 +132,8 @@ class esmda_hybrid(ESMDA):
     ENSEMBLE_CLASS = MultilevelEnsemble
     COMPATIBLE_ANALYSES = {"hybrid": hybrid_update}
 
-    def __init__(self, keys_da, keys_en, sim, analysis=None):
-        super().__init__(keys_da, keys_en, sim, analysis=analysis)
+    def __init__(self, keys_da, keys_en, sim, analysis=None, ensemble=None):
+        super().__init__(keys_da, keys_en, sim, analysis=analysis, ensemble=ensemble)
 
         self.proj = []
         for l in range(self.tot_level):

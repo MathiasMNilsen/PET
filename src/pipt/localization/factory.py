@@ -1,13 +1,86 @@
-"""Factory helpers for localization strategy selection."""
+"""Build a localization strategy from its config, by name.
 
-from typing import Union
+The strategies are looked up in :data:`LOCALIZATIONS`, a table from the
+config's ``name`` to a builder. Adding a strategy is one call to
+:func:`register_localization`; nothing here needs editing.
+"""
+
+from typing import Callable, Union
 
 import pandas as pd
 
 from pipt.localization.common import normalize_parsed_info
 
+__all__ = [
+    "LOCALIZATIONS",
+    "available_localizations",
+    "build_localization_instance",
+    "register_localization",
+]
 
-__all__ = ["build_localization_instance"]
+
+def _build_autoadaloc(*, info, **_):
+    from pipt.localization.auto_ada_loc import AutoAdaptiveLocalization
+    return AutoAdaptiveLocalization(info)
+
+
+def _build_localanalysis(*, info, data_indices, data_types, parameters, ensemble_size, **_):
+    from pipt.localization.local_analysis import LocalAnalysisLocalization
+    return LocalAnalysisLocalization(
+        info=info,
+        data_indices=data_indices,
+        data_types=data_types,
+        parameters=parameters,
+        ensemble_size=ensemble_size,
+    )
+
+
+def _build_distance(*, info, data, parameters, ensemble_size, prior_info, **_):
+    from pipt.localization.distance_localization import DistanceLocalization
+    return DistanceLocalization(
+        info=info,
+        data=data,
+        parameters=parameters,
+        ensemble_size=ensemble_size,
+        prior_info=prior_info,
+    )
+
+
+#: Config ``name`` -> builder. Every builder is called with the same keyword
+#: arguments (``info`` plus everything :func:`build_localization_instance`
+#: receives) and takes what it needs.
+LOCALIZATIONS: dict[str, Callable[..., object]] = {
+    "autoadaloc": _build_autoadaloc,
+    "localanalysis": _build_localanalysis,
+    "distance_loc": _build_distance,
+}
+
+
+def register_localization(name: str, builder: Callable[..., object], *, overwrite: bool = False) -> None:
+    """Make a localization strategy selectable as ``localization = {name = ...}``.
+
+    Parameters
+    ----------
+    name : str
+        The value of the config's ``name`` key.
+    builder : callable
+        Called as ``builder(info=..., data_indices=..., data_types=...,
+        parameters=..., ensemble_size=..., data=..., prior_info=...)``; it may
+        ignore what it does not need. Returns the strategy object, which the
+        analyses use through its ``name`` attribute and by calling it.
+    overwrite : bool, optional
+        Allow replacing an existing entry. Off by default, so two packages
+        claiming the same name is an error rather than a load-order lottery.
+    """
+    key = str(name).lower()
+    if key in LOCALIZATIONS and not overwrite:
+        raise ValueError(f"Localization {key!r} is already registered; pass overwrite=True to replace it.")
+    LOCALIZATIONS[key] = builder
+
+
+def available_localizations() -> list[str]:
+    """The registered localization names, sorted."""
+    return sorted(LOCALIZATIONS)
 
 
 def build_localization_instance(
@@ -19,41 +92,20 @@ def build_localization_instance(
     data: Union[pd.DataFrame, None] = None,
     prior_info: Union[dict, None] = None,
 ) -> object:
-
-    """Create localization strategy instance matching configured mode."""
-    from pipt.localization.auto_ada_loc import AutoAdaptiveLocalization
-    from pipt.localization.distance_localization import DistanceLocalization
-    from pipt.localization.local_analysis import LocalAnalysisLocalization
-
+    """Create the localization strategy the config names."""
     info = normalize_parsed_info(parsed_info)
-    loc_type = info.pop("name", None)
-
-    if loc_type is None:
-        raise ValueError("Localization config has no 'name'; expected one of "
-                         "'autoadaloc', 'distance_loc', 'localanalysis'.")
-
-    if loc_type == "autoadaloc":
-        return AutoAdaptiveLocalization(info)
-
-    if loc_type == "localanalysis":
-        return LocalAnalysisLocalization(
-            info=info,
-            data_indices=data_indices,
-            data_types=data_types,
-            parameters=parameters,
-            ensemble_size=ensemble_size,
-        )
-    if loc_type == "distance_loc":
-        return DistanceLocalization(
-            info=info,
-            data=data,
-            parameters=parameters,
-            ensemble_size=ensemble_size,
-            prior_info=prior_info,
-        )
-    # Used to fall off the end and return None, which then failed far away
-    # on `localization.name`.
-    raise ValueError(f"Unknown localization type {loc_type!r}; expected one of "
-                     "'autoadaloc', 'distance_loc', 'localanalysis'.")
-
-
+    name = info.pop("name", None)
+    if name is None:
+        raise ValueError(f"Localization config has no 'name'; expected one of {available_localizations()}.")
+    builder = LOCALIZATIONS.get(str(name).lower())
+    if builder is None:
+        raise ValueError(f"Unknown localization type {name!r}; expected one of {available_localizations()}.")
+    return builder(
+        info=info,
+        data_indices=data_indices,
+        data_types=data_types,
+        parameters=parameters,
+        ensemble_size=ensemble_size,
+        data=data,
+        prior_info=prior_info,
+    )

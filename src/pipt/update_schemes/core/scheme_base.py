@@ -212,6 +212,20 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
 
     qaqc: "QAQC | None" = None
 
+    #: The ensemble a scheme builds when none is handed in. Multilevel ES-MDA
+    #: overrides it with its per-level ensemble.
+    ENSEMBLE_CLASS = AssimilationEnsemble
+
+    @classmethod
+    def build_ensemble(cls, keys_da, keys_en, sim, ensemble=None):
+        """The collaborator to run on: ``ensemble`` if given, else a fresh ``ENSEMBLE_CLASS``.
+
+        Handing one in lets two schemes share a prior and its forecasts, and
+        lets a test substitute a stand-in without the config, data files and
+        simulator a real ensemble needs.
+        """
+        return ensemble if ensemble is not None else cls.ENSEMBLE_CLASS(keys_da, keys_en, sim)
+
     def __init__(self, ensemble: AssimilationEnsemble, **options):
         """
         Parameters

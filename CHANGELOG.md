@@ -440,6 +440,17 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Every scheme takes a ready-made `ensemble=`.** The default collaborator
+  is declared once, as `AssimilationScheme.ENSEMBLE_CLASS`, and built by
+  `build_ensemble` only when none is handed in; multilevel ES-MDA keeps its
+  override. Two schemes can share one prior and its forecasts, and a test can
+  substitute a stand-in without the config, data files and simulator a real
+  ensemble needs.
+- **`pipt.localization.register_localization`.** Strategies are selected from
+  the `LOCALIZATIONS` table by the config's `name` instead of an `if`/`elif`
+  chain in the factory, so a new strategy is one registration call;
+  `available_localizations()` lists them and an unknown name reports them.
+
 - **`ensemble.protocols.ForwardSimulator`** writes down the simulator
   contract the base ensemble drives: `input_dict` and
   `run_fwd_sim(state, member_index)` are required, and the docstring lists

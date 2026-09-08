@@ -78,12 +78,12 @@ class ES(EnKF):
     ESMDA : Spreads the conditioning over several inflated steps.
     """
 
-    def __init__(self, keys_da, keys_en, sim, analysis=None):
-        """Build the ensemble from the config and bind the analysis.
+    def __init__(self, keys_da, keys_en, sim, analysis=None, ensemble=None):
+        """Build the ensemble from the config (or take the one given) and bind the analysis.
 
         See the class docstring for the parameters.
         """
-        super().__init__(keys_da, keys_en, sim, analysis=analysis)
+        super().__init__(keys_da, keys_en, sim, analysis=analysis, ensemble=ensemble)
 
         if self.restart is False:
             # At the moment, the iterative loop is threated as an iterative smoother an thus we check if assim. indices

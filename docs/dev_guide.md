@@ -25,9 +25,12 @@ binds an **analysis** object (`pipt.update_schemes.analysis`) that computes the
 update step from the state, predicted-data and perturbed-observation matrices.
 Which flavours a scheme supports is declared on the class in
 `COMPATIBLE_ANALYSES`; the registry (`pipt.update_schemes.registry`) derives
-every selectable `(scheme, analysis)` pair from those tables. The two
-notebooks under *Extending PIPT* in the tutorials walk through adding an
-analysis and adding a scheme.
+every selectable `(scheme, analysis)` pair from those tables. Every scheme
+also accepts a ready-made `ensemble=`, so two schemes can share one prior
+and a test can hand in a stand-in. Localization strategies are selected from
+`pipt.localization.LOCALIZATIONS` by the config's `name`; a new one is a
+call to `register_localization`. The two notebooks under *Extending PIPT* in
+the tutorials walk through adding an analysis and adding a scheme.
 
 A forward simulator is anything satisfying `ensemble.protocols.ForwardSimulator`:
 an `input_dict` and a `run_fwd_sim(state, member_index)` method, plus the
