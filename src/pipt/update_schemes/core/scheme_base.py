@@ -68,6 +68,7 @@ import pickle
 import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from pathlib import Path
 from dataclasses import dataclass
 from importlib import import_module
 from typing import Any
@@ -83,7 +84,7 @@ from pipt.update_schemes.core.analysis_binding import AnalysisBindingMixin
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    # QAQC pulls in matplotlib and cv2; it is imported at runtime only inside
+    # QAQC pulls in matplotlib; it is imported at runtime only inside
     # _build_qaqc, when the configuration actually asks for QA/QC.
     from pipt.misc_tools.qaqc_tools import QAQC
 import pipt.misc_tools.analysis_tools as at
@@ -602,14 +603,15 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
         self._save_restart_snapshot()
 
     def after_analysis(self) -> None:
-        """Between analysis and forecast: refresh screened QAQC variance.
+        """Between analysis and forecast.
 
         The odd one out: it marks a point *inside* :meth:`update_step`, and
         this class does not dictate the shape of a step, so a scheme calls it
         itself. The rest of the hooks here are called by
-        :meth:`run_assimilation`.
+        :meth:`run_assimilation`. Nothing runs here at present; it used to
+        refresh QA/QC's variance after data screening, which is no longer
+        supported.
         """
-        self._refresh_screened_qaqc_datavar()
 
     def after_forecast(self, state):
         """Between forecast and scoring: replace outlier members.
@@ -728,16 +730,18 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
         if not qaqc_requested:
             return None
 
-        from pipt.misc_tools.qaqc_tools import QAQC  # heavy: matplotlib, cv2
+        from pipt.misc_tools.qaqc_tools import QAQC  # heavy: matplotlib
 
         return QAQC(
             self.keys_da | self.sim.input_dict,
-            self.ensemble.obs_data,
-            self.ensemble.datavar,
-            self.logger,
-            self.prior_info,
-            self.sim,
-            self.prior_enX.to_dict(),
+            self.data_df,
+            self.data_var_df,
+            logger=self.logger,
+            prior_info=self.prior_info,
+            sim=self.sim,
+            ini_state=self.prior_enX.to_dict(),
+            localization=self.localization,
+            folder=Path(self.save_folder or ".") / "QAQC",
         )
 
     def _set_qaqc(self) -> None:
@@ -751,21 +755,6 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
         self.qaqc.calc_mahalanobis((1, "time", 2, "time", 1, None, 2, None))
         self.qaqc.calc_coverage()
         self.qaqc.calc_kg({"plot_all_kg": True, "only_log": False, "num_store": 5})
-
-    def _refresh_screened_qaqc_datavar(self) -> None:
-        """Update QAQC data variance after first-iteration data screening."""
-        if self.qaqc is None:
-            return
-        if "qa" not in self.keys_da:
-            return
-        if not extract.is_enabled(self.keys_da.get("screendata", False)):
-            return
-        if self.iteration != 1:
-            return
-
-        self.logger.info("Recomputing Mahalanobis distance with updated datavar")
-        self.qaqc.datavar = self.ensemble.datavar
-        self.qaqc.calc_mahalanobis((1, "time", 2, "time", 1, None, 2, None))
 
     # ------------------------------------------------------------------
     # Saving

@@ -36,7 +36,6 @@ dependencies = [
     "geostat @ git+https://github.com/Python-Ensemble-Toolbox/Geostatistics@3f9f0c876815db140fae3404d322892190cb6728",
     "pandas",
     "p_tqdm",
-    "opencv-python",
     "tomli",
     "tomli-w",
     "pyyaml",

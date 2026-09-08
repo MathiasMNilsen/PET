@@ -662,6 +662,28 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **QA/QC works again, on the current data structures.** `QAQC` was still
+  written against the pre-refactor layout (lists of dicts for observations,
+  variances and predictions), and the scheme handed it `ensemble.obs_data`
+  and `ensemble.datavar`, which no longer exist, so any config with `qa` or
+  `qc` failed at construction. It now takes the ensemble's frames and adapts
+  them once, per data type, into the arrays its four diagnostics use; the
+  diagnostics themselves (coverage, the ES-style Kalman-gain ranking, the
+  Mahalanobis diagnostic, update statistics) keep their algorithms. Along the
+  way: the closures over a dozen loop variables became methods with
+  arguments; the module no longer reseeds the global random state (it uses a
+  private generator), no longer shells out to ImageMagick (`bbox_inches`
+  trims the plots), and no longer needs OpenCV (one HLS colour conversion,
+  now a few lines of numpy, so `opencv-python` is dropped); `actnum` is read
+  from the config's `actnum` file rather than from the working directory;
+  outputs go to `QAQC/` under the run's save folder; the localization used
+  by the gain diagnostic is the scheme's own; and the level-2 and level-3
+  Mahalanobis scores, the grid-dimension lookup for field plots and the
+  cross-plots with fewer than four data are fixed. Multilevel ensembles are
+  refused with a clear message: that branch could never run (`ne` was 0).
+  Unit tests cover the adapter and each diagnostic on hand-built frames, and
+  an end-to-end test runs `qa` and `qc` through ES-MDA and LM-EnRML.
+
 - The characterisation suite pins thirteen `(scheme, analysis)` pairs instead
   of eight: LM-EnRML and GN-EnRML with `full` and `subspace`, and GN-EnRML with
   `margis`, are now under golden reference for the first time. The reference
@@ -757,6 +779,8 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   named helpers with identical behaviour.
 
 ### Removed
+
+- `opencv-python` is no longer a dependency; QA/QC was its only user.
 
 - `analysis_tools.screen_data`, whose only callers were the two unreachable
   `screendata` branches above; it also read `cov_data.p` from the working
