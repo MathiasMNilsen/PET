@@ -62,7 +62,10 @@ class subspace_update(AnalysisBase):
             scheme.current_W = np.zeros((ne, ne))
             scheme.E = enE @ PI                              # shape: (nd, ne)
 
-        Y = enY @ PI                                         # shape: (nd, ne)
+        # Whitened predicted-data anomalies. The SVD below, the residual and
+        # the observation perturbations must all live in the same (data-scaled)
+        # space, otherwise the weights depend on the units of the data.
+        Y = self.solve(scy, enY @ PI)                        # shape: (nd, ne)
 
         # S = Y @ Omega^{-1},  Omega = I + W @ PI
         Omega = np.eye(ne) + scheme.current_W @ PI           # shape: (ne, ne)

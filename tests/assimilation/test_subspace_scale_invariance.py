@@ -2,15 +2,12 @@
 
 Scaling the predictions, the observations and the data scaling by the same
 factor changes nothing about the problem, so the ensemble weights must come
-out identical. ``subspace_update`` takes the SVD of the *unwhitened* anomalies
-while whitening the residual and the observation perturbations, so today they
-do not. The marker is strict: once the one-line fix lands (whiten ``Y`` before
-the SVD, see the CHANGELOG's Known issues) this test starts passing and the
-marker must be removed.
+out identical. ``subspace_update`` once took the SVD of the *unwhitened*
+anomalies while whitening the residual and the observation perturbations, and
+the weights depended on the units of the data; this pins the fix.
 """
 
 import numpy as np
-import pytest
 
 from pipt.update_schemes.analysis.subspace import subspace_update
 
@@ -32,10 +29,6 @@ def _w_step(pred, obs, scale):
     return scheme.w_step
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="subspace_update does not whiten the predicted anomalies before its SVD; fix awaits sign-off",
-)
 def test_weights_are_invariant_to_the_units_of_the_data():
     rng = np.random.default_rng(0)
     nd, ne = 30, 12
