@@ -4,7 +4,7 @@ EnKF type schemes
 # External imports
 import numpy as np
 from copy import deepcopy
-from geostat.decomp import Cholesky                     # Making realizations
+from misc.sampling import gen_real
 
 # Internal imports
 from pipt.update_schemes.core import AssimilationScheme, StepReport
@@ -173,12 +173,12 @@ class EnKF(AssimilationScheme):
            # )
             self.cov_data = at.construct_data_cov(self.data_var_df)
 
-            generator = Cholesky()  # Initialize GeoStat class for generating realizations
             self.data_random_state = deepcopy(np.random.get_state())
-            self.enObs, self.scale_data = generator.gen_real(
+            self.enObs, self.scale_data = gen_real(
                 self.vecObs,
                 self.cov_data,
                 self.ne,
+                rng=self.ensemble.rng,
                 return_chol=True
             )
 

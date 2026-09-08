@@ -5,7 +5,7 @@ ES-MDA type schemes
 # External imports
 from copy import deepcopy
 import numpy as np
-from geostat.decomp import Cholesky
+from misc.sampling import gen_real
 
 # Internal imports
 from pipt.update_schemes.core import AssimilationScheme, StepReport
@@ -253,10 +253,11 @@ class ESMDA(AssimilationScheme):
         # branch. The base scores it through `score()` before the loop now,
         # early enough for the iteration-0 artifacts to record it.
         self.data_random_state = deepcopy(np.random.get_state())
-        self.enObs, self.scale_data = Cholesky().gen_real(
+        self.enObs, self.scale_data = gen_real(
             self.vecObs,
             self.alpha[self.iteration] * self.cov_data,
             self.ne,
+            rng=self.ensemble.rng,
             return_chol=True
         )
         self.E = np.dot(self.enObs, self.proj)

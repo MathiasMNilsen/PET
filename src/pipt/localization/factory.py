@@ -19,9 +19,9 @@ __all__ = [
 ]
 
 
-def _build_autoadaloc(*, info, **_):
+def _build_autoadaloc(*, info, rng=None, **_):
     from pipt.localization.auto_ada_loc import AutoAdaptiveLocalization
-    return AutoAdaptiveLocalization(info)
+    return AutoAdaptiveLocalization(info, rng=rng)
 
 
 def _build_localanalysis(*, info, data_indices, data_types, parameters, ensemble_size, **_):
@@ -65,7 +65,7 @@ def register_localization(name: str, builder: Callable[..., object], *, overwrit
         The value of the config's ``name`` key.
     builder : callable
         Called as ``builder(info=..., data_indices=..., data_types=...,
-        parameters=..., ensemble_size=..., data=..., prior_info=...)``; it may
+        parameters=..., ensemble_size=..., data=..., prior_info=..., rng=...)``; it may
         ignore what it does not need. Returns the strategy object, which the
         analyses use through its ``name`` attribute and by calling it.
     overwrite : bool, optional
@@ -91,8 +91,13 @@ def build_localization_instance(
     ensemble_size: Union[int, None] = None,
     data: Union[pd.DataFrame, None] = None,
     prior_info: Union[dict, None] = None,
+    rng=None,
 ) -> object:
-    """Create the localization strategy the config names."""
+    """Create the localization strategy the config names.
+
+    ``rng`` is the run's random stream, for strategies that draw (the
+    auto-adaptive one shuffles the ensemble to estimate a noise level).
+    """
     info = normalize_parsed_info(parsed_info)
     name = info.pop("name", None)
     if name is None:
@@ -108,4 +113,5 @@ def build_localization_instance(
         ensemble_size=ensemble_size,
         data=data,
         prior_info=prior_info,
+        rng=rng,
     )

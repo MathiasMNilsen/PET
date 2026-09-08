@@ -9,6 +9,7 @@ subclass for state vectors with PET-specific indexing metadata.
 import pandas as pd
 import numpy  as np
 
+from misc.sampling import gen_real
 from pandas._typing import Axes, Dtype
 from numpy._typing  import ArrayLike
 
@@ -386,7 +387,8 @@ class PETStateArray(np.ndarray):
 
 
     @classmethod
-    def generate_from_prior_info(cls, prior_info: dict[str, np.ndarray], ne: int, save: bool = True) -> "PETStateArray":
+    def generate_from_prior_info(cls, prior_info: dict[str, np.ndarray], ne: int, save: bool = True,
+                                 rng=None) -> "PETStateArray":
         '''
         Generate a prior ensemble based on the provided prior_info dictionary.
 
@@ -400,6 +402,9 @@ class PETStateArray(np.ndarray):
 
         save : bool, optional
             Whether to save the generated ensemble to a file. Default is True.
+
+        rng : RandomState-like, optional
+            The stream to draw the realisations from; the global one by default.
 
         Returns
         -------
@@ -449,11 +454,9 @@ class PETStateArray(np.ndarray):
 
                 # Generate ensemble members for this variable
                 if info.get('limits', None) is None:
-                    fieldz = Cholesky().gen_real(meanz, cov, ne)
+                    fieldz = gen_real(meanz, cov, ne, rng=rng)
                 else:
-                    fieldz = Cholesky().gen_real(
-                        meanz, cov, ne, limits=_gen_real_limits(info['limits'], z)
-                    )
+                    fieldz = gen_real(meanz, cov, ne, rng=rng, limits=_gen_real_limits(info['limits'], z))
 
                 if z == 0:
                     field = fieldz

@@ -102,7 +102,7 @@ class GaussianEnsemble(EnsembleOptimizationBase):
         self.ne = self.num_samples
 
         # Draw perturbations and recenter ensemble around current state.
-        enX = np.random.multivariate_normal(self.stateX, self.covX, self.ne).T
+        enX = self.rng.multivariate_normal(self.stateX, self.covX, self.ne).T
         enX = enX - enX.mean(axis=1, keepdims=True) + self.stateX[:, None]
         enX = np.clip(enX, self.lb[:, None], self.ub[:, None])
 
@@ -242,7 +242,7 @@ class GaussianEnsemble(EnsembleOptimizationBase):
         self._aux_input()
 
         # Generate state ensemble
-        self.enX = np.random.multivariate_normal(self.stateX, self.covX, self.ne).T
+        self.enX = self.rng.multivariate_normal(self.stateX, self.covX, self.ne).T
 
         # Truncate to bounds
         if (self.lb is not None) and (self.ub is not None):
@@ -304,7 +304,7 @@ class GaussianEnsemble(EnsembleOptimizationBase):
                     index = np.argmin(self.particle_values[l])
                     best_ens = self.particles[l][:, index]
                     best_func = self.particle_values[l][index]
-                self.resample_index[l] = np.random.choice(ml_ne, ml_ne_surv, replace=True, p=weights)
+                self.resample_index[l] = self.rng.choice(ml_ne, ml_ne_surv, replace=True, p=weights)
 
                 start_index += ml_ne_new
 

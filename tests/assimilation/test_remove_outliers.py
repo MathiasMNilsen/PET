@@ -36,6 +36,7 @@ class Host(OutlierMixin):
 
     def __init__(self, pred_cells, with_adjoints):
         self.ne = NE
+        self.rng = np.random
         self.logger = lambda *args, **kwargs: None
         self.pred_data = _frame(pred_cells, is_ensemble=True)
         self.sim_data = _frame(pred_cells, is_ensemble=True)

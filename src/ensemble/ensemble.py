@@ -17,6 +17,7 @@ import logging
 
 # Internal imports
 from misc.structures.structures import PETDataFrame, PETStateArray
+from misc.sampling import random_stream
 
 # NOTE: pipt.misc_tools is imported lazily inside the methods that need it.
 # `ensemble` is the foundation package that both pipt and popt build on, so a
@@ -65,6 +66,9 @@ class BaseEnsemble:
         # Internalize PET dictionary
         self.keys_en = keys_en
         self.sim = sim
+        # Every draw this run makes comes from here: a private stream when the
+        # config gives a `seed`, else NumPy's global one, as before.
+        self.rng = random_stream(keys_en.get('seed'))
         self.sim.redund_sim = redund_sim
 
         # Initialize some attributes
@@ -150,7 +154,8 @@ class BaseEnsemble:
                 self.enX = PETStateArray.generate_from_prior_info(
                     self.prior_info,
                     self.ne,
-                    save=self.keys_en.get('save_prior', True)
+                    save=self.keys_en.get('save_prior', True),
+                    rng=self.rng,
                 )
                 self.idX = self.enX.indices
                 self.list_states = list(self.enX.indices.keys())
@@ -472,10 +477,10 @@ class BaseEnsemble:
             # Replace crashed runs with (random) successful runs. If there are more crashed runs than successful once,
             # we draw with replacement.
             if len(list_crash) < len(list_success):
-                copy_member = np.random.choice(
+                copy_member = self.rng.choice(
                     list_success, size=len(list_crash), replace=False)
             else:
-                copy_member = np.random.choice(
+                copy_member = self.rng.choice(
                     list_success, size=len(list_crash), replace=True)
 
             # Insert the replaced runs in prediction list

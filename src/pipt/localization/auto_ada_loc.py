@@ -1,5 +1,6 @@
 """Adaptive localization implementation."""
 import numpy as np
+from misc.sampling import random_stream
 from typing import Union
 from scipy.special import expit
 from pipt.localization.common import (
@@ -13,7 +14,7 @@ class AutoAdaptiveLocalization(LocalizationBase):
 
     name = "autoadaloc"
 
-    def __init__(self, info: Union[dict, list]):
+    def __init__(self, info: Union[dict, list], rng=None):
         """
         Initialize the AutoAdaptiveLocalization instance.
 
@@ -106,6 +107,8 @@ class AutoAdaptiveLocalization(LocalizationBase):
         type       = "hard"
         ```
         """
+        # The stream the shuffle below draws from; the global one unless the run is seeded.
+        self.rng = rng if rng is not None else random_stream()
         self.field, self.actnum = self.config_common(info)
         self.cutoff = info.get("cutoff", 0.3)
         self.threshold  = info.get("threshold", "adaptive")
@@ -163,7 +166,7 @@ class AutoAdaptiveLocalization(LocalizationBase):
 
         corr = self.corr_matrix(X, Y) # Shape: (nx, ny)
         corr_shuffled = self.corr_matrix(
-            X[:, np.random.permutation(X.shape[1])],
+            X[:, self.rng.permutation(X.shape[1])],
             Y,
         )
 

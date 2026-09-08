@@ -254,7 +254,7 @@ class OutlierMixin:
             return enX
         idx = np.arange(self.ne)
         for outlier in outlier_idx:
-            new_idx = np.random.choice(non_outlier_idx)
+            new_idx = self.rng.choice(non_outlier_idx)
             idx[outlier] = new_idx
             self.logger(f"Replaced outlier {outlier} with member {new_idx}")
 

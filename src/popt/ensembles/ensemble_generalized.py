@@ -82,7 +82,7 @@ class GeneralizedEnsemble(EnsembleOptimizationBase):
         if size is None:
             size = self.num_samples
         #enZ = stats.qmc.MultivariateNormalQMC(np.zeros(self.dim), self.corr).random(n=size)
-        enZ = np.random.multivariate_normal(np.zeros(self.dim), self.corr, size=size)
+        enZ = self.rng.multivariate_normal(np.zeros(self.dim), self.corr, size=size)
         enX = self.margs.ppf(stats.norm.cdf(enZ), self.theta, mean=self.get_state())
         enX = ot.clip_state(enX, self.bounds)
         return enX, enZ

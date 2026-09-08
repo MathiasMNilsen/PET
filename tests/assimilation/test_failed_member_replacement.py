@@ -12,7 +12,7 @@ NE, NX = 6, 3
 
 def _host():
     log = []
-    return SimpleNamespace(logger=SimpleNamespace(info=log.append), save=lambda: None), log
+    return SimpleNamespace(logger=SimpleNamespace(info=log.append), save=lambda: None, rng=np.random), log
 
 
 def _members():
@@ -99,6 +99,7 @@ def _bare_ensemble():
     ens.keys_en = {}
     ens.logger, _ = _host()
     ens.logger = ens.logger.logger
+    ens.rng = np.random
     return ens
 
 

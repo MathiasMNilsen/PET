@@ -439,6 +439,7 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `SmcOpt`) override them exactly as before.
 
 ### Added
+- `seed` option in the ensemble config (`[ensemble] seed = 7` for pipt, `options['seed']` for popt). Every draw a run makes -- prior realisations, perturbed observations, outlier and crash replacement, the auto-adaptive localization's shuffle, popt's control perturbations -- now comes from the ensemble's `rng`: a private `numpy.random.RandomState(seed)` when a seed is given, so the run reproduces on its own and leaves NumPy's global state untouched; otherwise the global stream, exactly as before, so `np.random.seed(...)` before a run keeps working and every reference number is unchanged. The geostat sampler PET used for these draws is replicated draw for draw in `misc.sampling.gen_real`, which takes the stream as an argument; geostat remains a dependency for its covariance builder.
 
 - **Every scheme takes a ready-made `ensemble=`.** The default collaborator
   is declared once, as `AssimilationScheme.ENSEMBLE_CLASS`, and built by

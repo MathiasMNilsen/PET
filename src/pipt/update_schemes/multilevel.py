@@ -20,7 +20,7 @@ from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.esmda import ESMDA
 from pipt.update_schemes.analysis.base import AnalysisResult
 from pipt.misc_tools import analysis_tools as at
-from geostat.decomp import Cholesky
+from misc.sampling import gen_real
 from pipt.update_schemes.analysis.hybrid import hybrid_update
 
 import numpy as np
@@ -168,7 +168,6 @@ class esmda_hybrid(ESMDA):
             self.enPred.append(enPred_level)
 
         # Initialize GeoStat class for generating realizations
-        cholesky = Cholesky()
 
         if self.iteration == 0:  # first iteration
 
@@ -180,10 +179,11 @@ class esmda_hybrid(ESMDA):
             for l in range(self.tot_level):
 
                 # Generate real data and scale data
-                enObs_level, scale_data_level = cholesky.gen_real(
+                enObs_level, scale_data_level = gen_real(
                     self.vecObs,
                     self.alpha[self.iteration] * self.cov_data,
                     self.ml_ne[l],
+                    rng=self.ensemble.rng,
                     return_chol=True
                 )
                 self.ml_enObs.append(enObs_level)
@@ -194,10 +194,11 @@ class esmda_hybrid(ESMDA):
             self.data_random_state = deepcopy(np.random.get_state())
 
             for l in range(self.tot_level):
-                self.ml_enObs[l], self.scale_data[l] = cholesky.gen_real(
+                self.ml_enObs[l], self.scale_data[l] = gen_real(
                     self.vecObs,
                     self.alpha[self.iteration] * self.cov_data,
                     self.ml_ne[l],
+                    rng=self.ensemble.rng,
                     return_chol=True
                 )
                 self.E[l] = np.dot(self.ml_enObs[l], self.proj[l])

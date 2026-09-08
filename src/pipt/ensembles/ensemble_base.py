@@ -11,7 +11,7 @@ import os.path
 
 import numpy as np
 from scipy.linalg import cholesky
-from geostat.decomp import Cholesky
+from misc.sampling import gen_real
 
 from ensemble import BaseEnsemble, NullLogger, PetLogger
 import misc.read_input_csv as rcsv
@@ -181,6 +181,7 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
                     self.ne,
                     data=self.data_df,
                     prior_info=self.prior_info,
+                    rng=self.rng,
                 )
             else:
                 self.localization = NoLocalization()
@@ -230,7 +231,7 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
         if extract.is_enabled(self.keys_da.get('emp_cov', False)):
             if hasattr(self, 'cov_data'):  # cd matrix has been imported
                 # enObs: samples from N(0,Cd)
-                enObs = cholesky(self.cov_data).T @ np.random.randn(self.cov_data.shape[0], self.ne)
+                enObs = cholesky(self.cov_data).T @ self.rng.randn(self.cov_data.shape[0], self.ne)
             else:
                 enObs = self.data_var_df.to_matrix()
 
@@ -244,11 +245,11 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
                 cov = at.construct_data_cov(self.data_var_df)
                 self.cov_data = cov[~np.isnan(cov)]
 
-            generator = Cholesky()  # Initialize GeoStat class for generating realizations
-            enObs, self.scale_data = generator.gen_real(
+            enObs, self.scale_data = gen_real(
                 mean = vecObs,
                 var = self.cov_data,
                 number = self.ne,
+                rng = self.rng,
                 return_chol = True
             )
 

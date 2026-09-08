@@ -42,7 +42,7 @@ def test_save_folder_is_not_created_by_reading_it(tmp_path, monkeypatch):
 
 
 def test_all_members_failing_raises_instead_of_exiting():
-    host = SimpleNamespace(logger=SimpleNamespace(info=lambda m: None), save=lambda: None)
+    host = SimpleNamespace(logger=SimpleNamespace(info=lambda m: None), save=lambda: None, rng=np.random)
     enX = np.zeros((2, 3))
     try:
         BaseEnsemble._replace_failed_simulations(host, [False, False, False], enX)
