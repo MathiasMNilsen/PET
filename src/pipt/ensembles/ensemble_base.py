@@ -214,6 +214,18 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
         '''
         Generate the perturbed observed data ensemble
         '''
+        if extract.is_enabled(self.keys_da.get('screendata', False)):
+            # Screening inflates the variance of data the ensemble cannot reach,
+            # which needs predictions -- and observations are perturbed when the
+            # scheme is built, before any forecast has run. The old calls below
+            # this point could never work (wrong arity, an `enPred` the ensemble
+            # never had), so say so instead of failing on an attribute.
+            raise ValueError(
+                "'screendata' is not supported: observations are perturbed when the "
+                "scheme is built, before any prediction exists to screen them against. "
+                "Remove the option from the dataassim section."
+            )
+
         # Generate ensemble of perturbed observed data
         if extract.is_enabled(self.keys_da.get('emp_cov', False)):
             if hasattr(self, 'cov_data'):  # cd matrix has been imported
@@ -221,15 +233,6 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
                 enObs = cholesky(self.cov_data).T @ np.random.randn(self.cov_data.shape[0], self.ne)
             else:
                 enObs = self.data_var_df.to_matrix()
-
-            # Screen data if required
-            if extract.is_enabled(self.keys_da.get('screendata', False)):
-                enObs = at.screen_data(
-                    enObs,
-                    self.enPred,
-                    vecObs,
-                    self.iteration
-                )
 
             # Center the ensemble of perturbed observed data
             # enObs = vecObs[:, np.newaxis] - enObs
@@ -240,15 +243,6 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
             if not hasattr(self, 'cov_data'):  # if cd is not loaded
                 cov = at.construct_data_cov(self.data_var_df)
                 self.cov_data = cov[~np.isnan(cov)]
-
-            # data screening
-            if extract.is_enabled(self.keys_da.get('screendata', False)):
-                self.cov_data = at.screen_data(
-                    data = self.cov_data,
-                    aug_pred_data = self.enPred,
-                    obs_data_vector = vecObs,
-                    iteration = self.iteration
-                )
 
             generator = Cholesky()  # Initialize GeoStat class for generating realizations
             enObs, self.scale_data = generator.gen_real(

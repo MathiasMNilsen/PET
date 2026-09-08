@@ -14,7 +14,6 @@ __all__ = [
 
 # External imports
 import numpy as np          # Numerical tools
-import pipt.misc_tools.extract_tools as extract
 from scipy import linalg    # Linear algebra tools
 from misc.system_tools.environ_var import OpenBlasSingleThread  # only single thread
 import multiprocessing as mp  # parallel updates
@@ -776,56 +775,6 @@ def construct_data_cov(data_var_df):
         raise ValueError('No valid variance entries found in data_var_df.')
 
     return cov
-
-
-def screen_data(cov_data, pred_data, obs_data_vector, keys_da, iteration):
-    """
-    INSERT DESCRIPTION
-
-    Parameters
-    ----------
-    cov_data : ndarray
-        Data covariance matrix
-    pred_data : ndarray
-        Predicted data
-    obs_data_vector :
-        Observed data (1D array)
-    keys_da : dict
-        Dictionary with every input in `DATAASSIM`
-    iteration : int
-        Current iteration
-
-    Returns
-    -------
-    cov_data : ndarray
-        Updated data covariance matrix
-    """
-
-    if extract.is_enabled(keys_da.get('restart', False)) or (iteration != 0):
-        with open('cov_data.p', 'rb') as f:
-            cov_data = pickle.load(f)
-    else:
-        emp_cov = False
-        if cov_data.ndim == 2:  # assume emp_cov
-            emp_cov = True
-            var = np.var(cov_data, ddof=1, axis=1)
-            cov_data = cov_data - cov_data.mean(1)[:, np.newaxis]
-        num_data = pred_data.shape[0]
-        for i in range(num_data):
-            v = 0
-            if obs_data_vector[i] < np.min(pred_data[i, :]):
-                v = np.abs(obs_data_vector[i] - np.min(pred_data[i, :]))
-            elif obs_data_vector[i] > np.max(pred_data[i, :]):
-                v = np.abs(obs_data_vector[i] - np.max(pred_data[i, :]))
-            if not emp_cov:
-                cov_data[i] = np.max((cov_data[i], v ** 2))
-            else:
-                v = np.max((v**2 / var[i], 1))
-                cov_data[i, :] *= np.sqrt(v)
-        with open('cov_data.p', 'wb') as f:
-            pickle.dump(cov_data, f)
-
-    return cov_data
 
 
 def store_ensemble_sim_information(saveinfo, member):

@@ -729,6 +729,10 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- `analysis_tools.screen_data`, whose only callers were the two unreachable
+  `screendata` branches above; it also read `cov_data.p` from the working
+  directory across iterations.
+
 - **`pipt.misc_tools.ensemble_tools` keeps only `matrix_to_dict`.**
   `matrix_to_list`, `list_to_matrix` and `generate_prior_ensemble` had no
   callers, and `clip_matrix` duplicated `PETStateArray.clip_matrix` line for
@@ -762,6 +766,16 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the aliases.
 
 ### Known issues
+
+- **`screendata` is not supported and now says so.** Data screening inflates
+  the variance of observations the ensemble cannot reach, which needs
+  predictions; observations are perturbed when the scheme is built, before any
+  forecast has run. The two remaining calls could never have worked (they
+  passed four arguments to a five-argument function and read an `enPred` the
+  ensemble never had), so a config that enables the option now gets a
+  `ValueError` explaining this instead of an `AttributeError`. Supporting it
+  again means perturbing observations after the prior forecast, which changes
+  the order of random draws for every scheme.
 
 - **Local analysis is broken along both routes.** `localization = {name =
   "localanalysis"}` reaches a branch that warns and returns `None`, so no update
