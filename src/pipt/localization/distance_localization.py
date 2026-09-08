@@ -754,12 +754,13 @@ class DistanceLocalization(LocalizationBase):
 
         Parameters
         ----------
-        kernel : np.ndarray, shape (ky, kx)
+        kernel : np.ndarray, shape (kx, ky)
+            Built ``(nx, ny)``-major like the field, so its first axis is x.
         position : [x_pos, y_pos, z_pos]
         """
         result             = np.zeros(self.field)
         nz, nx, ny         = self.field
-        ky, kx             = kernel.shape
+        kx, ky             = kernel.shape
         x_pos, y_pos, z_pos = position
 
         x_min = x_pos - kx // 2
@@ -777,7 +778,7 @@ class DistanceLocalization(LocalizationBase):
         ky0 = gy0 - y_min
         ky1 = ky0 + (gy1 - gy0)
 
-        result[z_pos, gx0:gx1, gy0:gy1] = kernel[ky0:ky1, kx0:kx1]
+        result[z_pos, gx0:gx1, gy0:gy1] = kernel[kx0:kx1, ky0:ky1]
         return result
 
     def _zero_mask(self, param: str, n_obs: int) -> List[np.ndarray]:

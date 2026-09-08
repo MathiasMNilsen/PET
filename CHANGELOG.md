@@ -483,6 +483,15 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Distance localization placed kernels with their axes swapped.** Kernels
+  are built `(nx, ny)`-major like the field, but placement unpacked them as
+  `(ky, kx)`. Square, symmetric kernels away from the edges came out right by
+  coincidence; an anisotropic kernel raised a shape error everywhere, and an
+  isotropic one raised near any grid edge where the x and y clipping differed.
+  Placement now uses the kernel's own axes, with tests at the edges and for
+  an anisotropic kernel. Existing results for interior, isotropic kernels are
+  unchanged.
+
 - **A crashed realisation no longer crashes the run.** The forecast handed
   `_replace_failed_simulations` the list of member inputs where it expected
   the state matrix, so the first failed member raised `AttributeError` on
