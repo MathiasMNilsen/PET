@@ -91,7 +91,11 @@ class ForecastMixin:
     # Forecast steps
     # ------------------------------------------------------------------
     def _load_restart_prediction_if_available(self) -> bool:
-        if not os.path.exists(self.RESTART_RESULTS_FILE):
+        # A hand-placed file: a saved forecast copied to this name in the
+        # working directory supplies the forecast a crashed run had already
+        # finished. It is honoured only on a restart, so a file left behind
+        # cannot silently stand in for a fresh forecast on an ordinary run.
+        if not self.restart or not os.path.exists(self.RESTART_RESULTS_FILE):
             return False
 
         with open(self.RESTART_RESULTS_FILE, "rb") as file:
@@ -99,7 +103,10 @@ class ForecastMixin:
 
         self.pred_data = self.sim_to_pred_data(self.sim_data)
 
-        os.rename(self.RESTART_RESULTS_FILE, self.SIM_RESULTS_FILE)
+        # Consumed once; it then lives with the other results under the name a
+        # saved forecast gets (in the working directory when saving is off).
+        used = self.SIM_RESULTS_FILE if self.save_folder is None else self._save_path(self.SIM_RESULTS_FILE)
+        os.replace(self.RESTART_RESULTS_FILE, used)
         self.logger("--- Restart sim results used ---")
         return True
 

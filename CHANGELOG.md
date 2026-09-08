@@ -494,6 +494,7 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   PIPT and POPT rather than duplicated.
 
 ### Fixed
+- popt's `save_prediction` option raised `AttributeError`: the base ensemble read `self.ensemble.keys_da`, an attribute it never had. The folder now comes from the ensemble's own options (`savefolder` or `save_folder`, default `Predictions`) and is created before writing.
 
 - **Six small crash and correctness fixes.** `OpenBlasSingleThread` (and the
   other environment context managers) called `os.environ.unsetenv`, which does
@@ -673,6 +674,7 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   first branch.
 
 ### Changed
+- `restart_sim_results.pkl` (a saved forecast copied to that name so a restarted run can skip the forecast it had already finished) is now honoured only when `restart` is enabled; it used to be consumed by any run that found it in the working directory. Once used it is moved into the results folder as `sim_results.pkl`, where a saved forecast goes, instead of being renamed in the working directory.
 
 - **Library code keeps to its own logger and raises instead of exiting.**
   `PetLogger` gives each log file its own named logger with its own file and

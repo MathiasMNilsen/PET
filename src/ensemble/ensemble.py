@@ -362,7 +362,11 @@ class BaseEnsemble:
         # TypeError on `self.pred_data[-1]` being None.
 
         if save_prediction is not None:
-            folder = self.ensemble.keys_da.get('savefolder', 'Predictions')
+            # The ensemble's own options name the folder (popt passes `save_prediction`; its
+            # options are `keys_en`). This read `self.ensemble.keys_da`, an attribute the base
+            # ensemble never had, so the feature raised AttributeError whenever it was used.
+            folder = self.keys_en.get('savefolder', self.keys_en.get('save_folder', 'Predictions'))
+            os.makedirs(folder, exist_ok=True)
             if is_multilevel:
                 for l in range(self.tot_level):
                     self.sim_data[l].to_pickle(f'{folder}/{save_prediction}_level{l}.pkl')
