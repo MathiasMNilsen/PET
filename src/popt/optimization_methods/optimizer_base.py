@@ -1,5 +1,7 @@
 '''Shared OptimizerBase for iterative optimization algorithms.'''
 import inspect
+import pprint
+from dataclasses import dataclass
 
 import numpy as np
 from scipy.optimize import OptimizeResult
@@ -14,6 +16,7 @@ from ensemble.logger import PetLogger
 __author__ = "Mathias Methlie Nilsen, Rolf J. Lorentzen"
 __all__ = [
     'OptimizerBase',
+    'StepReport',
     'BoundTransformHandler',
     'OptimizerRestartMixin'
 ]
@@ -55,6 +58,20 @@ def _describe_signature(func) -> str:
         return str(inspect.signature(func))
     except (TypeError, ValueError):
         return ""
+
+
+@dataclass(frozen=True)
+class StepReport:
+    """What one call to :meth:`OptimizerBase.update_step` produced.
+
+    ``accepted`` says the optimizer committed a new iterate (through
+    :meth:`OptimizerBase._commit_step`); the loop then does the bookkeeping
+    every optimizer used to repeat. ``message`` is why it stopped when it did
+    not, and becomes the result's ``message``.
+    """
+
+    accepted: bool
+    message: str = ""
 
 
 class OptimizerRestartMixin(RestartMixin):
@@ -237,11 +254,21 @@ class BoundTransformHandler:
 
 
 class OptimizerBase(OptimizerRestartMixin, ABC):
+    """The iteration every optimizer shares; a subclass supplies the step.
 
-    def __init__(self, x0, fun, jac=None, hess=None, args=(), bounds=None, **options):
+    A subclass implements :meth:`update_step`, committing an improving point
+    with :meth:`_commit_step` and returning a :class:`StepReport`, and names
+    what its log row shows in :meth:`log_columns`. Everything else -- the
+    starting evaluation, the callback, recording and saving the result, the
+    log row, the function, state and projected-gradient convergence checks,
+    restart checkpoints and the EPF outer loop -- happens here.
+    """
+
+    NAME = "Optimizer"
+    """Shown in the start-of-run banner."""
+
+    def __init__(self, x0, fun, jac=None, hess=None, args=(), bounds=None, callback=None, **options):
         """
-        Base class for optimization algorithms.
-
         Parameters
         ----------
         x0 : ndarray
@@ -256,12 +283,16 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
             Extra positional arguments passed to callables: `fun`, `jac`, `hess`.
         bounds : sequence, optional
             Lower and upper bounds for each state variable.
+        callback : callable, optional
+            Called with the optimizer after every accepted step.
         **options
             Optimizer configuration such as tolerances, logging, restart, and
             persistence options.
             - maxiter: Maximum number of iterations (default: 100)
             - ftol: Relative function tolerance for convergence (default: 1e-5)
             - xtol: Relative change in state for convergence (default: 1e-8)
+            - gtol: Projected-gradient infinity-norm tolerance for convergence (default: 1e-5)
+            - fun0, jac0, hess0: Initial objective, gradient and Hessian values to reuse instead of evaluating them
             - logit: Enable logging (default: True)
             - logger_name: Log file name (default: 'OPTIM.log')
             - restart: Enable restart from file (default: False)
@@ -274,10 +305,12 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
                 - conv_crit: EPF convergence criterion for relative state change (default: 1e-5)
             - transform: Enable [lb, ub] --> [0, 1] transformation for optimization (default: False)
             - saveit: Save intermediate results after each iteration (default: False)
+            - savefolder (or save_folder): Folder for those results (default: 'Iteration_Results')
         """
         # Store user configuration first.
         self.options = options
         self.args = args
+        self.callback = callback if callable(callback) else None
 
         # Bounds and optional unit-cube transform.
         self.transform = options.get('transform', False)
@@ -310,37 +343,50 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
         # Convergence tolerances.
         self.ftol = options.get('ftol', 1e-5)  # Relative function tolerance
         self.xtol = options.get('xtol', 1e-8)  # Relative state-change tolerance
+        self.gtol = options.get('gtol', 1e-5)  # Projected-gradient infinity norm
 
-        # Iteration state.
-        self.fk = None
-        self.jk = None
-        self.hk = None
+        # Iteration state. Initial values may be handed in; whatever is
+        # missing is evaluated when the run starts (see `_start`).
+        self.fk = options.get('fun0', None)
+        self.jk = options.get('jac0', None)
+        self.hk = options.get('hess0', None)
         self.fk_old = None
         self.xk_old = None
+        self._started = False
 
         # Logging.
         self.logger = None
         if options.get('logit', True):
             self.logger = PetLogger(options.get('logger_name', 'OPTIM.log'))
 
-        # Result container and runtime flags.
+        # Result container and persistence.
         self.conv_msg = ''
         self.optimize_results = OptimizeResult()
         self.saveit = options.get('saveit', False)
+        self.savefolder = options.get('savefolder', options.get('save_folder', 'Iteration_Results'))
+
+    @classmethod
+    def minimize(cls, x0, fun, *args, **kwargs) -> OptimizeResult:
+        """Construct the optimizer with these arguments, run it, and return its result.
+
+        The arguments are the constructor's, in the constructor's order; see
+        the class for what each optimizer takes.
+        """
+        optimizer = cls(x0, fun, *args, **kwargs)
+        optimizer.run_optimization()
+        return optimizer.optimize_results
 
     @abstractmethod
-    def update_step(self) -> bool:
-        """Perform one optimizer-specific iteration.
+    def update_step(self) -> StepReport:
+        """Take one step from the current iterate.
 
-        Subclasses must update the current state and any derived quantities
-        they own, such as objective, gradient, and Hessian values.
-
-        Returns
-        -------
-        bool
-            ``True`` if the step completed successfully, otherwise ``False``.
+        Find a better point and make it current with :meth:`_commit_step`,
+        which also keeps the previous iterate for the convergence checks; then
+        return ``StepReport(True)``. The loop runs the callback, records and
+        saves the result, logs a row and checks convergence -- none of that
+        is the step's job. Return ``StepReport(False, why)`` when no
+        acceptable step exists: the run stops and ``why`` is its message.
         """
-        pass
 
     def run_optimization(self):
         """Run this optimizer to completion.
@@ -348,16 +394,19 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
         Named for the job rather than the mechanism; the counterpart in pipt is
         ``AssimilationScheme.run_assimilation``.
 
-        The loop handles restart restoration, optional EPF outer iterations,
-        repeated calls to ``update_step()``, and shared convergence checks.
-        When enabled, restart files are updated after successful iterations
-        and after EPF penalty updates.
+        The loop handles restart restoration, the starting evaluation, optional
+        EPF outer iterations, repeated calls to ``update_step()``, and the
+        shared convergence checks. When enabled, restart files are updated
+        after successful iterations and after EPF penalty updates.
         """
 
         if self.restart and not self._restart_loaded:
             self.load_restart()
         elif not self.restart:
             self.clear_restart()
+
+        if not (self._restart_loaded or self._started):
+            self._start()
 
         if self.epf_iteration == 0:
             self.epf_iteration = 1
@@ -373,24 +422,18 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
             while self.iteration < self.maxiter:
                 self.iteration += 1
 
-                # =======================================================
-                # Call the optimization step (Implemented in subclasses)
-                # Should update:
-                #   - self.xk
-                #   - self.fk
-                #   - self.jk (only if jacobian is used)
-                #   - self.hk (only if hessian is used)
-                #   - self.fk_old
-                #   - self.xk_old
-                success = self.update_step()
-
-                # Stop optimization if update_step() indicates failure
-                if not success:
+                report = self.update_step()
+                if not report.accepted:
+                    self.conv_msg = report.message
                     update_step_failed = True
                     break
-                # =======================================================
 
-                # =======================================================
+                # The step is committed; this is the bookkeeping that follows every accepted step.
+                if self.callback is not None:
+                    self.callback(self)
+                self._record_results()
+                self._log_iteration()
+
                 # Check function tolerance convergence
                 if self.check_function_convergence():
                     optimization_converged = True
@@ -407,7 +450,6 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
 
                 if optimization_converged:
                     break
-                # =======================================================
 
             if (self.iteration == self.maxiter) and (not optimization_converged):
                 self.conv_msg = 'Maximum number of iterations reached'
@@ -433,14 +475,90 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
         # Log convergence message
         self._log_convergence()
 
-    def check_convergence(self) -> bool:
-        """Check optimizer-specific convergence criteria.
+    # ==========================================
+    # What the loop does around a step
+    # ==========================================
+    def _start(self):
+        """Evaluate what the first step needs and record the starting point."""
+        self._started = True
+        if self.logger:
+            self.logger(f'========== Starting {self.NAME} Minimization ==========')
+            if self.options:
+                self.logger(f'\n\nUSER-SPECIFIED OPTIONS:\n{pprint.pformat(OptimizeResult(self.options))}\n')
 
-        Returns
-        -------
-        bool
-            ``True`` if a subclass-specific stopping criterion is satisfied.
+        if self.fk is None:
+            if self.logger:
+                self.logger('Computing initial function value...')
+            self.fk = self._objective_value(self.xk)
+        self._evaluate_missing_derivatives()
+
+        self._log_iteration()
+        self._record_results()
+
+    def _objective_value(self, x):
+        """The objective at ``x`` as this optimizer keeps it (``fun``'s value as returned, by default)."""
+        return self.fun(x)
+
+    def _evaluate_missing_derivatives(self):
+        """Evaluate the gradient and Hessian at the current iterate when the optimizer has none.
+
+        Used at the start and by optimizers that invalidate them between
+        steps. One that computes its derivatives differently (EnOpt's
+        ensemble gradient needs the covariance) overrides this.
         """
+        if self.jk is None and self.jac is not None:
+            self.jk = self.jac(self.xk)
+        if self.hk is None and self.hess is not None:
+            self.hk = self.hess(self.xk)
+
+    def _commit_step(self, x_new, f_new, jac=None, hess=None):
+        """Make ``x_new`` the current iterate; the one it replaces becomes ``xk_old``/``fk_old``.
+
+        The convergence checks compare the two, so a step that skipped either
+        assignment used to iterate and log normally while never converging.
+        Pass ``jac``/``hess`` when the step evaluated them at the new point.
+        """
+        self.xk_old = self.xk
+        self.fk_old = self.fk
+        self.xk = x_new
+        self.fk = f_new
+        if jac is not None:
+            self.jk = jac
+        if hess is not None:
+            self.hk = hess
+
+    def _record_results(self):
+        """Refresh the result object and, if asked, save it."""
+        self.optimize_results = self._update_optimize_result()
+        if self.saveit:
+            ot.save_optimize_results(self.optimize_results, folder=self.savefolder)
+
+    def log_columns(self) -> dict:
+        """One row of the iteration log. Optimizers override to show their own quantities."""
+        return {'iter.': self.iteration, 'fun': float(np.mean(self.fk))}
+
+    def _log_iteration(self):
+        if self.logger:
+            columns = self.log_columns()
+            if self.epf:
+                columns['EPF iter.'] = self.epf_iteration
+            self.logger(**columns)
+
+    # ==========================================
+    # Convergence
+    # ==========================================
+    def check_convergence(self) -> bool:
+        """Optimizer-specific criteria; by default the projected gradient against ``gtol``.
+
+        Runs after the function and state checks. An optimizer with more
+        criteria extends this; one without a gradient gets ``False``.
+        """
+        if self.jk is None:
+            return False
+        proj_jac = self.bound_handler.project_gradient(self.xk, self.jk)
+        if np.linalg.norm(proj_jac, np.inf) < self.gtol:
+            self.conv_msg = f'Projected gradient norm ‖g‖∞ < {self.gtol}.'
+            return True
         return False
 
     def check_function_convergence(self) -> bool:
@@ -499,8 +617,6 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
                 self.logger(f'Outer EPF loop converged ─────> No variables changed more than {relative_change_tol*100} %')
             return True
 
-
-
     # ==========================================
     # Internal utility functions
     # ==========================================
@@ -524,9 +640,7 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
             return
 
         self.fk = self.fun(self.xk)
-        if self.saveit:
-            self.optimize_results = self._update_optimize_result()
-            ot.save_optimize_results(self.optimize_results, folder=self.savefolder)
+        self._record_results()
 
     def _wrap_callable(self, func, name, transform_result=None):
         if func is None:
@@ -634,8 +748,3 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
             self.jac.nfev = state.get('njev', getattr(self.jac, 'nfev', 0))
         if self.hess:
             self.hess.nfev = state.get('nhev', getattr(self.hess, 'nfev', 0))
-
-
-
-
-

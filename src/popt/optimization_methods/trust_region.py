@@ -5,23 +5,20 @@ BFGS Hessian approximation and restart support.
 """
 
 import numpy as np
-import pprint
-from scipy.optimize import OptimizeResult
 
 # Internal imports
-from popt.misc_tools import optim_tools as ot
-from popt.optimization_methods.optimizer_base import OptimizerBase
+from popt.optimization_methods.optimizer_base import OptimizerBase, StepReport
 from popt.optimization_methods.subroutines.subroutines import solve_trust_region_subproblem
 
 __author__ = "Mathias Methlie Nilsen"
 __all__ = ["TrustRegion"]
 
 # Symbols for logger output
-subk = "\u2096"
+subk = "ₖ"
 fun_xk_symbol = f"fun(x{subk})"
-delta_k_symbol = f"\u0394{subk}"
-rho_symbol = f"\u03C1{subk}"
-jac_inf_symbol = f"\u2016jac(x{subk})\u2016\u221E"
+delta_k_symbol = f"Δ{subk}"
+rho_symbol = f"ρ{subk}"
+jac_inf_symbol = f"‖jac(x{subk})‖∞"
 
 
 class TrustRegion(OptimizerBase):
@@ -31,6 +28,7 @@ class TrustRegion(OptimizerBase):
     CG-Steihaug) and optional BFGS Hessian approximation via ``hess='BFGS'``.
     """
 
+    NAME = "Trust-Region"
     VALID_METHODS = ("iterative", "CG-Steihaug")
 
     def __init__(
@@ -66,7 +64,7 @@ class TrustRegion(OptimizerBase):
         callback : callable, optional
             Callback invoked after successful updates.
         **options
-            Trust-region and optimizer configuration.
+            Trust-region configuration, plus everything :class:`OptimizerBase` takes.
             - trust_radius: Initial trust-region radius (default: 1.0).
             - trust_radius_max: Maximum trust-region radius (default: ``100 * trust_radius``).
             - trust_radius_min: Minimum trust-region radius before termination (default: ``trust_radius / 1000``).
@@ -77,19 +75,7 @@ class TrustRegion(OptimizerBase):
             - gam1: Factor used to decrease the trust-region radius (default: 0.5).
             - gam2: Factor used to increase the trust-region radius when the boundary is hit (default: 1.5).
             - resample: Whether to recompute gradient and Hessian after rejected steps (default: False).
-            - gtol: Tolerance for convergence based on projected gradient infinity norm (default: 1e-5).
             - convergence_criteria: Optional callable for custom convergence checks.
-            - savefolder: Directory used when persisting iteration results (default: ``Iteration_Results``).
-            - saveit: Whether to save optimization results at each iteration (default: False).
-            - fun0: Initial objective value to reuse instead of recomputing it.
-            - jac0: Initial gradient value to reuse instead of recomputing it.
-            - hess0: Initial Hessian value to reuse instead of recomputing it.
-            - restart: Restart optimization from a restart file (default: False).
-            - restartsave: Save a restart file after each successful iteration (default: False).
-            - restart_file: Restart file path.
-            - logit: Enable optimizer logging.
-            - logger_name: Log file name.
-            - epf: Optional EPF settings handled by OptimizerBase.
         """
         if jac is None:
             raise ValueError("TrustRegion requires a Jacobian (gradient) function.")
@@ -98,9 +84,8 @@ class TrustRegion(OptimizerBase):
         if (not use_bfgs) and (hess is None):
             raise ValueError("TrustRegion requires a Hessian function or hess='BFGS'.")
 
-        super().__init__(x0, fun, jac, None if use_bfgs else hess, args, bounds, **options)
+        super().__init__(x0, fun, jac, None if use_bfgs else hess, args, bounds, callback, **options)
 
-        self.callback = callback if callable(callback) else None
         self.method = self._validate_method(method)
         self.quasi_newton = use_bfgs
 
@@ -120,131 +105,20 @@ class TrustRegion(OptimizerBase):
         self.gam1 = options.get("gam1", 0.5)  # Factor to decrease the trust-region radius when a step is rejected
         self.gam2 = options.get("gam2", 1.5)  # Factor to increase the trust-region radius when a step is accepted and hits the boundary
         self.rho = 0.0
+        self.hits_boundary = None  # whether the last accepted step reached the trust-region boundary
 
         # Other options
         self.resample = options.get("resample", False)
-        self.gtol = options.get("gtol", 1e-5)
-        self.savefolder = options.get("savefolder", "Iteration_Results")
         self.jk_old = None
 
-        if self._maybe_restore_restart():
-            return
-
-        # Initial callable values
-        self.fk = options.get("fun0", None)
-        self.jk = options.get("jac0", None)
-        self.hk = options.get("hess0", None)
-
-        if self.fk is None:
-            self.fk = self._objective_value(self.xk)
-        if self.jk is None:
-            self.jk = self.jac(self.xk)
-        if self.hk is None and (not self.quasi_newton):
-            self.hk = self.hess(self.xk)
-
-        if self.logger:
-            self.logger("========== Starting Trust-Region Minimization ==========")
-            if self.options:
-                self.logger(f"\n\nUSER-SPECIFIED OPTIONS:\n{pprint.pformat(OptimizeResult(self.options))}\n")
-
-        self._log_iteration()
-
-        self.optimize_results = self._update_optimize_result()
-        if self.saveit:
-            ot.save_optimize_results(self.optimize_results, folder=self.savefolder)
-
-    @classmethod
-    def minimize(
-        cls,
-        x0,
-        fun,
-        jac,
-        hess,
-        method="iterative",
-        args=(),
-        bounds=None,
-        callback=None,
-        **options,
-    ) -> OptimizeResult:
-        """Run Trust-Region optimization.
-
-        Parameters
-        ----------
-        x0 : ndarray
-            Initial parameter vector.
-        fun : callable
-            Objective function.
-        jac : callable
-            Gradient function.
-        hess : callable or {'BFGS'}
-            Hessian function, or ``'BFGS'`` to use a quasi-Newton Hessian approximation.
-        method : {'iterative', 'CG-Steihaug'} or callable, optional
-            Trust-region subproblem solver.
-        args : tuple, optional
-            Extra positional arguments passed to the wrapped callables.
-        bounds : sequence, optional
-            Lower and upper bounds for each state variable.
-        callback : callable, optional
-            Callback invoked after successful updates.
-        **options
-            Trust-region and optimizer configuration.
-            - trust_radius: Initial trust-region radius (default: 1.0).
-            - trust_radius_max: Maximum trust-region radius (default: ``100 * trust_radius``).
-            - trust_radius_min: Minimum trust-region radius before termination (default: ``trust_radius / 1000``).
-            - trust_radius_cuts: Maximum number of radius reductions before rejecting a step (default: 4).
-            - rho_tol: Minimum ratio between actual and predicted reduction for step acceptance (default: 1e-6).
-            - eta1: Threshold for rejecting a step (default: 0.05).
-            - eta2: Threshold for increasing the trust-region radius (default: 0.5).
-            - gam1: Factor used to decrease the trust-region radius (default: 0.5).
-            - gam2: Factor used to increase the trust-region radius when the boundary is hit (default: 1.5).
-            - resample: Whether to recompute gradient and Hessian after rejected steps (default: False).
-            - gtol: Tolerance for convergence based on projected gradient infinity norm (default: 1e-5).
-            - convergence_criteria: Optional callable for custom convergence checks.
-            - savefolder: Directory used when persisting iteration results (default: ``Iteration_Results``).
-            - saveit: Whether to save optimization results at each iteration (default: False).
-            - fun0: Initial objective value to reuse instead of recomputing it.
-            - jac0: Initial gradient value to reuse instead of recomputing it.
-            - hess0: Initial Hessian value to reuse instead of recomputing it.
-            - restart: Restart optimization from a restart file (default: False).
-            - restartsave: Save a restart file after each successful iteration (default: False).
-            - restart_file: Restart file path.
-            - logit: Enable optimizer logging.
-            - logger_name: Log file name.
-            - epf: Optional EPF settings handled by OptimizerBase.
-
-        Returns
-        -------
-        OptimizeResult
-            The optimization result represented as a ``scipy.optimize.OptimizeResult`` object.
-        """
-        optimizer = cls(
-            x0,
-            fun,
-            jac,
-            hess,
-            method=method,
-            args=args,
-            bounds=bounds,
-            callback=callback,
-            **options,
-        )
-        optimizer.run_optimization()
-        return optimizer.optimize_results
-
-    def update_step(self) -> bool:
+    def update_step(self) -> StepReport:
         """Perform one trust-region step with optional radius reductions."""
-        if self.jk is None:
-            self.jk = self.jac(self.xk)
-        if self.hk is None and (not self.quasi_newton):
-            self.hk = self.hess(self.xk)
-
+        self._evaluate_missing_derivatives()
         return self._attempt_step(inner_iter=0)
 
     def check_convergence(self) -> bool:
-        """Check convergence via projected gradient infinity norm."""
-        proj_jac = self.bound_handler.project_gradient(self.xk, self.jk)
-        if np.linalg.norm(proj_jac, np.inf) < self.gtol:
-            self.conv_msg = f"Projected gradient norm ‖g‖∞ < {self.gtol}."
+        """The projected gradient, the trust-region radius, and any custom criterion."""
+        if super().check_convergence():
             return True
 
         if self.trust_radius <= self.trust_radius_min:
@@ -257,10 +131,9 @@ class TrustRegion(OptimizerBase):
 
         return False
 
-    def _attempt_step(self, inner_iter: int) -> bool:
+    def _attempt_step(self, inner_iter: int) -> StepReport:
         if inner_iter > self.trust_radius_cuts:
-            self.conv_msg = "Trust-region step rejected after radius cut attempts."
-            return False
+            return StepReport(False, "Trust-region step rejected after radius cut attempts.")
 
         jk_proj = self.bound_handler.project_gradient(self.xk, self.jk)
 
@@ -311,8 +184,8 @@ class TrustRegion(OptimizerBase):
         self.rho = df / dm if dm != 0 else -np.inf
 
         if (self.rho > self.rho_tol) and (fk_new < self.fk):
-            self._accept_step(xk_new, fk_new, sk, jk_proj, hits_boundary)
-            return True
+            self._accept_step(xk_new, fk_new, sk, hits_boundary)
+            return StepReport(True)
 
         if self.logger:
             if not (fk_new < self.fk):
@@ -332,8 +205,7 @@ class TrustRegion(OptimizerBase):
             )
 
         if self.trust_radius < self.trust_radius_min:
-            self.conv_msg = f"Trust-region radius {delta_k_symbol} below minimum."
-            return False
+            return StepReport(False, f"Trust-region radius {delta_k_symbol} below minimum.")
 
         if self.resample:
             self.jk = self.jac(self.xk)
@@ -342,13 +214,9 @@ class TrustRegion(OptimizerBase):
 
         return self._attempt_step(inner_iter=inner_iter + 1)
 
-    def _accept_step(self, xk_new, fk_new, sk, jk_proj, hits_boundary) -> None:
-        self.xk_old = self.xk
-        self.fk_old = self.fk
+    def _accept_step(self, xk_new, fk_new, sk, hits_boundary) -> None:
         self.jk_old = self.jk
-
-        self.xk = xk_new
-        self.fk = fk_new
+        self._commit_step(xk_new, fk_new)
         self.jk = self.jac(self.xk)
 
         if self.quasi_newton:
@@ -364,15 +232,7 @@ class TrustRegion(OptimizerBase):
             self.hk = self.hess(self.xk)
 
         self._update_trust_radius(hits_boundary)
-
-        if callable(self.callback):
-            self.callback(self)
-
-        self.optimize_results = self._update_optimize_result()
-        if self.saveit:
-            ot.save_optimize_results(self.optimize_results, folder=self.savefolder)
-
-        self._log_iteration(hits_boundary=hits_boundary)
+        self.hits_boundary = hits_boundary
 
     def _update_trust_radius(self, hits_boundary: bool) -> None:
         delta_old = self.trust_radius
@@ -393,6 +253,7 @@ class TrustRegion(OptimizerBase):
             )
 
     def _objective_value(self, x) -> float:
+        # The trust-region ratio needs a scalar; an ensemble objective returns one value per member.
         return float(np.mean(self.fun(x)))
 
     def _validate_method(self, method):
@@ -438,19 +299,13 @@ class TrustRegion(OptimizerBase):
         self.jk_old = state.get("jk_old", self.jk_old)
         self.quasi_newton = state.get("quasi_newton", self.quasi_newton)
 
-    def _log_iteration(self, step_norm=None, hits_boundary=None) -> None:
-        if self.logger:
-            info = {
-                "iter.": self.iteration,
-                fun_xk_symbol: self.fk,
-                delta_k_symbol: self.trust_radius,
-                rho_symbol: self.rho,
-                #jac_inf_symbol: np.linalg.norm(self.jk, np.inf),
-            }
-            if step_norm is not None:
-                info[f"|p{subk}|∞"] = step_norm
-            if hits_boundary is not None:
-                info[f"\u2016p{subk}\u2016 = {delta_k_symbol}"] = "yes" if hits_boundary else "no"
-            if self.epf:
-                info["EPF iter."] = self.epf_iteration
-            self.logger(**info)
+    def log_columns(self) -> dict:
+        columns = {
+            "iter.": self.iteration,
+            fun_xk_symbol: self.fk,
+            delta_k_symbol: self.trust_radius,
+            rho_symbol: self.rho,
+        }
+        if self.hits_boundary is not None:
+            columns[f"‖p{subk}‖ = {delta_k_symbol}"] = "yes" if self.hits_boundary else "no"
+        return columns

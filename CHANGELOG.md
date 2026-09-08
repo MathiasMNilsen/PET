@@ -8,6 +8,9 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Breaking changes
+- `EnOpt` and `SmcOpt` constructors take `(x0, fun, ...)` like `LineSearch`, `TrustRegion` and every `minimize`; they took `(fun, x, ...)`. Callers using the keyword `x=` write `x0=`.
+- `OptimizerBase.update_step()` returns a `StepReport(accepted, message)` instead of a bool and commits its point through `_commit_step(x, f, jac=..., hess=...)`; the base then runs the callback, records and saves the result, logs a row (from `log_columns()`) and checks convergence. Custom optimizers built on the old contract need those four changes.
+- `SmcOpt` no longer runs the optimization inside its constructor (the `autorun` option is gone); call `run_optimization()` or use `SmcOpt.minimize(...)`, which has not changed.
 
 - **Config: `daalg` is replaced by `scheme`.** The analysis flavour is a
   parameter of an algorithm rather than a separate algorithm, so the
@@ -494,6 +497,7 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   PIPT and POPT rather than duplicated.
 
 ### Fixed
+- `LineSearch(recompute_jac=n)` crashed with `TypeError` on its first retry: the gradient was cleared but not recomputed before the next search direction.
 - popt's `save_prediction` option raised `AttributeError`: the base ensemble read `self.ensemble.keys_da`, an attribute it never had. The folder now comes from the ensemble's own options (`savefolder` or `save_folder`, default `Predictions`) and is created before writing.
 
 - **Six small crash and correctness fixes.** `OpenBlasSingleThread` (and the
@@ -674,6 +678,9 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   first branch.
 
 ### Changed
+- `OptimizerBase` owns what the four optimizers each repeated: `minimize`, the starting evaluation (now at the start of `run_optimization()` rather than in the constructor, so an optimizer can be built without evaluating anything), the callback, result recording and saving, the iteration log, and the projected-gradient convergence check (`gtol`). `enopt.py`, `linesearch.py`, `trust_region.py` and `smcopt.py` lost about 500 lines between them. Results are unchanged: 21 deterministic cases across all optimizers, search directions and step rules give bit-identical `x`, `fun`, `nit`, `nfev`, `njev` and `nhev`.
+- `LineSearch` results no longer carry `hess` after the first step: the Hessian on hand belonged to the previous iterate and was reported against the new `x`.
+- The Steihaug step rule's diagnostic output (a dozen lines per CG iteration, printed unconditionally) is now emitted at `DEBUG` level on the `popt.optimization_methods.subroutines.optimizers` logger; the BFGS 'non-positive curvature' notice is a logging warning instead of a print.
 - `restart_sim_results.pkl` (a saved forecast copied to that name so a restarted run can skip the forecast it had already finished) is now honoured only when `restart` is enabled; it used to be consumed by any run that found it in the working directory. Once used it is moved into the results folder as `sim_results.pkl`, where a saved forecast goes, instead of being renamed in the working directory.
 
 - **Library code keeps to its own logger and raises instead of exiting.**

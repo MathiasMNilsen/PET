@@ -1,11 +1,8 @@
 """Stochastic Monte-Carlo optimization compatible with OptimizerBase."""
 
 import numpy as np
-import pprint
-from scipy.optimize import OptimizeResult
 
-from popt.misc_tools import optim_tools as ot
-from popt.optimization_methods.optimizer_base import OptimizerBase
+from popt.optimization_methods.optimizer_base import OptimizerBase, StepReport
 import popt.optimization_methods.subroutines.optimizers as opt
 
 __author__ = ""
@@ -15,21 +12,23 @@ __all__ = ["SmcOpt"]
 class SmcOpt(OptimizerBase):
     """Sequential Monte-Carlo optimizer with resampling and backtracking."""
 
-    def __init__(self, fun, x, args=(), sens=None, bounds=None, callback=None, **options):
+    NAME = "SmcOpt"
+
+    def __init__(self, x0, fun, sens=None, args=(), bounds=None, callback=None, **options):
         """
         Parameters
         ----------
+        x0 : ndarray
+            Initial state
+
         fun : callable
             objective function
 
-        x : ndarray
-            Initial state
+        sens : callable
+            Ensemble sensitivity function
 
         args : tuple
             Initial covariance tuple where ``args[0]`` is the covariance matrix used for sampling.
-
-        sens : callable
-            Ensemble sensitivity function
 
         bounds : list, optional
             (min, max) pairs for each element in x. None is used to specify no bound.
@@ -38,24 +37,18 @@ class SmcOpt(OptimizerBase):
             Callback invoked after successful updates.
 
         options : dict
-            Optimization options
+            SmcOpt configuration, plus everything :class:`OptimizerBase` takes
+            (``transform`` is forced off: SmcOpt works in physical coordinates).
 
-            - maxiter: maximum number of iterations (default 100)
-            - restart: restart optimization from a restart file (default false)
-            - restartsave: save a restart file after each successful iteration (default false)
-            - restart_file: restart file path
-            - tol: convergence tolerance for the objective function (default 1e-6)
+            - tol: convergence tolerance for the objective function (default 1e-6). Also used as ``ftol`` when given.
             - alpha: weight between previous and new step (default 0.1)
             - alpha_maxiter: maximum number of backtracking trials (default 5)
             - resample: number indicating how many times resampling is tried if no improvement is found
             - cov_factor: factor used to shrink the covariance for each resampling trial (default 0.5)
             - inflation_factor: term used to weight down prior influence (default 1.0)
             - survival_factor: fraction of surviving samples (clipped to [0.1, 1.0])
-            - logit: enable optimizer logging (default true)
-            - logger_name: log file name (default OPTIM.log)
-            - saveit: save intermediate optimize results (default false)
-            - savefolder/save_folder: folder used when saveit is true
-            - epf: optional EPF settings handled by OptimizerBase
+            - best_func: best objective value seen before this run (default: the initial objective)
+            - savefolder/save_folder: folder used when saveit is true (default './')
         """
         if sens is None or not callable(sens):
             raise ValueError("SmcOpt requires a callable sensitivity function 'sens'.")
@@ -64,9 +57,8 @@ class SmcOpt(OptimizerBase):
 
         # SmcOpt historically operates in physical coordinates.
         options = {**options, "transform": False}
-        super().__init__(x0=x, fun=fun, jac=None, hess=None, args=(), bounds=bounds, **options)
+        super().__init__(x0, fun, jac=None, hess=None, args=(), bounds=bounds, callback=callback, **options)
 
-        self.callback = callback if callable(callback) else None
         self.sens = sens
 
         # SmcOpt controls
@@ -84,55 +76,25 @@ class SmcOpt(OptimizerBase):
         # Dynamic SMC state
         self.cov = np.asarray(args[0], dtype=float)
         self.best_state = None
-        self.best_func = None
+        self.best_func = None  # set when the run starts, from `best_func` or the initial objective
         self.sens_njev = 0
 
         self.optimizer = opt.GradientDescent(self.alpha, 0.0)
 
-        if self._maybe_restore_restart():
-            self.obj_func_values = self.fk
-            return
+    @property
+    def obj_func_values(self):
+        """Legacy alias for ``fk``."""
+        return self.fk
 
-        self.fk = options.get("fun0", None)
-        self.jk = options.get("jac0", None)
-        self.hk = options.get("hess0", None)
-
+    def _start(self):
+        # The best value seen so far starts at the initial objective, which
+        # the first log row and result already show.
         if self.fk is None:
             self.fk = self.fun(self.xk)
+        self.best_func = float(np.mean(self.options.get("best_func", self.fk)))
+        super()._start()
 
-        self.obj_func_values = self.fk
-        self.best_func = float(np.mean(options.get("best_func", self.fk)))
-
-        if self.logger:
-            self.logger("========== Starting SmcOpt Minimization ==========")
-            if self.options:
-                self.logger(f"\n\nUSER-SPECIFIED OPTIONS:\n{pprint.pformat(OptimizeResult(self.options))}\n")
-
-        self._log_iteration()
-        self.optimize_results = self._update_optimize_result()
-        if self.saveit:
-            ot.save_optimize_results(self.optimize_results, folder=self.savefolder)
-
-        if options.get("autorun", True):
-            self.run_optimization()
-            self.optimize_results = self._update_optimize_result()
-
-    @classmethod
-    def minimize(cls, x0, fun, sens, args=(), bounds=None, callback=None, **options):
-        """Run SmcOpt and return OptimizeResult."""
-        optimizer = cls(
-            fun=fun,
-            x=x0,
-            args=args,
-            sens=sens,
-            bounds=bounds,
-            callback=callback,
-            **{**options, "autorun": False},
-        )
-        optimizer.run_optimization()
-        return optimizer.optimize_results
-
-    def update_step(self) -> bool:
+    def update_step(self) -> StepReport:
         """Perform one SMC update step with backtracking and optional resampling."""
         self.optimizer.restore_parameters()
         resampling_iter = 0
@@ -162,7 +124,7 @@ class SmcOpt(OptimizerBase):
                 improved_best = (self.best_func - best_func_tmp) > self.obj_func_tol
                 if improved_objective or improved_best:
                     self._accept_step(new_state, new_func_values, best_func_tmp, improved_best)
-                    return True
+                    return StepReport(True)
 
                 if self.alpha_iter < self.alpha_iter_max:
                     self.optimizer.apply_backtracking()
@@ -175,36 +137,15 @@ class SmcOpt(OptimizerBase):
                 self.optimizer.restore_parameters()
                 continue
 
-            self.conv_msg = "SmcOpt failed to find an improving step."
-            return False
+            return StepReport(False, "SmcOpt failed to find an improving step.")
 
-        self.conv_msg = "SmcOpt exhausted all resampling attempts."
-        return False
-
-    def check_convergence(self) -> bool:
-        # SmcOpt relies on shared function/state convergence checks in OptimizerBase.
-        return False
+        return StepReport(False, "SmcOpt exhausted all resampling attempts.")
 
     def _accept_step(self, new_state, new_func_values, best_func_tmp, improved_best):
-        self.xk_old = self.xk
-        self.fk_old = self.fk
-
-        self.xk = new_state
-        self.fk = new_func_values
-        self.obj_func_values = self.fk
+        self._commit_step(new_state, new_func_values)
         if improved_best:
             self.best_func = float(best_func_tmp)
-
         self.optimizer.restore_parameters()
-
-        if callable(self.callback):
-            self.callback(self)
-
-        self.optimize_results = self._update_optimize_result()
-        if self.saveit:
-            ot.save_optimize_results(self.optimize_results, folder=self.savefolder)
-
-        self._log_iteration()
 
     def _update_optimize_result(self):
         result = super()._update_optimize_result()
@@ -234,17 +175,12 @@ class SmcOpt(OptimizerBase):
         self.obj_func_tol = state.get("obj_func_tol", self.obj_func_tol)
         self.sens_njev = state.get("sens_njev", self.sens_njev)
         self.optimizer.__dict__.update(state.get("optimizer_state", {}))
-        self.obj_func_values = self.fk
 
-    def _log_iteration(self) -> None:
-        if self.logger:
-            info = {
-                "iter.": self.iteration,
-                "alpha_iter": self.alpha_iter,
-                "obj_func": float(np.mean(self.fk)),
-                "best_func": float(self.best_func),
-                "step-size": self.alpha,
-            }
-            if self.epf:
-                info["EPF iter."] = self.epf_iteration
-            self.logger(**info)
+    def log_columns(self) -> dict:
+        return {
+            "iter.": self.iteration,
+            "alpha_iter": self.alpha_iter,
+            "obj_func": float(np.mean(self.fk)),
+            "best_func": float(self.best_func),
+            "step-size": self.alpha,
+        }

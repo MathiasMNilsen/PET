@@ -1,4 +1,6 @@
 """Line searches, the BFGS inverse-Hessian update, Newton-CG, and trust-region subproblem solvers."""
+import logging
+
 import numpy as np
 import numpy.linalg as la
 from functools import lru_cache
@@ -377,7 +379,7 @@ def bfgs_update(Hk, sk, yk):
     rho = 1.0 / (yk.T @ sk)
 
     if rho <= 0:
-        print('Non-positive curvature detected. BFGS update skipped....')
+        logging.getLogger(__name__).warning('Non-positive curvature detected. BFGS update skipped.')
         return Hk
 
     I = np.eye(Hk.shape[0])

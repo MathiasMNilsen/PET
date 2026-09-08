@@ -1,7 +1,12 @@
 """Gradient acceleration."""
+import logging
+
 import numpy as np
 
 __all__ = ['GradientDescent', 'Adam', 'AdaMax', 'Steihaug', ]
+
+
+log = logging.getLogger(__name__)
 
 
 class GradientDescent:
@@ -357,8 +362,6 @@ class Steihaug:
 
         # Function arguments.
         self.maxiter = maxiter
-        self.print_flag = 2
-        self.print_prefix = "Steihaug: "
         self.epsilon = epsilon
         self.delta_max = delta_max
         self.delta0 = delta0
@@ -395,14 +398,12 @@ class Steihaug:
         len_r0 = np.sqrt(np.dot(rj, rj))
         length_test = self.epsilon * len_r0
 
-        if self.print_flag >= 2:
-            print(self.print_prefix + "p0: " + repr(pj))
-            print(self.print_prefix + "r0: " + repr(rj))
-            print(self.print_prefix + "d0: " + repr(dj))
+        log.debug("p0: " + repr(pj))
+        log.debug("r0: " + repr(rj))
+        log.debug("d0: " + repr(dj))
 
         if len_r0 < self.epsilon:
-            if self.print_flag >= 2:
-                print(self.print_prefix + "len rj < epsilon.")
+            log.debug("len rj < epsilon.")
             return xk, pj
 
         # Iterate over j.
@@ -410,53 +411,46 @@ class Steihaug:
         while True:
             # The curvature.
             curv = np.dot(dj, np.dot(B, dj))
-            if self.print_flag >= 2:
-                print(self.print_prefix + "\nIteration j = " + repr(j))
-                print(self.print_prefix + "Curv: " + repr(curv))
+            log.debug("Iteration j = " + repr(j))
+            log.debug("Curv: " + repr(curv))
 
             # First test.
             if curv <= 0.0:
                 tau = self.get_tau(rj, dj)
-                if self.print_flag >= 2:
-                    print(self.print_prefix + "curv <= 0.0, therefore tau = " + repr(tau))
+                log.debug("curv <= 0.0, therefore tau = " + repr(tau))
                 pj_new = pj + tau * dj
                 xk_new = xk + pj_new
                 return xk_new, pj_new
 
             aj = np.dot(rj, rj) / curv
             pj_new = pj + aj * dj
-            if self.print_flag >= 2:
-                print(self.print_prefix + "aj: " + repr(aj))
-                print(self.print_prefix + "pj+1: " + repr(pj_new))
+            log.debug("aj: " + repr(aj))
+            log.debug("pj+1: " + repr(pj_new))
 
             # Second test.
             if np.sqrt(np.dot(pj_new, pj_new)) >= self.delta:
                 tau = self.get_tau(pj, dj)
-                if self.print_flag >= 2:
-                    print(self.print_prefix + "sqrt(dot(self.pj_new, self.pj_new)) >= self.delta, therefore tau = "
+                log.debug("sqrt(dot(self.pj_new, self.pj_new)) >= self.delta, therefore tau = "
                           + repr(tau))
                 pj_new = pj + tau * dj
                 xk_new = xk + pj_new
                 return xk_new, pj_new
 
             rj_new = rj + aj * np.dot(B, dj)
-            if self.print_flag >= 2:
-                print(self.print_prefix + "rj+1: " + repr(rj_new))
+            log.debug("rj+1: " + repr(rj_new))
 
             # Third test.
             if np.sqrt(np.dot(rj_new, rj_new)) < length_test:
-                if self.print_flag >= 2:
-                    print(self.print_prefix + "sqrt(dot(self.rj_new, self.rj_new)) < length_test")
+                log.debug("sqrt(dot(self.rj_new, self.rj_new)) < length_test")
                 xk_new = xk + pj_new
                 return xk_new, pj_new
 
             bj_new = np.dot(rj_new, rj_new) / np.dot(rj, rj)
             dj_new = -rj_new + bj_new * dj
-            if self.print_flag >= 2:
-                print(self.print_prefix + "len rj+1: " + repr(np.sqrt(np.dot(rj_new, rj_new))))
-                print(self.print_prefix + "epsilon.||r0||: " + repr(length_test))
-                print(self.print_prefix + "bj+1: " + repr(bj_new))
-                print(self.print_prefix + "dj+1: " + repr(dj_new))
+            log.debug("len rj+1: " + repr(np.sqrt(np.dot(rj_new, rj_new))))
+            log.debug("epsilon.||r0||: " + repr(length_test))
+            log.debug("bj+1: " + repr(bj_new))
+            log.debug("dj+1: " + repr(dj_new))
 
             # Update j+1 to j.
             pj = pj_new * 1.0

@@ -40,7 +40,11 @@ optional hooks the protocol's docstring lists. The analytical models in
 `popt` has the same shape: an optimizer
 (`popt.optimization_methods.optimizer_base.OptimizerBase`) owns its loop and is
 handed `fun`/`jac`/`hess` callables, typically the methods of an ensemble from
-`popt.ensembles`.
+`popt.ensembles`. A new optimizer implements `update_step()`, which commits an
+improving point with `_commit_step(x, f, jac=..., hess=...)` and returns a
+`StepReport`, and `log_columns()` for its row of the log. The base evaluates
+the starting point, runs the callback, records and saves the result, logs,
+and checks function, state and projected-gradient convergence.
 
 ## Tests
 
