@@ -463,8 +463,7 @@ class Steihaug:
             rj = rj_new * 1.0
             dj = dj_new * 1.0
             if j > self.maxiter:
-                import sys
-                sys.exit()
+                raise RuntimeError(f"Steihaug CG did not converge within {self.maxiter} iterations")
             j = j + 1
 
     def get_tau(self, pj, dj):

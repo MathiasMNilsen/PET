@@ -919,10 +919,11 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
             elif save_type == "state":
                 save_dict.update(self._state_debug_dict())
             else:
-                print(
+                warnings.warn(
                     f"Cannot save '{save_type}' at iteration {self.iteration}: "
                     f"neither {type(self).__name__} nor its ensemble has an "
-                    f"attribute by that name.\n"
+                    f"attribute by that name.",
+                    stacklevel=2,
                 )
 
         save_dict["savefolder"] = self.save_folder
@@ -946,6 +947,7 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
     def _save_path(self, filename: str) -> str:
         if self.save_folder is None:
             raise RuntimeError("Cannot save results because saving is disabled.")
+        os.makedirs(self.save_folder, exist_ok=True)
         return os.path.join(self.save_folder, filename)
     # ------------------------------------------------------------------
     # Restart hooks required by RestartMixin

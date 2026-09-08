@@ -526,7 +526,7 @@ class OptimizerBase(OptimizerRestartMixin, ABC):
         self.fk = self.fun(self.xk)
         if self.saveit:
             self.optimize_results = self._update_optimize_result()
-            ot.save_optimize_results(self.optimize_results)
+            ot.save_optimize_results(self.optimize_results, folder=self.savefolder)
 
     def _wrap_callable(self, func, name, transform_result=None):
         if func is None:

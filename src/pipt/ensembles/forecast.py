@@ -68,21 +68,23 @@ class ForecastMixin:
 
     @property
     def save_folder(self) -> str | None:
-        """Folder for run artifacts, created on first use, or ``None``.
+        """Folder for run artifacts, or ``None`` when saving is disabled.
 
         Both ``savefolder`` and ``save_folder`` are accepted, as POPT's
         optimizers do -- only the former used to be read, so a config written
         with the underscored spelling silently wrote to ``Results`` instead.
+        Reading this creates nothing; :meth:`_save_path` makes the folder when
+        something is about to be written into it.
         """
         if not self._saving_enabled:
             return None
-        folder = self.keys_da.get("savefolder", self.keys_da.get("save_folder", "Results"))
-        os.makedirs(folder, exist_ok=True)
-        return folder
+        return self.keys_da.get("savefolder", self.keys_da.get("save_folder", "Results"))
 
     def _save_path(self, filename: str) -> str:
+        """Path of ``filename`` inside the save folder, which is created here."""
         if self.save_folder is None:
             raise RuntimeError("Cannot save results because saving is disabled.")
+        os.makedirs(self.save_folder, exist_ok=True)
         return os.path.join(self.save_folder, filename)
 
     # ------------------------------------------------------------------
@@ -98,7 +100,7 @@ class ForecastMixin:
         self.pred_data = self.sim_to_pred_data(self.sim_data)
 
         os.rename(self.RESTART_RESULTS_FILE, self.SIM_RESULTS_FILE)
-        print("--- Restart sim results used ---")
+        self.logger("--- Restart sim results used ---")
         return True
 
     def _apply_prediction_scaling(self) -> None:

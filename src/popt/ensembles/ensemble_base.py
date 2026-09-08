@@ -2,7 +2,6 @@
 # External imports
 import numpy as np
 import pandas as pd
-import sys
 
 
 # Internal imports
@@ -209,7 +208,6 @@ class EnsembleOptimizationBase(BaseEnsemble):
                 nr = int(self.num_samples / self.num_models)
                 self.aux_input = list(np.repeat(np.arange(self.num_models), nr))
             else:
-                print('num_samples must be a multiplum of num_models!')
-                sys.exit(0)
+                raise ValueError('num_samples must be a multiple of num_models')
         return nr
 

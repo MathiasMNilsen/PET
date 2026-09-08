@@ -2,7 +2,6 @@
 # Imports
 import numpy as np  # Misc. numerical tools
 import os  # Misc. system tools
-import sys
 from copy import copy, deepcopy
 from multiprocessing import Process  # To be able to run Python methods in background
 import time  # To wait a bit before loading files
@@ -333,8 +332,7 @@ class sevenmountains:
             for i in range(n):
                 d[i] = func(control[0][i], control[1][i])
         else:
-            print('\033[1;31mERROR: Input to objective function has wrong dimension.\033[1;m')
-            sys.exit(1)
+            raise ValueError('Input to objective function has wrong dimension.')
         # # Calc. data
         # d = -self.m ** 2
 

@@ -28,17 +28,23 @@ class PetLogger:
         self.filename = filename if filename else 'PET.log'
         self.ns = 12  # Number of spaces for table formatting
 
-        # Configurate logging
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s : %(message)s',
-            datefmt='%Y-%m-%d│%H:%M:%S',
-            handlers=[
-                logging.FileHandler(self.filename, mode='w'),
-                logging.StreamHandler()
-            ]
-        )
-        self._logger = logging.getLogger(__name__)
+        # One named logger per log file, carrying its own file and console
+        # handlers. This used to call logging.basicConfig, which configures
+        # the *root* logger once per process and silently does nothing the
+        # second time -- so a second PetLogger (popt beside pipt, or a re-run
+        # in a notebook) kept writing into the first file, and any test or
+        # application that had touched the root logger got no file at all.
+        # Records still propagate upward, so a root handler (pytest's capture,
+        # an application's own configuration) sees them too.
+        self._logger = logging.getLogger(f"pet.{self.filename}")
+        self._logger.setLevel(logging.INFO)
+        for handler in list(self._logger.handlers):
+            self._logger.removeHandler(handler)
+            handler.close()
+        formatter = logging.Formatter('%(asctime)s : %(message)s', datefmt='%Y-%m-%d│%H:%M:%S')
+        for handler in (logging.FileHandler(self.filename, mode='w'), logging.StreamHandler()):
+            handler.setFormatter(formatter)
+            self._logger.addHandler(handler)
 
 
     def __call__(self, *args, **kwargs):

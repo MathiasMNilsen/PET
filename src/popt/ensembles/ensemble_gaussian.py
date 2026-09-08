@@ -258,64 +258,65 @@ class GaussianEnsemble(EnsembleOptimizationBase):
         if self.resample_index is None:
             self.resample_index = [None]*L
 
-        warnings.filterwarnings('ignore')  # suppress warnings
-        start_index = 0
-        level_sens = []
-        sens_matrix = np.zeros(self.enX.shape[0])
-        best_ens = 0
-        best_func = 0
-        ml_ne_new_total = 0
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')  # suppress warnings from the weights' exponentials
+            start_index = 0
+            level_sens = []
+            sens_matrix = np.zeros(self.enX.shape[0])
+            best_ens = 0
+            best_func = 0
+            ml_ne_new_total = 0
 
-        if 'multilevel' in self.keys_en.keys():
-            en_size = ot.get_list_element(self.keys_en['multilevel'], 'en_size')
-        else:
-            en_size = [self.num_samples]
-
-        for l in range(L):
-            ml_ne = en_size[l]
-            if L > 1 and l == L-1:
-                ml_ne_new = int(np.round(self.num_samples*self.survival_factor)) - ml_ne_new_total
+            if 'multilevel' in self.keys_en.keys():
+                en_size = ot.get_list_element(self.keys_en['multilevel'], 'en_size')
             else:
-                ml_ne_new = int(np.round(ml_ne*self.survival_factor))  # new samples
-                ml_ne_new_total += ml_ne_new
-            ml_ne_surv = ml_ne - ml_ne_new  # surviving samples
+                en_size = [self.num_samples]
 
-            if self.resample_index[l] is None:
-                self.particles.append(deepcopy(self.enX[:, start_index:start_index + ml_ne]))
-                self.particle_values.append(deepcopy(self.enF[l]))
-            else:
-                self.particles[l][:, :ml_ne_surv] = self.particles[l][:, self.resample_index[l]]
-                self.particles[l][:, ml_ne_surv:] = deepcopy(self.enX[:, start_index:start_index + ml_ne_new])
-                self.particle_values[l][:ml_ne_surv] = self.particle_values[l][self.resample_index[l]]
-                self.particle_values[l][ml_ne_surv:] = deepcopy(self.enF[l])
-
-            # Calculate the weights and ensemble sensitivity matrix
-            weights = np.zeros(ml_ne)
-            for i in range(ml_ne):
-                weights[i] = np.exp(np.clip(-(self.particle_values[l][i] - np.min(
-                    self.particle_values[l])) * self.inflation_factor, None, 10))
-
-            weights = weights + 1e-6  # Add small regularization
-            weights = weights/np.sum(weights)
-
-            level_sens.append(self.particles[l] @ weights)
-            if l == L-1:  # keep the best from the finest level
-                index = np.argmin(self.particle_values[l])
-                best_ens = self.particles[l][:, index]
-                best_func = self.particle_values[l][index]
-            self.resample_index[l] = np.random.choice(ml_ne, ml_ne_surv, replace=True, p=weights)
-
-            start_index += ml_ne_new
-
-        if 'multilevel' in self.keys_en.keys():
-            cov_wgt = ot.get_list_element(self.keys_en['multilevel'], 'cov_wgt')
             for l in range(L):
-                sens_matrix += level_sens[l]*cov_wgt[l]
-            sens_matrix /= self.num_samples
-        else:
-            sens_matrix = level_sens[0]
+                ml_ne = en_size[l]
+                if L > 1 and l == L-1:
+                    ml_ne_new = int(np.round(self.num_samples*self.survival_factor)) - ml_ne_new_total
+                else:
+                    ml_ne_new = int(np.round(ml_ne*self.survival_factor))  # new samples
+                    ml_ne_new_total += ml_ne_new
+                ml_ne_surv = ml_ne - ml_ne_new  # surviving samples
 
-        return sens_matrix, best_ens, best_func
+                if self.resample_index[l] is None:
+                    self.particles.append(deepcopy(self.enX[:, start_index:start_index + ml_ne]))
+                    self.particle_values.append(deepcopy(self.enF[l]))
+                else:
+                    self.particles[l][:, :ml_ne_surv] = self.particles[l][:, self.resample_index[l]]
+                    self.particles[l][:, ml_ne_surv:] = deepcopy(self.enX[:, start_index:start_index + ml_ne_new])
+                    self.particle_values[l][:ml_ne_surv] = self.particle_values[l][self.resample_index[l]]
+                    self.particle_values[l][ml_ne_surv:] = deepcopy(self.enF[l])
+
+                # Calculate the weights and ensemble sensitivity matrix
+                weights = np.zeros(ml_ne)
+                for i in range(ml_ne):
+                    weights[i] = np.exp(np.clip(-(self.particle_values[l][i] - np.min(
+                        self.particle_values[l])) * self.inflation_factor, None, 10))
+
+                weights = weights + 1e-6  # Add small regularization
+                weights = weights/np.sum(weights)
+
+                level_sens.append(self.particles[l] @ weights)
+                if l == L-1:  # keep the best from the finest level
+                    index = np.argmin(self.particle_values[l])
+                    best_ens = self.particles[l][:, index]
+                    best_func = self.particle_values[l][index]
+                self.resample_index[l] = np.random.choice(ml_ne, ml_ne_surv, replace=True, p=weights)
+
+                start_index += ml_ne_new
+
+            if 'multilevel' in self.keys_en.keys():
+                cov_wgt = ot.get_list_element(self.keys_en['multilevel'], 'cov_wgt')
+                for l in range(L):
+                    sens_matrix += level_sens[l]*cov_wgt[l]
+                sens_matrix /= self.num_samples
+            else:
+                sens_matrix = level_sens[0]
+
+            return sens_matrix, best_ens, best_func
 
 
 

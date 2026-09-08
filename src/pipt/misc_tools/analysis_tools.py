@@ -13,6 +13,7 @@ __all__ = [
 ]
 
 # External imports
+import os
 import numpy as np          # Numerical tools
 from scipy import linalg    # Linear algebra tools
 from misc.system_tools.environ_var import OpenBlasSingleThread  # only single thread
@@ -584,6 +585,7 @@ def save_assimilation_result(ind_save, **kwargs):
     """
     # Save input variables
     folder = kwargs.pop('savefolder')
+    os.makedirs(folder, exist_ok=True)
     try:
         np.savez(f'{folder}/assimilation_result_{ind_save}', **kwargs)
     except Exception: # if npz save fails dump to a pickle file
@@ -1089,7 +1091,7 @@ def truncSVD(matrix, r=None, energy=None, full_matrices=False):
     if r == 0:
         r = 1  # Ensure at least one singular value is retained
     if r > len(S):
-        print("Warning: Specified rank exceeds number of singular values. Using maximum available rank.")
+        warnings.warn("Specified rank exceeds the number of singular values; using all of them.", stacklevel=2)
         r = len(S)
 
     return U[:,:r], S[:r], VT[:r,:]
@@ -1156,12 +1158,7 @@ def get_outlier_index(
     outlier_indices = np.where(outlier_mask)[0]
     non_outlier_members = np.where(~outlier_mask)[0]
 
-    # Find logger if available and log outlier information
     if len(outlier_indices) > 0:
-        logger = logging.getLogger(__name__)
-        if logger is not None:
-            logger.info(f" Identified outliers: {outlier_indices}")
-        else:
-            print(f"Identified outliers:: {outlier_indices}")
+        logging.getLogger(__name__).info(f" Identified outliers: {outlier_indices}")
 
     return outlier_indices, non_outlier_members

@@ -5,7 +5,6 @@ Copyright (c) 2019-2022 NORCE, All Rights Reserved. 4DSEIS
 """
 import pywt
 import numpy as np
-import sys
 from copy import deepcopy
 
 
@@ -119,8 +118,7 @@ class SparseRepresentation:
                         current_threshold = est_noise_level**2 / \
                             np.sqrt(np.abs(std_data**2 - est_noise_level**2))
                     else:
-                        print('Thresholding rule not implemented')
-                        sys.exit(1)
+                        raise ValueError(f"Thresholding rule {self.options['threshold_rule']!r} is not implemented")
                     current_threshold = th_mult * current_threshold
                     if level == 0:
                         self.threshold[level] = current_threshold
@@ -195,8 +193,7 @@ class SparseRepresentation:
             compressed_data = np.append(self.ca_leading_coeff, self.cd_leading_coeff)
         else:
             if self.ca_leading_index is None or self.cd_leading_index is None:
-                print('Leading indices not defined')
-                sys.exit(1)
+                raise RuntimeError('Leading indices not defined: compress() must run before reconstruct()')
             compressed_data = np.append(
                 ca_in_vec[self.ca_leading_index], cd_in_vec[self.cd_leading_index])
 
@@ -221,8 +218,7 @@ class SparseRepresentation:
     def reconstruct(self, wdec_rec):
 
         if wdec_rec is None:
-            print('No signal to reconstruct')
-            sys.exit(1)
+            raise ValueError('No signal to reconstruct')
 
         # reconstruct from wavelet coefficients
         data_rec = pywt.waverecn(wdec_rec, self.options['wname'], 'symmetric')

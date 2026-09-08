@@ -124,7 +124,7 @@ class IterativeEnRML(AssimilationScheme):
                 try:
                     self.actnum = np.load(self.keys_da['actnum'])['actnum']
                 except Exception:
-                    print('ACTNUM file cannot be loaded!')
+                    self.logger.info('ACTNUM file cannot be loaded!')
 
             # At the moment, the iterative loop is threated as an iterative smoother and thus we check if assim. indices
             # are given as in the Simultaneous loop.

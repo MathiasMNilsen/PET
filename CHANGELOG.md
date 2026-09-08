@@ -673,6 +673,24 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Library code keeps to its own logger and raises instead of exiting.**
+  `PetLogger` gives each log file its own named logger with its own file and
+  console handlers; it used to call `logging.basicConfig`, which configures
+  the root logger once per process and does nothing the second time, so a
+  second logger (popt beside pipt, or a re-run in a notebook) kept writing
+  into the first file and any application that had touched the root logger
+  got no file at all. Records still propagate, so root handlers see them.
+  Reading `save_folder` no longer creates the directory; it is created where
+  something is written. The `sys.exit` calls in the ensemble (every member
+  failed), the wavelet compression, the `sevenmountains` objective, popt's
+  ensemble base and the Steihaug subroutine are exceptions now, and the
+  remaining `print` calls beside a logger go through it. A `savedata` entry
+  naming a variable the scheme does not have is a `UserWarning`. The
+  Gaussian ensemble's `warnings.filterwarnings('ignore')`, which silenced
+  warnings for the rest of the process, is scoped to the method that needed
+  it. popt's EPF refresh saved its result to the working directory instead of
+  `savefolder`.
+
 - **LM-EnRML and GN-EnRML share one implementation.** `IterativeEnRML`
   holds the construction, the analysis call, the retry loop inside
   `update_step`, the scoring and the accept/reject bookkeeping the two

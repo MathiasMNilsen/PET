@@ -71,7 +71,7 @@ def test_a_single_name_need_not_be_a_list(tmp_path):
     assert _saved(tmp_path, 0)["data_misfit"] == 7.5
 
 
-def test_unresolvable_names_are_skipped_not_fatal(tmp_path, capsys):
+def test_unresolvable_names_are_skipped_not_fatal(tmp_path):
     """A variable can legitimately be absent for a given scheme.
 
     ``lam`` exists for the Levenberg-Marquardt family and not for ES-MDA, so a
@@ -80,9 +80,8 @@ def test_unresolvable_names_are_skipped_not_fatal(tmp_path, capsys):
     scheme = FakeScheme(
         {"savedata": ["data_misfit", "lam"]}, tmp_path, data_misfit=1.0
     )
-    scheme._save_iteration_data()
-
-    assert "lam" in capsys.readouterr().out
+    with pytest.warns(UserWarning, match="Cannot save 'lam'"):
+        scheme._save_iteration_data()
     assert set(_saved(tmp_path, 0)) == {"data_misfit"}
 
 

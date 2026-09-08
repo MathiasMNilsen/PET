@@ -406,7 +406,7 @@ class BaseEnsemble:
             if job_id:
                 sim_status = self.sim.wait_for_jobs(job_id)
             else:
-                print("Job submission failed. Exiting.")
+                self.logger.info("Job submission failed.")
                 sim_status = [False]*len(n_e)
             # Extract the results. Need a local counter to check the results in the correct order
             for c_member, member_i in enumerate([list_member_index[curr_n] for curr_n in n_e]):
@@ -462,11 +462,9 @@ class BaseEnsemble:
             self.save()
             success = False
             if len(list_crash) > 1:
-                print(
-                    '\n\033[1;31mERROR: All started simulations has failed! We dump all information and exit!\033[1;m')
-                self.logger.info(
-                    '\n\033[1;31mERROR: All started simulations has failed! We dump all information and exit!\033[1;m')
-                sys.exit(1)
+                msg = 'All started simulations failed; the ensemble has been dumped for inspection.'
+                self.logger.info(msg)
+                raise RuntimeError(msg)
             return sim_output, enX, success
 
         # Check crashed runs
@@ -486,7 +484,6 @@ class BaseEnsemble:
                 f"\033[92m--- Ensemble member {list_crash[index]} failed, "
                 f"has been replaced by ensemble member {element}! ---\033[92m"
                 )
-                print(msg)
                 self.logger.info(msg)
 
                 if is_multilevel and level is not None and enX[level].shape[1] > 1:
