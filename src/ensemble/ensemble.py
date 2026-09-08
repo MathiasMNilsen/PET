@@ -171,6 +171,12 @@ class BaseEnsemble:
         integer to the setup of the forward run. This will initiate the correct simulator fidelity.
         The function then runs the set of state through the different simulator fidelities.
 
+        Per level: the state becomes one input dict per member
+        (:meth:`_simulator_input`), the members run on one of three backends
+        (:meth:`_run_members`), crashed members are replaced, adjoints are
+        split off (:meth:`_collect_adjoints`), and the outputs become one
+        ensemble frame (:meth:`_collect_sim_data`).
+
         Parameters
         ----------
         enX:
@@ -221,44 +227,8 @@ class BaseEnsemble:
                 self.sim.setup_fwd_run(level=level)
 
             if ne[level] > 0:
-
-                # Convert state to required input for simulator (list of dictionaries).
-                if is_multilevel:
-                    sim_input = enX[level].to_list_of_dicts()
-                else:
-                    sim_input = enX.to_list_of_dicts()
-
-                if self.aux_input is not None:
-                    for n in range(ne[level]):
-                        if is_multilevel:
-                            sim_input[n]['aux_input'] = self.aux_input[n]
-                        else:
-                            sim_input[n]['aux_input'] = self.aux_input[n]
-
-
-                ########################################################################################################
-                # No parralelization
-                if nparallel==1:
-                    sim_output = []
-                    pbar = tqdm(enumerate(sim_input), total=ne[level], **progbar_settings)
-                    for member_index, state in pbar:
-                        sim_output.append(self.sim.run_fwd_sim(state, member_index))
-
-                # Number of parallel runs
-                elif self.sim.input_dict.get('hpc', False):  # Run prediction in parallel on hpc
-                    sim_output = self.run_on_HPC(sim_input, batch_size=nparallel)
-
-                # Parallelization on local machine using p_map
-                else:
-                    sim_output = p_map(
-                        self.sim.run_fwd_sim,
-                        sim_input,
-                        list(range(ne[level])),
-                        num_cpus=nparallel,
-                        disable=self.disable_tqdm,
-                        **progbar_settings,
-                    )
-                ########################################################################################################
+                sim_input = self._simulator_input(enX[level] if is_multilevel else enX, ne[level])
+                sim_output = self._run_members(sim_input, ne[level], nparallel)
 
                 # Replace crashed sims with successful ones, and give the
                 # crashed members the state of the member that replaced them,
@@ -268,67 +238,9 @@ class BaseEnsemble:
                 sim_output, enX, success = self._replace_failed_simulations(sim_output, enX, level, is_multilevel)
 
                 if (not is_multilevel) and getattr(self.sim, 'compute_adjoints', False):
-                    sim_output, en_adj = zip(*sim_output)
+                    sim_output = self._collect_adjoints(sim_output)
 
-                    # Merge adjoint to ensemble adjoint dataframe (PETDataFrame)
-                    self.adjoints = PETDataFrame.merge_dataframes(list(en_adj))
-
-                    # Filter adjoints for the correct data types
-                    try:
-                        self.adjoints = self.adjoints[self.data_df.columns]
-                    except Exception:
-                        self.adjoints = self.adjoints[self.sim.datatype]
-
-                    if self.keys_en.get('scale_data', False) and hasattr(self, 'data_df'):
-                        self.adjoints.scale(
-                            type='max-min',
-                            minimum=0,
-                            maximum=self.data_df.scale_max - self.data_df.scale_min
-                        )
-
-                # ----------------------------------------------------------------------------------------------
-                # Combine ensemble predictions
-                # ----------------------------------------------------------------------------------------------
-                # Check if all predictions are lists of dictionaries
-                if all(isinstance(el, (list, tuple, np.ndarray)) and
-                    all(isinstance(sub_el, dict) for sub_el in el)
-                    for el in sim_output):
-
-                    if hasattr(self.sim, 'true_order'):
-                        dfs = []
-                        for pred in sim_output:
-                            df = pd.DataFrame.from_records(pred, index=self.sim.true_order[1])
-                            df.index.name = self.sim.true_order[0]
-                            dfs.append(df)
-
-                    else:
-                        dfs = [pd.DataFrame.from_records(pred) for pred in sim_output]
-
-                    # Combine dataframes into PETDataFrame
-                    sim_data = PETDataFrame.merge_dataframes(dfs)
-
-                elif all(isinstance(el, pd.DataFrame) for el in sim_output):
-                    # List of dataframes
-                    sim_data = PETDataFrame.merge_dataframes(list(sim_output))
-                    try:
-                        sim_data = sim_data[self.data_df.columns]
-                    except Exception:
-                        sim_data = sim_data[self.sim.datatype]
-
-                else:
-                    msg = 'Simulator output should be either a dataframe or a list of dictionaries.'
-                    self.logger.error(msg)
-                    raise ValueError(msg)
-
-                if self.keys_en.get('scale_data', False) and hasattr(self, 'data_df'):
-                    sim_data.scale(
-                        type='max-min',
-                        minimum=self.data_df.scale_min,
-                        maximum=self.data_df.scale_max
-                    )
-                # ---------------------------------------------------------------------------------------------
-                self.sim_data.append(sim_data)
-
+                self.sim_data.append(self._collect_sim_data(sim_output))
 
         if len(self.sim_data) == 1:
             self.sim_data = self.sim_data[0]
@@ -352,6 +264,100 @@ class BaseEnsemble:
 
         return success
 
+    # ------------------------------------------------------------------
+    # The steps of one level's forecast
+    # ------------------------------------------------------------------
+    def _simulator_input(self, enX, ne):
+        """One dict per member, as ``run_fwd_sim`` takes it, with any auxiliary input attached."""
+        sim_input = enX.to_list_of_dicts()
+        if self.aux_input is not None:
+            for n in range(ne):
+                sim_input[n]['aux_input'] = self.aux_input[n]
+        return sim_input
+
+    def _run_members(self, sim_input, ne, nparallel):
+        """Run every member through the simulator: serially, on the HPC queue, or in a local process pool."""
+        if nparallel == 1:
+            sim_output = []
+            pbar = tqdm(enumerate(sim_input), total=ne, **progbar_settings)
+            for member_index, state in pbar:
+                sim_output.append(self.sim.run_fwd_sim(state, member_index))
+            return sim_output
+
+        if self.sim.input_dict.get('hpc', False):  # Run prediction in parallel on hpc
+            return self.run_on_HPC(sim_input, batch_size=nparallel)
+
+        # Parallelization on local machine using p_map
+        return p_map(
+            self.sim.run_fwd_sim,
+            sim_input,
+            list(range(ne)),
+            num_cpus=nparallel,
+            disable=self.disable_tqdm,
+            **progbar_settings,
+        )
+
+    def _collect_adjoints(self, sim_output):
+        """Split (prediction, adjoint) pairs: keep the adjoints as an ensemble frame, return the predictions."""
+        sim_output, en_adj = zip(*sim_output)
+
+        # Merge adjoint to ensemble adjoint dataframe (PETDataFrame)
+        self.adjoints = PETDataFrame.merge_dataframes(list(en_adj))
+
+        # Filter adjoints for the correct data types
+        try:
+            self.adjoints = self.adjoints[self.data_df.columns]
+        except Exception:
+            self.adjoints = self.adjoints[self.sim.datatype]
+
+        if self.keys_en.get('scale_data', False) and hasattr(self, 'data_df'):
+            self.adjoints.scale(
+                type='max-min',
+                minimum=0,
+                maximum=self.data_df.scale_max - self.data_df.scale_min
+            )
+        return sim_output
+
+    def _collect_sim_data(self, sim_output):
+        """One ensemble frame from the members' outputs, each a list of dicts or a DataFrame, scaled like the data."""
+        # Check if all predictions are lists of dictionaries
+        if all(isinstance(el, (list, tuple, np.ndarray)) and
+            all(isinstance(sub_el, dict) for sub_el in el)
+            for el in sim_output):
+
+            if hasattr(self.sim, 'true_order'):
+                dfs = []
+                for pred in sim_output:
+                    df = pd.DataFrame.from_records(pred, index=self.sim.true_order[1])
+                    df.index.name = self.sim.true_order[0]
+                    dfs.append(df)
+
+            else:
+                dfs = [pd.DataFrame.from_records(pred) for pred in sim_output]
+
+            # Combine dataframes into PETDataFrame
+            sim_data = PETDataFrame.merge_dataframes(dfs)
+
+        elif all(isinstance(el, pd.DataFrame) for el in sim_output):
+            # List of dataframes
+            sim_data = PETDataFrame.merge_dataframes(list(sim_output))
+            try:
+                sim_data = sim_data[self.data_df.columns]
+            except Exception:
+                sim_data = sim_data[self.sim.datatype]
+
+        else:
+            msg = 'Simulator output should be either a dataframe or a list of dictionaries.'
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        if self.keys_en.get('scale_data', False) and hasattr(self, 'data_df'):
+            sim_data.scale(
+                type='max-min',
+                minimum=self.data_df.scale_min,
+                maximum=self.data_df.scale_max
+            )
+        return sim_data
 
     def run_on_HPC(self, enX, batch_size=None, **kwargs):
         import pipt.misc_tools.analysis_tools as at

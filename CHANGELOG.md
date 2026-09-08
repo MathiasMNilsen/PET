@@ -680,6 +680,7 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   first branch.
 
 ### Changed
+- `BaseEnsemble.calc_prediction` is orchestration over four named steps: `_simulator_input` (one dict per member), `_run_members` (the serial, HPC and process-pool backends), `_collect_adjoints` and `_collect_sim_data` (the output coercion and scaling). Same operations in the same order; the characterisation goldens are unchanged, and a new test pins the pooled backend against the serial one.
 - `OptimizerBase` owns what the four optimizers each repeated: `minimize`, the starting evaluation (now at the start of `run_optimization()` rather than in the constructor, so an optimizer can be built without evaluating anything), the callback, result recording and saving, the iteration log, and the projected-gradient convergence check (`gtol`). `enopt.py`, `linesearch.py`, `trust_region.py` and `smcopt.py` lost about 500 lines between them. Results are unchanged: 21 deterministic cases across all optimizers, search directions and step rules give bit-identical `x`, `fun`, `nit`, `nfev`, `njev` and `nhev`.
 - `LineSearch` results no longer carry `hess` after the first step: the Hessian on hand belonged to the previous iterate and was reported against the new `x`.
 - The Steihaug step rule's diagnostic output (a dozen lines per CG iteration, printed unconditionally) is now emitted at `DEBUG` level on the `popt.optimization_methods.subroutines.optimizers` logger; the BFGS 'non-positive curvature' notice is a logging warning instead of a print.
