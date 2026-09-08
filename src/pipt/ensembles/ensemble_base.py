@@ -56,8 +56,9 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
             - analysis: update flavour ("approx", "full" or "subspace")
             - energy: percent of singular values kept after SVD
             - obsvarsave: save the observations as a file (default false)
-            - restart: restart optimization from a restart file (default false)
-            - restartsave: save a restart file after each successful iteration (defalut false)
+            - restart, restartsave, restart_file: checkpointing, read by the scheme (see
+              ``pipt.update_schemes.core.restart_options``); the ensemble contributes
+              ``restart_state()`` to the checkpoint.
             - savedata: names of scheme attributes to write to one file per
               iteration, ``assimilation_result_{i}.npz``. Iteration 0 is the
               prior. ``"state"`` expands to one array per state variable;
@@ -115,83 +116,82 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
         if not hasattr(self, 'keys_en'):
             self.keys_en = keys_en
 
-        if self.restart is False:
-            # Init in _init_prediction_output (used in run_prediction)
-            self.prediction = None
-            self.temp_state = None  # temporary state saving
-            self.cov_prior = None  # Prior cov. matrix
-            self.sparse_info = None  # Init in _org_sparse_representation
-            self.sparse_data = []  # List of the compression info
-            self.data_rec = []  # List of reconstructed data
-            self.scale_val = None  # Use to scale data
+        # Init in _init_prediction_output (used in run_prediction)
+        self.prediction = None
+        self.temp_state = None  # temporary state saving
+        self.cov_prior = None  # Prior cov. matrix
+        self.sparse_info = None  # Init in _org_sparse_representation
+        self.sparse_data = []  # List of the compression info
+        self.data_rec = []  # List of reconstructed data
+        self.scale_val = None  # Use to scale data
 
-            # Prepare sparse representation
-            if 'compress' in self.keys_da:
-                self.sparse_info = extract.organize_sparse_representation(self.keys_da['compress'])
-            else:
-                self.sparse_info = None
+        # Prepare sparse representation
+        if 'compress' in self.keys_da:
+            self.sparse_info = extract.organize_sparse_representation(self.keys_da['compress'])
+        else:
+            self.sparse_info = None
 
-            # Load the data
-            reader = rcsv.DataReader(self.keys_da, sparse_info=self.sparse_info)
-            self.data_df = reader.get_data()
-            self.sparse_data = reader.sparse_data
-            self.data_var_df = reader.get_variance(self.data_df, reader.sparse_data)
+        # Load the data
+        reader = rcsv.DataReader(self.keys_da, sparse_info=self.sparse_info)
+        self.data_df = reader.get_data()
+        self.sparse_data = reader.sparse_data
+        self.data_var_df = reader.get_variance(self.data_df, reader.sparse_data)
 
-            if self.keys_da.get('scale_data', False):
-                self.data_df.scale('max-min')
+        if self.keys_da.get('scale_data', False):
+            self.data_df.scale('max-min')
 
-                if self.keys_da.get('emp_cov', False):
-                    self.data_var_df.scale('max-min',
-                            minimum=self.data_df.scale_min,
-                            maximum=self.data_df.scale_max,
-                    )
-                else:
-                    self.data_var_df.scale('max-min',
-                            minimum=0,
-                            maximum=(self.data_df.scale_max - self.data_df.scale_min)**2
-                    )
-
-            self.keys_da['datatype'] = reader.datatype
-            self.keys_da['truedataindex'] = reader.truedataindex
-            self.keys_da['assimindex'] = reader.assimindex
-
-            #self._org_obs_data() # Depricated!!
-            #self._org_data_var() # Depricated!!
-
-            # Define projection operator for centring and scaling ensemble matrix
-            self.proj = (np.eye(self.ne) - np.ones((self.ne, self.ne))/self.ne) / np.sqrt(self.ne - 1)
-
-            # Option to store the dictionaries containing observed data and data variance
-            if extract.is_enabled(self.keys_da.get('obsvarsave', False)):
-                # Save data_df and data_var_df as pickle files
-                folder = self.keys_da.get('savefolder', './')
-                # Check if folder exists, if not create it
-                if not os.path.exists(folder):
-                    os.makedirs(folder)
-                self.data_df.to_pickle(f'{folder}/obs_data.pkl')
-                self.data_var_df.to_pickle(f'{folder}/obs_var.pkl')
-
-            # Initialize localization
-            if 'localization' in self.keys_da:
-                self.localization = build_localization_instance(
-                    self.keys_da['localization'],
-                    self.keys_da['truedataindex'],
-                    self.keys_da['datatype'],
-                    self.keys_en['state'],
-                    self.ne,
-                    data=self.data_df,
-                    prior_info=self.prior_info,
-                    rng=self.rng,
+            if self.keys_da.get('emp_cov', False):
+                self.data_var_df.scale('max-min',
+                        minimum=self.data_df.scale_min,
+                        maximum=self.data_df.scale_max,
                 )
             else:
-                self.localization = NoLocalization()
+                self.data_var_df.scale('max-min',
+                        minimum=0,
+                        maximum=(self.data_df.scale_max - self.data_df.scale_min)**2
+                )
 
-            # Initialize local analysis
-            if 'localanalysis' in self.keys_da:
-                self.local_analysis = extract.extract_local_analysis_info(self.keys_da['localanalysis'], self.idX.keys())
+        self.keys_da['datatype'] = reader.datatype
+        self.keys_da['truedataindex'] = reader.truedataindex
+        self.keys_da['assimindex'] = reader.assimindex
 
-            self.pred_data  = None  # predicted data or forward simulation
-            self.cell_index = None  # default value for extracting states
+        #self._org_obs_data() # Depricated!!
+        #self._org_data_var() # Depricated!!
+
+        # Define projection operator for centring and scaling ensemble matrix
+        self.proj = (np.eye(self.ne) - np.ones((self.ne, self.ne))/self.ne) / np.sqrt(self.ne - 1)
+
+        # Option to store the dictionaries containing observed data and data variance
+        if extract.is_enabled(self.keys_da.get('obsvarsave', False)):
+            # Save data_df and data_var_df as pickle files
+            folder = self.keys_da.get('savefolder', './')
+            # Check if folder exists, if not create it
+            if not os.path.exists(folder):
+                os.makedirs(folder)
+            self.data_df.to_pickle(f'{folder}/obs_data.pkl')
+            self.data_var_df.to_pickle(f'{folder}/obs_var.pkl')
+
+        # Initialize localization
+        if 'localization' in self.keys_da:
+            self.localization = build_localization_instance(
+                self.keys_da['localization'],
+                self.keys_da['truedataindex'],
+                self.keys_da['datatype'],
+                self.keys_en['state'],
+                self.ne,
+                data=self.data_df,
+                prior_info=self.prior_info,
+                rng=self.rng,
+            )
+        else:
+            self.localization = NoLocalization()
+
+        # Initialize local analysis
+        if 'localanalysis' in self.keys_da:
+            self.local_analysis = extract.extract_local_analysis_info(self.keys_da['localanalysis'], self.idX.keys())
+
+        self.pred_data  = None  # predicted data or forward simulation
+        self.cell_index = None  # default value for extracting states
 
     def check_assimindex_simultaneous(self):
         """
@@ -210,6 +210,28 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
         elif isinstance(self.keys_da['assimindex'][0], list):
             self.keys_da['assimindex'] = [
                 [item for sublist in self.keys_da['assimindex'] for item in sublist]]
+
+    # ------------------------------------------------------------------
+    # Checkpointing (the scheme's RestartMixin calls these)
+    # ------------------------------------------------------------------
+    RESTART_ATTRIBUTES = ('enX', 'prior_enX', 'pred_data', 'sim_data', 'scale_data', 'Am', 'proj', 'iteration')
+    """What a resume must restore on the ensemble: what iterations change (the
+    state, its forecast), and what construction drew or derived from a draw
+    (the prior, the observation scaling, the scaled prior's SVD), so a resumed
+    run continues the interrupted one whatever the random state was when the
+    resuming process built its ensemble."""
+
+    def restart_state(self) -> dict:
+        state = {name: getattr(self, name) for name in self.RESTART_ATTRIBUTES if hasattr(self, name)}
+        state['rng_state'] = self.rng.get_state()
+        return state
+
+    def restore_restart_state(self, state: dict) -> None:
+        state = dict(state)
+        self.rng.set_state(state.pop('rng_state'))
+        for name, value in state.items():
+            setattr(self, name, value)
+        self.restart = True
 
     def perturb_observations(self, vecObs):
         '''

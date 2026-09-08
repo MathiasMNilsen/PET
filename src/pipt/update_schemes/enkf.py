@@ -7,7 +7,7 @@ from copy import deepcopy
 from misc.sampling import gen_real
 
 # Internal imports
-from pipt.update_schemes.core import AssimilationScheme, StepReport
+from pipt.update_schemes.core import AssimilationScheme, StepReport, restart_options
 from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.subspace import subspace_update
 # Misc. tools used in analysis schemes
@@ -102,6 +102,8 @@ class EnKF(AssimilationScheme):
         "subspace": subspace_update,
     }
 
+    RESTART_ATTRIBUTES = ("enObs", "enObs_conv", "scale_data")
+
     def __init__(self, keys_da, keys_en, sim, analysis=None, ensemble=None):
         """Build the ensemble from the config and bind the analysis.
 
@@ -113,47 +115,46 @@ class EnKF(AssimilationScheme):
         # Zero tolerances switch off the base class's generic convergence
         # criteria; this scheme decides in check_convergence(). See
         # AssimilationScheme's `misfit_tol`/`step_tol` docs for why.
-        super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
+        super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0, **restart_options(keys_da))
 
         # Flavour is a parameter, so it selects an analysis object not a class.
         self.bind_analysis(self.resolve_analysis(analysis, keys_da))
 
         self.prev_data_misfit_mean = None
 
-        if self.restart is False:
-            self.ensemble.prior_enX = deepcopy(self.enX)
-            self.ensemble.list_states = list(self.idX.keys())
+        self.ensemble.prior_enX = deepcopy(self.enX)
+        self.ensemble.list_states = list(self.idX.keys())
 
-            # At the moment, the iterative loop is threated as an iterative smoother an thus we check if assim. indices
-            # are given as in the Simultaneous loop.
-            self.ensemble.check_assimindex_simultaneous()
+        # At the moment, the iterative loop is threated as an iterative smoother an thus we check if assim. indices
+        # are given as in the Simultaneous loop.
+        self.ensemble.check_assimindex_simultaneous()
 
-            self.ensemble.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
-            self.ensemble.list_datatypes = self.keys_da['datatype']
+        self.ensemble.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
+        self.ensemble.list_datatypes = self.keys_da['datatype']
 
 
-            # Extract no. assimilation steps from MDA keyword in DATAASSIM part of init. file and set this equal to
-            # the number of iterations pluss one. Need one additional because the iter=0 is the prior run.
-            self.max_iter = len(self.keys_da['assimindex'])+1
-            # Prior forecast is not a counted iteration under the base loop.
-            self.maxiter = self.max_iter - 1
-            self.iteration = 0
-            # Mirrored for ensemble-side helpers that consult it.
-            self.ensemble.iteration = 0
-            self.lam = 0  # set LM lamda to zero as we are doing one full update.
+        # Extract no. assimilation steps from MDA keyword in DATAASSIM part of init. file and set this equal to
+        # the number of iterations pluss one. Need one additional because the iter=0 is the prior run.
+        self.max_iter = len(self.keys_da['assimindex'])+1
+        # Prior forecast is not a counted iteration under the base loop.
+        self.maxiter = self.max_iter - 1
+        self.iteration = 0
+        # Mirrored for ensemble-side helpers that consult it.
+        self.ensemble.iteration = 0
+        self.lam = 0  # set LM lamda to zero as we are doing one full update.
 
-            if 'energy' in self.keys_da:
-                # initial energy (Remember to extract this)
-                self.trunc_energy = self.keys_da['energy']
-                if self.trunc_energy > 1:  # ensure that it is given as percentage
-                    self.trunc_energy /= 100.
-            else:
-                self.trunc_energy = 0.98
+        if 'energy' in self.keys_da:
+            # initial energy (Remember to extract this)
+            self.trunc_energy = self.keys_da['energy']
+            if self.trunc_energy > 1:  # ensure that it is given as percentage
+                self.trunc_energy /= 100.
+        else:
+            self.trunc_energy = 0.98
 
-            # Get the perturbed observations and observation scaling
-            self.vecObs = self.data_df.to_matrix()
-            self.enObs = self.ensemble.perturb_observations(self.vecObs)
-            self.ensemble._ext_scaling()
+        # Get the perturbed observations and observation scaling
+        self.vecObs = self.data_df.to_matrix()
+        self.enObs = self.ensemble.perturb_observations(self.vecObs)
+        self.ensemble._ext_scaling()
 
     def calc_analysis(self):
         """

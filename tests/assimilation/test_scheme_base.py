@@ -39,6 +39,12 @@ class FakeEnsemble:
         self.forecast_calls += 1
         self.pred_data = enX.copy()
 
+    def restart_state(self):
+        return {"enX": self.enX}
+
+    def restore_restart_state(self, state):
+        self.enX = state["enX"]
+
 
 class DecreasingMisfitScheme(AssimilationScheme):
     """Scheme whose misfit halves each step, converging on misfit_tol."""

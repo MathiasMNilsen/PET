@@ -85,87 +85,64 @@ class BaseEnsemble:
         # Check if folder contains any En_ files, and remove them!
         self._clear_member_run_folders()
 
-        # Save name for (potential) pickle dump/load
-        self.pickle_restart_file = 'emergency_dump'
+        # Written when every realisation of a forecast fails, so the run can
+        # be inspected. Resuming a run is the scheme's checkpoint's job
+        # (`AssimilationScheme` on RestartMixin), not this file's.
+        self.emergency_dump_file = 'emergency_dump'
 
-        # Initiallize the restart. Standard is no restart
+        # Set by the scheme when it resumes from a checkpoint. A forecast then
+        # honours a hand-placed `restart_sim_results.pkl`.
         self.restart = False
 
         # Get the active logger
         self.logger = logging.getLogger(__name__)
 
-        # If it is a restart run, we do not need to initialize anything, only load the self info. that exists in the
-        # pickle save file. If it is not a restart run, we initialize everything below.
-        if extract.is_enabled(self.keys_en.get('restart', False)):
-            # Initiate a restart run
-            self.logger.info('\033[92m--- Restart run initiated! ---\033[92m')
-            # Check if the pickle save file exists in folder
-            try:
-                assert (self.pickle_restart_file in [
-                        f for f in os.listdir('.') if os.path.isfile(f)])
-            except AssertionError as err:
-                self.logger.info('The restart file "{0}" does not exist in folder. Cannot restart!'.format(
-                    self.pickle_restart_file))
-                raise err
-
-            # Load restart file
-            self.load()
-
-            # Ensure that restart switch is ON since the error may not have happened during a restart run
-            self.restart = True
-
-        # Init. various variables/lists/dicts. needed in ensemble run
+        # initialize sim limit
+        if 'sim_limit' in self.keys_en:
+            self.sim_limit = self.keys_en['sim_limit']
         else:
-            # delete potential restart files to avoid any problems
-            if self.pickle_restart_file in [f for f in os.listdir('.') if os.path.isfile(f)]:
-                os.remove(self.pickle_restart_file)
+            self.sim_limit = float('inf')
 
-            # initialize sim limit
-            if 'sim_limit' in self.keys_en:
-                self.sim_limit = self.keys_en['sim_limit']
+        # bool that can be used to supress tqdm output (useful when testing code)
+        if 'disable_tqdm' in self.keys_en:
+            self.disable_tqdm = self.keys_en['disable_tqdm']
+        else:
+            self.disable_tqdm = False
+
+        # extract information that is given for the prior model
+        if 'state' in self.keys_en:
+            self.prior_info = extract.extract_prior_info(self.keys_en)
+        elif 'controls' in self.keys_en:
+            self.prior_info = extract.extract_initial_controls(self.keys_en)
+
+
+        # Ensemble size
+        self.ne = self.keys_en.get('ne', None)
+
+        # Calculate initial ensemble if IMPORTSTATICVAR has not been given in init. file.
+        # Prior info. on state variables must be given by PRIOR_<STATICVAR-name> keyword.
+        if ('importstaticvar' not in self.keys_en) and ('importstate' not in self.keys_en):
+            if self.ne is None:
+                self.ne = 100
             else:
-                self.sim_limit = float('inf')
+                self.ne = int(self.ne)
 
-            # bool that can be used to supress tqdm output (useful when testing code)
-            if 'disable_tqdm' in self.keys_en:
-                self.disable_tqdm = self.keys_en['disable_tqdm']
-            else:
-                self.disable_tqdm = False
-
-            # extract information that is given for the prior model
-            if 'state' in self.keys_en:
-                self.prior_info = extract.extract_prior_info(self.keys_en)
-            elif 'controls' in self.keys_en:
-                self.prior_info = extract.extract_initial_controls(self.keys_en)
-
-
-            # Ensemble size
-            self.ne = self.keys_en.get('ne', None)
-
-            # Calculate initial ensemble if IMPORTSTATICVAR has not been given in init. file.
-            # Prior info. on state variables must be given by PRIOR_<STATICVAR-name> keyword.
-            if ('importstaticvar' not in self.keys_en) and ('importstate' not in self.keys_en):
-                if self.ne is None:
-                    self.ne = 100
-                else:
-                    self.ne = int(self.ne)
-
-                # Generate prior ensemble
-                self.enX = PETStateArray.generate_from_prior_info(
-                    self.prior_info,
-                    self.ne,
-                    save=self.keys_en.get('save_prior', True),
-                    rng=self.rng,
-                )
-                self.idX = self.enX.indices
-                self.list_states = list(self.enX.indices.keys())
-            else:
-                # State variable imported as a Numpy save file
-                file = self.keys_en['importstaticvar'] if 'importstaticvar' in self.keys_en else self.keys_en['importstate']
-                file = np.load(file, allow_pickle=True)
-                self.enX = PETStateArray.from_dict({key: file[key] for key in file.files}, ne=int(self.ne))
-                self.idX = self.enX.indices
-                self.list_states = list(self.enX.indices.keys())
+            # Generate prior ensemble
+            self.enX = PETStateArray.generate_from_prior_info(
+                self.prior_info,
+                self.ne,
+                save=self.keys_en.get('save_prior', True),
+                rng=self.rng,
+            )
+            self.idX = self.enX.indices
+            self.list_states = list(self.enX.indices.keys())
+        else:
+            # State variable imported as a Numpy save file
+            file = self.keys_en['importstaticvar'] if 'importstaticvar' in self.keys_en else self.keys_en['importstate']
+            file = np.load(file, allow_pickle=True)
+            self.enX = PETStateArray.from_dict({key: file[key] for key in file.files}, ne=int(self.ne))
+            self.idX = self.enX.indices
+            self.list_states = list(self.enX.indices.keys())
 
         if 'multilevel' in self.keys_en:
             self.multilevel = extract.extract_multilevel_info(self.keys_en['multilevel'])
@@ -431,32 +408,9 @@ class BaseEnsemble:
         return en_pred
 
     def save(self):
-        """
-        We use pickle to dump all the information we have in 'self'. Can be used, e.g., if some error has occurred.
-
-        Changelog
-        ---------
-        - ST 28/2-17
-        """
-
-        # Open save file and dump all info. in self
-        with open(self.pickle_restart_file, 'wb') as f:
+        """Dump everything in ``self`` to ``emergency_dump_file`` for inspection after a failed forecast."""
+        with open(self.emergency_dump_file, 'wb') as f:
             pickle.dump(self.__dict__, f, protocol=4)
-
-    def load(self):
-        """
-        Load a pickled file and save all info. in self.
-
-        Changelog
-        ---------
-        - ST 28/2-17
-        """
-        # Open file and read with pickle
-        with open(self.pickle_restart_file, 'rb') as f:
-            tmp_load = pickle.load(f)
-
-        # Save in 'self'
-        self.__dict__.update(tmp_load)
 
 
     def _replace_failed_simulations(self, sim_output, enX, level=None, is_multilevel=False):

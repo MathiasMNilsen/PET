@@ -8,7 +8,7 @@ import numpy as np
 from misc.sampling import gen_real
 
 # Internal imports
-from pipt.update_schemes.core import AssimilationScheme, StepReport
+from pipt.update_schemes.core import AssimilationScheme, StepReport, restart_options
 from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.full import full_update
 from pipt.update_schemes.analysis.subspace import subspace_update
@@ -107,6 +107,11 @@ class ESMDA(AssimilationScheme):
         "subspace": subspace_update,
     }
 
+    # The perturbed observations are redrawn every step (from the ensemble's
+    # stream, whose state travels with the ensemble); the misfit is scored
+    # against the un-inflated draw taken at construction (`enObs_conv`).
+    RESTART_ATTRIBUTES = ("enObs", "enObs_conv", "scale_data")
+
     def __init__(self, keys_da, keys_en, sim, analysis=None, ensemble=None):
         """Build the ensemble from the config (or take the one given) and bind the analysis.
 
@@ -119,7 +124,7 @@ class ESMDA(AssimilationScheme):
         # Zero tolerances switch off the base class's generic convergence
         # criteria; this scheme decides in check_convergence(). See
         # AssimilationScheme's `misfit_tol`/`step_tol` docs for why.
-        super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
+        super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0, **restart_options(keys_da))
 
         # The analysis flavour is a parameter of the algorithm, not a different
         # algorithm, so it selects an analysis object rather than a class.
@@ -127,50 +132,49 @@ class ESMDA(AssimilationScheme):
 
         self.prev_data_misfit_mean = None
 
-        if self.restart is False:
-            # A specialised ensemble may already have established these -- the
-            # multilevel one partitions enX into per-level blocks and sets both
-            # itself, and `enX.indices` does not exist on that shape. Only fill
-            # them in when the collaborator has not.
-            if getattr(self.ensemble, 'prior_enX', None) is None:
-                self.ensemble.prior_enX = deepcopy(self.enX)
-            if getattr(self.ensemble, 'list_states', None) is None:
-                self.ensemble.list_states = list(self.enX.indices)
-            self.ensemble.list_datatypes = self.keys_da['datatype']
+        # A specialised ensemble may already have established these -- the
+        # multilevel one partitions enX into per-level blocks and sets both
+        # itself, and `enX.indices` does not exist on that shape. Only fill
+        # them in when the collaborator has not.
+        if getattr(self.ensemble, 'prior_enX', None) is None:
+            self.ensemble.prior_enX = deepcopy(self.enX)
+        if getattr(self.ensemble, 'list_states', None) is None:
+            self.ensemble.list_states = list(self.enX.indices)
+        self.ensemble.list_datatypes = self.keys_da['datatype']
 
-            # At the moment, the iterative loop is threated as an iterative smoother an thus we check if assim. indices
-            # are given as in the Simultaneous loop.
-            #self.check_assimindex_simultaneous()
-            #self.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
-            #self.list_datatypes, self.list_act_datatypes = at.get_list_data_types(self.obs_data, self.assim_index)
+        # At the moment, the iterative loop is threated as an iterative smoother an thus we check if assim. indices
+        # are given as in the Simultaneous loop.
+        #self.check_assimindex_simultaneous()
+        #self.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
+        #self.list_datatypes, self.list_act_datatypes = at.get_list_data_types(self.obs_data, self.assim_index)
 
-            # Extract no. assimilation steps from MDA keyword in DATAASSIM part of init. file and set this equal to
-            # the number of iterations pluss one. Need one additional because the iter=0 is the prior run.
-            self.max_iter = len(self._ext_assim_steps())+1
-            # Prior forecast is not a counted iteration under the base loop.
-            self.maxiter = self.max_iter - 1
-            self.iteration = 0
-            # Mirrored so ensemble-side helpers that consult the iteration
-            # counter (e.g. data screening in perturb_observations) agree with
-            # the scheme's, which is the one the loop advances.
-            self.ensemble.iteration = 0
+        # Extract no. assimilation steps from MDA keyword in DATAASSIM part of init. file and set this equal to
+        # the number of iterations pluss one. Need one additional because the iter=0 is the prior run.
+        self.max_iter = len(self._ext_assim_steps())+1
+        # Prior forecast is not a counted iteration under the base loop.
+        self.maxiter = self.max_iter - 1
+        self.iteration = 0
+        # Mirrored so ensemble-side helpers that consult the iteration
+        # counter (e.g. data screening in perturb_observations) agree with
+        # the scheme's, which is the one the loop advances.
+        self.ensemble.iteration = 0
 
-            self.lam = 0  # set LM lamda to zero as we are doing one full update.
-            if 'energy' in self.keys_da:
-                # initial energy (Remember to extract this)
-                self.trunc_energy = self.keys_da['energy']
-                if self.trunc_energy > 1:  # ensure that it is given as percentage
-                    self.trunc_energy /= 100.
-            else:
-                self.trunc_energy = 0.98
+        self.lam = 0  # set LM lamda to zero as we are doing one full update.
+        if 'energy' in self.keys_da:
+            # initial energy (Remember to extract this)
+            self.trunc_energy = self.keys_da['energy']
+            if self.trunc_energy > 1:  # ensure that it is given as percentage
+                self.trunc_energy /= 100.
+        else:
+            self.trunc_energy = 0.98
 
-            # Get the perturbed observations and observation scaling
-            self.vecObs = self.data_df.to_matrix()
-            self.enObs = self.ensemble.perturb_observations(self.vecObs)
-            self.enObs_conv = deepcopy(self.enObs)
+        # Get the perturbed observations and observation scaling
+        self.vecObs = self.data_df.to_matrix()
+        self.enObs = self.ensemble.perturb_observations(self.vecObs)
+        self.enObs_conv = deepcopy(self.enObs)
 
-            # Get state scaling and svd of scaled prior
-            self.ensemble._ext_scaling()
+        # Get state scaling and svd of scaled prior
+        self.ensemble._ext_scaling()
 
         # Extract the inflation parameter from MDA keyword
         self.alpha = self._ext_inflation_param()
@@ -405,16 +409,6 @@ class ESMDA(AssimilationScheme):
             assim_steps = list(range(int(mda_opts['tot_assim_steps'])))
         except KeyError:
             raise AssertionError('TOT_ASSIM_STEPS has not been given in MDA!')
-
-        # If it is a restart run, we remove simulations already done
-        if self.restart is True:
-            # List simulations we already have done. Do this by checking pred_data.
-            # OBS: Minus 1 here do to the aborted simulation is also not None.
-            # TODO: Relying on loop_ind may not be the best strategy (?)
-            sim_done = list(range(self.loop_ind))
-
-            # Update list of assim. steps by removing simulations we have done
-            assim_steps = [ind for ind in assim_steps if ind not in sim_done]
 
         # Return list assim. steps
         return assim_steps

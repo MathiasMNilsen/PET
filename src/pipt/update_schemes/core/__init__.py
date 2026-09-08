@@ -16,12 +16,13 @@ stand on. Two pieces::
     class name.
 """
 
-from .scheme_base import AssimilationResult, AssimilationScheme, StepReport
+from .scheme_base import AssimilationResult, AssimilationScheme, StepReport, restart_options
 from .analysis_binding import AnalysisBindingMixin
 
 __all__ = [
     "AssimilationScheme",
     "AssimilationResult",
     "StepReport",
+    "restart_options",
     "AnalysisBindingMixin",
 ]

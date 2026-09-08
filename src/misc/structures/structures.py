@@ -295,6 +295,18 @@ class PETStateArray(np.ndarray):
         self.indices = getattr(obj, 'indices', None)
         self.state_axis = getattr(obj, 'state_axis', 0)
 
+    # Pickling. ndarray's own reduce carries the data but not subclass
+    # attributes, and unpickling finalizes with `obj is None`, so `indices`
+    # and `state_axis` were simply absent on an array read back from a
+    # checkpoint or an emergency dump.
+    def __reduce__(self):
+        reconstruct, args, ndarray_state = super().__reduce__()
+        return reconstruct, args, (ndarray_state, self.indices, self.state_axis)
+
+    def __setstate__(self, state):
+        ndarray_state, self.indices, self.state_axis = state
+        super().__setstate__(ndarray_state)
+
     def __repr__(self):
         return f"StateArray({np.array_repr(np.asarray(self))})"
 

@@ -8,6 +8,7 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Breaking changes
+- Restart is one mechanism: the scheme's checkpoint (`RestartMixin`), driven by `restart`, `restartsave` and `restart_file` in the `[dataassim]` block and written to `<scheme>_restart.pkl` (default) after the prior forecast and every accepted iteration. The ensemble no longer loads `emergency_dump` when `restart` is set; that file is written only when every realisation of a forecast fails, for inspection. A resumed run continues the interrupted one exactly: the checkpoint carries the loop's bookkeeping, the scheme's declared state (`RESTART_ATTRIBUTES`: perturbed observations, damping, the subspace `W`), and the ensemble's state, prior, forecast, scaling and random stream, so it does not depend on the random state of the resuming process. Before this, the keys never reached the scheme (every scheme passed only zero tolerances to its base), so `restartsave` pickled the ensemble and a `restart` run re-initialised the scheme from scratch.
 - `EnOpt` and `SmcOpt` constructors take `(x0, fun, ...)` like `LineSearch`, `TrustRegion` and every `minimize`; they took `(fun, x, ...)`. Callers using the keyword `x=` write `x0=`.
 - `OptimizerBase.update_step()` returns a `StepReport(accepted, message)` instead of a bool and commits its point through `_commit_step(x, f, jac=..., hess=...)`; the base then runs the callback, records and saves the result, logs a row (from `log_columns()`) and checks convergence. Custom optimizers built on the old contract need those four changes.
 - `SmcOpt` no longer runs the optimization inside its constructor (the `autorun` option is gone); call `run_optimization()` or use `SmcOpt.minimize(...)`, which has not changed.
@@ -497,6 +498,7 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   PIPT and POPT rather than duplicated.
 
 ### Fixed
+- ES-MDA's restart branch referenced an undefined `loop_ind`; the step to resume at now comes from the restored iteration counter.
 - `LineSearch(recompute_jac=n)` crashed with `TypeError` on its first retry: the gradient was cleared but not recomputed before the next search direction.
 - popt's `save_prediction` option raised `AttributeError`: the base ensemble read `self.ensemble.keys_da`, an attribute it never had. The folder now comes from the ensemble's own options (`savefolder` or `save_folder`, default `Predictions`) and is created before writing.
 
@@ -850,6 +852,7 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   named helpers with identical behaviour.
 
 ### Removed
+- `BaseEnsemble.load()` and the `if self.restart is False:` guards around every scheme's and the ensemble's initialisation, which were always true. Construction now always initialises; a checkpoint is overlaid afterwards when `run_assimilation()` starts.
 
 - `opencv-python` is no longer a dependency; QA/QC was its only user.
 

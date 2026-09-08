@@ -4,7 +4,7 @@ EnRML type schemes
 # External imports
 import pipt.misc_tools.extract_tools as extract
 
-from pipt.update_schemes.core import AssimilationScheme, StepReport
+from pipt.update_schemes.core import AssimilationScheme, StepReport, restart_options
 from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.full import full_update
 from pipt.update_schemes.analysis.subspace import subspace_update
@@ -72,6 +72,13 @@ class IterativeEnRML(AssimilationScheme):
         The control's column in the run table.
     """
 
+    # Drawn once at construction (the perturbed observations), derived from
+    # that draw on the first iteration (the subspace analysis's E), or carried
+    # from one iteration to the next: the misfit the acceptance test compares
+    # against, the committed W, and whether the last attempt declared
+    # convergence. Subclasses add their damping control.
+    RESTART_ATTRIBUTES = ("enObs", "scale_data", "E", "prev_ensemble_misfit", "W", "current_W", "_converged")
+
     def __init__(self, keys_da, keys_en, sim, analysis=None, ensemble=None):
         """Build the ensemble from the config (or take the one given) and bind the analysis.
 
@@ -84,58 +91,57 @@ class IterativeEnRML(AssimilationScheme):
         # Zero tolerances switch off the base class's generic convergence
         # criteria; this scheme decides in check_convergence(). See
         # AssimilationScheme's `misfit_tol`/`step_tol` docs for why.
-        super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0)
+        super().__init__(ensemble, misfit_tol=0.0, step_tol=0.0, **restart_options(keys_da))
 
         # Flavour is a parameter, so it selects an analysis object not a class.
         self.bind_analysis(self.resolve_analysis(analysis, keys_da))
 
-        if self.restart is False:
-            options = self.keys_da['iteration']
-            if isinstance(options, list):
-                options = extract.list_to_dict(options)
+        options = self.keys_da['iteration']
+        if isinstance(options, list):
+            options = extract.list_to_dict(options)
 
-            self.data_misfit_tol = options.get('data_misfit_tol', 0.01)
-            self.trunc_energy = options.get('energy', 0.95)
-            # How many times one iteration may retry before giving up. The
-            # retry loop lives inside update_step(), so this bounds it there.
-            self.max_inner_iter = options.get('max_inner_iter', 10)
-            self._read_damping_options(options)
+        self.data_misfit_tol = options.get('data_misfit_tol', 0.01)
+        self.trunc_energy = options.get('energy', 0.95)
+        # How many times one iteration may retry before giving up. The
+        # retry loop lives inside update_step(), so this bounds it there.
+        self.max_inner_iter = options.get('max_inner_iter', 10)
+        self._read_damping_options(options)
 
-            # Ensure that it is given as percentage
-            if self.trunc_energy > 1:
-                self.trunc_energy /= 100.
+        # Ensure that it is given as percentage
+        if self.trunc_energy > 1:
+            self.trunc_energy /= 100.
 
-            # Initalize some variables
-            self.iteration = 0
-            # Mirrored for ensemble-side helpers that consult it.
-            self.ensemble.iteration = 0
-            # The prior forecast is no longer one of the counted iterations,
-            # so the loop budget is one less than the legacy max_iter.
-            self.max_iter = extract.extract_maxiter(self.keys_da)
-            self.maxiter = self.max_iter - 1
-            self._converged = False
-            self.ensemble.prior_enX = cp.deepcopy(self.enX)
-            self.prev_data_misfit_mean = None  # Data misfit at previous iteration
-            self.ensemble.list_datatypes = list(self.data_df.columns)
+        # Initalize some variables
+        self.iteration = 0
+        # Mirrored for ensemble-side helpers that consult it.
+        self.ensemble.iteration = 0
+        # The prior forecast is no longer one of the counted iterations,
+        # so the loop budget is one less than the legacy max_iter.
+        self.max_iter = extract.extract_maxiter(self.keys_da)
+        self.maxiter = self.max_iter - 1
+        self._converged = False
+        self.ensemble.prior_enX = cp.deepcopy(self.enX)
+        self.prev_data_misfit_mean = None  # Data misfit at previous iteration
+        self.ensemble.list_datatypes = list(self.data_df.columns)
 
-            # Load ACTNUM if given
-            self.actnum = None
-            if 'actnum' in self.keys_da.keys():
-                try:
-                    self.actnum = np.load(self.keys_da['actnum'])['actnum']
-                except Exception:
-                    self.logger.info('ACTNUM file cannot be loaded!')
+        # Load ACTNUM if given
+        self.actnum = None
+        if 'actnum' in self.keys_da.keys():
+            try:
+                self.actnum = np.load(self.keys_da['actnum'])['actnum']
+            except Exception:
+                self.logger.info('ACTNUM file cannot be loaded!')
 
-            # At the moment, the iterative loop is threated as an iterative smoother and thus we check if assim. indices
-            # are given as in the Simultaneous loop.
-            self.ensemble.check_assimindex_simultaneous()
-            self.ensemble.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
+        # At the moment, the iterative loop is threated as an iterative smoother and thus we check if assim. indices
+        # are given as in the Simultaneous loop.
+        self.ensemble.check_assimindex_simultaneous()
+        self.ensemble.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
 
-            # Get the perturbed observations and scaling
-            self.data_random_state = cp.deepcopy(np.random.get_state())
-            self.vecObs = self.data_df.to_matrix()
-            self.enObs = self.ensemble.perturb_observations(self.vecObs)
-            self.ensemble._ext_scaling()
+        # Get the perturbed observations and scaling
+        self.data_random_state = cp.deepcopy(np.random.get_state())
+        self.vecObs = self.data_df.to_matrix()
+        self.enObs = self.ensemble.perturb_observations(self.vecObs)
+        self.ensemble._ext_scaling()
 
     # ------------------------------------------------------------------
     # Hooks a subclass supplies
@@ -429,6 +435,8 @@ class LMEnRML(IterativeEnRML):
     ESMDA : Fixed schedule rather than convergence-driven iteration.
     """
 
+    RESTART_ATTRIBUTES = IterativeEnRML.RESTART_ATTRIBUTES + ("lam",)
+
     COMPATIBLE_ANALYSES = {
         "approx": approx_update,
         "full": full_update,
@@ -579,6 +587,8 @@ class GNEnRML(IterativeEnRML):
     IterativeEnRML : The loop, scoring and bookkeeping both schemes share.
     LMEnRML : Levenberg-Marquardt form, damped via the Hessian.
     """
+
+    RESTART_ATTRIBUTES = IterativeEnRML.RESTART_ATTRIBUTES + ("gamma",)
 
     COMPATIBLE_ANALYSES = {
         "approx": approx_update,

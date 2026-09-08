@@ -190,6 +190,26 @@ class AssimilationResult(OptimizeResult):
     """
 
 
+def restart_options(keys_da) -> dict:
+    """The checkpoint settings of a config's ``[dataassim]`` block, as scheme options.
+
+    ``restart`` (resume from the checkpoint), ``restartsave`` (write one after
+    the prior forecast and every accepted iteration) and ``restart_file``
+    (default ``<scheme>_restart.pkl``). Legacy ``yes``/``no`` strings are
+    accepted. Schemes pass ``**restart_options(keys_da)`` to the base so the
+    keys reach :class:`~ensemble.checkpoint.RestartMixin`; they used to stop
+    at the ensemble, which loaded a pickle of itself and left the scheme's own
+    state -- iteration, damping, misfit history -- at its initial values.
+    """
+    options = {
+        "restart": extract.is_enabled(keys_da.get("restart", False)),
+        "restartsave": extract.is_enabled(keys_da.get("restartsave", False)),
+    }
+    if "restart_file" in keys_da:
+        options["restart_file"] = keys_da["restart_file"]
+    return options
+
+
 class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
     """What every iterative ensemble data-assimilation scheme inherits.
 
@@ -244,10 +264,12 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
             - step_tol: Absolute tolerance on the norm of the state update
               (default: 1e-8). Counterpart of an optimizer's ``xtol``.
             - restart: Restore from a restart file on startup (default: False).
-            - restartsave: Write a restart file after each accepted iteration
-              (default: False).
+            - restartsave: Write a restart file after the prior forecast and
+              each accepted iteration (default: False).
             - restart_file: Path for the restart file
               (default: '{scheme_name}_restart.pkl').
+              Config-driven schemes take these three from the ``[dataassim]``
+              block via :func:`restart_options`.
         """
         self.ensemble = ensemble
         self.options = options
@@ -401,6 +423,8 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
         """
         if self.restart and not self._restart_loaded:
             self.load_restart()
+            # Built by the prior-forecast hook on an ordinary run, which a resume skips.
+            self.qaqc = self._build_qaqc()
         elif not self.restart:
             self.clear_restart()
             # The prior goes through the same post-forecast hook as every
@@ -409,6 +433,8 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
             self.ensemble.enX = self.run_forecast(self.enX)
             self.record_prior_score()  # Scores through score(), below.
             self.after_prior_forecast()
+            if self.restartsave:
+                self.save_restart()  # the prior forecast is the expensive part of a short run
 
         converged = False
 
@@ -615,7 +641,6 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
             self._save_iteration_data()
         if "iterinfo" in self.keys_da:
             self._save_iteration_information()
-        self._save_restart_snapshot()
 
     def after_analysis(self) -> None:
         """Between analysis and forecast.
@@ -656,7 +681,6 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
                 self.qaqc.calc_mahalanobis((1, "time", 2, "time", 1, None, 2, None))
                 self.qaqc.calc_kg()
 
-        self._save_restart_snapshot()
 
     def after_loop(self, converged: bool) -> None:
         """Save the posterior and the reason the run stopped."""
@@ -809,10 +833,6 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
     # ------------------------------------------------------------------
     # Saving
     # ------------------------------------------------------------------
-    def _save_restart_snapshot(self) -> None:
-        if extract.is_enabled(self.keys_da.get("restartsave", False)):
-            self.ensemble.save()
-
     def _save_prior_forecast(self) -> None:
         if not self._saving_enabled:
             return
@@ -952,27 +972,51 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
     # ------------------------------------------------------------------
     # Restart hooks required by RestartMixin
     # ------------------------------------------------------------------
+    RESTART_ATTRIBUTES: tuple = ()
+    """Attributes a scheme needs restored to resume mid-run: what its
+    iterations change and what it drew at construction (perturbed
+    observations, a damping parameter). The loop's own bookkeeping and the
+    ensemble's state are covered by the base state; a subclass only names what
+    it adds. Missing names are skipped, so a scheme that has not yet set one
+    of them checkpoints fine."""
+
+    def _get_restart_state(self) -> dict:
+        return {name: getattr(self, name) for name in self.RESTART_ATTRIBUTES if hasattr(self, name)}
+
+    def _set_restart_state(self, state: dict) -> None:
+        for name, value in state.items():
+            setattr(self, name, value)
+
     def _get_base_restart_state(self) -> dict:
-        """Serialize the state owned by this base class."""
+        """Serialize the loop's bookkeeping and the ensemble's state."""
         return {
             "iteration": self.iteration,
             "data_misfit": self.data_misfit_mean,
             "prior_data_misfit": self.prior_data_misfit_mean,
             "data_misfit_std": self.data_misfit_std,
+            "prior_data_misfit_std": getattr(self, "prior_data_misfit_std", None),
             "prev_data_misfit": self.prev_data_misfit_mean,
+            "prev_data_misfit_std": getattr(self, "prev_data_misfit_std", None),
+            "ensemble_misfit": getattr(self, "ensemble_misfit", None),
             "conv_msg": self.conv_msg,
             "why_stop": dict(self.why_stop),
+            "ensemble": self.ensemble.restart_state(),
         }
 
     def _set_base_restart_state(self, state: dict) -> None:
-        """Restore the state owned by this base class."""
+        """Restore the loop's bookkeeping and the ensemble's state."""
         self.iteration = state["iteration"]
         self.data_misfit_mean = state["data_misfit"]
         self.prior_data_misfit_mean = state["prior_data_misfit"]
         self.data_misfit_std = state["data_misfit_std"]
+        self.prior_data_misfit_std = state.get("prior_data_misfit_std")
         self.prev_data_misfit_mean = state["prev_data_misfit"]
+        self.prev_data_misfit_std = state.get("prev_data_misfit_std")
+        if state.get("ensemble_misfit") is not None:
+            self.ensemble_misfit = state["ensemble_misfit"]
         self.conv_msg = state.get("conv_msg", "")
         self.why_stop = dict(state.get("why_stop", {}))
+        self.ensemble.restore_restart_state(state["ensemble"])
 
     # ------------------------------------------------------------------
     # Convenience entry point
