@@ -22,10 +22,13 @@ method resolution.
 
 Analysis contract
 -----------------
-``update(enX, enY, enE, **kwargs) -> np.ndarray | None``
-    Return the state update step, shape ``(nx, ne)``, or ``None`` if the
-    analysis delivers its result by assignment onto the scheme instead (see
-    below).
+``update(enX, enY, enE, **kwargs) -> AnalysisResult``
+    Return the update as an :class:`AnalysisResult`: a state-space ``step``
+    of shape ``(nx, ne)`` (a plain array is accepted and means the same), or
+    a step in ensemble-weight space, ``w_step`` or ``W_step`` (two
+    conventions, see the class). The scheme turns whichever it gets into a
+    trial state with ``propose_state``; an analysis never writes its result
+    onto the scheme.
 
 Analyses reach everything they need through ``self.scheme``: the damping
 parameter ``self.scheme.lam``, ``self.scheme.trunc_energy``,
@@ -46,21 +49,62 @@ expose it, adding one property there is the whole change.
   (``margis`` binds like the rest now); it remains supported for an analysis
   whose calling convention genuinely does not fit the bound shape.
 
-An analysis that delivers its result by assignment (``subspace_update`` sets
-``w_step``; ``full_update`` caches ``Am``) writes it onto ``self.scheme``
-explicitly, the same way it reads -- e.g. ``self.scheme.w_step = ...`` --
-not onto ``self``. There is nothing that forwards a plain ``self.w_step =
-...`` for you; an analysis that wrote to itself here would have the scheme's
-``hasattr(self, 'w_step')`` silently stay False, no error.
+State an analysis keeps between iterations -- ``full_update`` caches ``Am``,
+the weight-space flavours start ``current_W`` and keep their scaled
+perturbations -- lives on ``self.scheme`` explicitly, the same way it is
+read, not on ``self``: nothing forwards a plain ``self.Am = ...`` to the
+scheme.
 """
 
 from abc import ABC, abstractmethod
 
 import numpy as np
+from dataclasses import dataclass
 from scipy.linalg import solve as _dense_solve
 from scipy.linalg import sqrtm as _dense_sqrtm
 
 __all__ = ["AnalysisBase"]
+
+
+@dataclass(slots=True)
+class AnalysisResult:
+    """What an analysis hands back to the scheme. Exactly one field is set.
+
+    ``step``
+        Additive step in state space, ``(nx, ne)``; the trial state is
+        ``enX + scale * step``. The multilevel analysis returns one array per
+        fidelity level.
+    ``w_step``
+        Additive step to the weight matrix ``W`` of the ensemble subspace
+        formulation (Evensen et al. 2019), starting from ``W = 0``; the trial
+        state is ``prior_enX @ (I + W / sqrt(ne - 1))``.
+    ``W_step``
+        Additive step to the ensemble transform ``W`` of the matrix
+        formulation (Raanes et al. 2019), starting from ``W = I``; the trial
+        state is ``mean(prior_enX) + prior_anomalies * sqrt(ne - 1) @ W``.
+
+    ``scale`` is the scheme's step length (GN-EnRML's ``gamma``; 1 elsewhere)
+    and belongs to the scheme, which is why the analysis returns a step and
+    not a state.
+    """
+
+    step: object = None
+    w_step: object = None
+    W_step: object = None
+
+    def __post_init__(self):
+        given = [name for name in ("step", "w_step", "W_step") if getattr(self, name) is not None]
+        if len(given) != 1:
+            raise ValueError(f"AnalysisResult needs exactly one of step, w_step, W_step; got {given or 'none'}")
+
+    @classmethod
+    def coerce(cls, value):
+        """An ``AnalysisResult`` as given; a plain array or list as a state-space step."""
+        if isinstance(value, cls):
+            return value
+        if value is None:
+            raise ValueError("the analysis returned None; return an AnalysisResult (or a step array)")
+        return cls(step=value)
 
 
 class AnalysisBase(ABC):
@@ -143,8 +187,10 @@ class AnalysisBase(ABC):
 
         Returns
         -------
-        np.ndarray or None
-            State update step, shape ``(nx, ne)``.
+        AnalysisResult
+            The update: a state-space ``step`` of shape ``(nx, ne)``, or a
+            weight-space ``w_step``/``W_step``. Returning a plain array is
+            taken as a state-space step.
         """
 
     @staticmethod

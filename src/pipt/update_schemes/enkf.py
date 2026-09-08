@@ -198,19 +198,13 @@ class EnKF(AssimilationScheme):
             else:
                 enAdj = None
 
-            self.step = self.update(
+            self.enX_proposal = self.propose_state(self.update(
                 enX = self.enX,
                 enY = self.enPred,
                 enE = self.enObs,
                 prior = self.prior_enX,
                 enAdj = enAdj
-            )
-            # Update the state ensemble and weights
-            if self.step is not None:
-                self.enX_proposal = self.enX + self.step
-            if hasattr(self, 'w_step'):
-                self.W = self.current_W + self.w_step
-                self.enX_proposal = np.dot(self.prior_enX, (np.eye(self.ne) + self.W/np.sqrt(self.ne - 1)))
+            ))
 
             # Ensure limits are respected
             limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.idX.keys()}

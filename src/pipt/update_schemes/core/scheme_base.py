@@ -81,6 +81,7 @@ from misc.structures import PETDataFrame
 from pipt.ensembles import AssimilationEnsemble
 from ensemble.checkpoint import RestartMixin
 from pipt.update_schemes.core.analysis_binding import AnalysisBindingMixin
+from pipt.update_schemes.analysis.base import AnalysisResult
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -755,6 +756,41 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
         self.qaqc.calc_mahalanobis((1, "time", 2, "time", 1, None, 2, None))
         self.qaqc.calc_coverage()
         self.qaqc.calc_kg({"plot_all_kg": True, "only_log": False, "num_store": 5})
+
+    # ------------------------------------------------------------------
+    # From an analysis result to a trial state
+    # ------------------------------------------------------------------
+    def propose_state(self, result, step_scale=1.0):
+        """The trial state an analysis result implies.
+
+        Parameters
+        ----------
+        result : AnalysisResult or array-like
+            What ``self.update(...)`` returned. A plain array is a
+            state-space step.
+        step_scale : float, optional
+            Step length applied to the step (GN-EnRML's ``gamma``); 1 for
+            schemes without one.
+
+        Returns
+        -------
+        PETStateArray
+            The state to forecast. Weight-space results also advance
+            ``self.W`` from ``self.current_W``; the scheme commits ``W`` to
+            ``current_W`` when it accepts the step.
+        """
+        result = AnalysisResult.coerce(result)
+        self.step = result.step   # kept for ``savedata``; None for weight-space results
+        if result.step is not None:
+            return self.enX + step_scale * result.step
+        if result.w_step is not None:
+            # Ensemble subspace formulation (Evensen et al. 2019), W_0 = 0.
+            self.W = self.current_W + step_scale * result.w_step
+            return np.dot(self.prior_enX, (np.eye(self.ne) + self.W / np.sqrt(self.ne - 1)))
+        # Matrix formulation (Raanes et al. 2019), W_0 = I.
+        self.W = self.current_W + step_scale * result.W_step
+        X_p = self.prior_enX @ self.proj * np.sqrt(self.ne - 1)
+        return np.mean(self.prior_enX, axis=1, keepdims=True) + np.dot(X_p, self.W)
 
     # ------------------------------------------------------------------
     # Saving

@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from pipt.update_schemes.analysis.base import AnalysisBase
+from pipt.update_schemes.analysis.base import AnalysisBase, AnalysisResult
 import pipt.misc_tools.analysis_tools as at
 
 
@@ -89,7 +89,7 @@ class full_update(AnalysisBase):
                                 VrT @ X6)               # shape: (ne, ne)
         delta_m2 = -(scx[:, None] * X_anom) @ X7        # shape: (nx, ne)
 
-        return delta_m1 + delta_m2
+        return AnalysisResult(step=delta_m1 + delta_m2)
 
     # ------------------------------------------------------------------
     # Helpers

@@ -276,24 +276,17 @@ class ESMDA(AssimilationScheme):
             else:
                 enAdj = None
 
-            # Perform the update
-            self.step = self.update(
+            # Perform the update. The proposal is scheme-local, handed to
+            # run_forecast and then reported back; the ensemble is only
+            # written when the loop commits it.
+            self.enX_proposal = self.propose_state(self.update(
                 enX = self.enX,
                 enY = self.enPred,
                 enE = self.enObs,
                 # kwargs
                 prior = self.prior_enX,
                 enAdj = enAdj
-            )
-
-            # A scheme-local proposal, handed to run_forecast and then
-            # reported back; the ensemble is only written when the loop
-            # commits it.
-            if self.step is not None:
-                self.enX_proposal = self.enX + self.step
-            if hasattr(self, 'w_step'):
-                self.W = self.current_W + self.w_step
-                self.enX_proposal = np.dot(self.prior_enX, (np.eye(self.ne) + self.W/np.sqrt(self.ne - 1)))
+            ))
 
 
             # Ensure limits are respected

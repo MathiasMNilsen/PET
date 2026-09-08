@@ -241,23 +241,15 @@ class LMEnRML(AssimilationScheme):
             else:
                 enAdj = None
 
-            # Perform the update
-            self.step = self.update(
+            # Perform the update and turn its result into the trial state
+            self.enX_proposal = self.propose_state(self.update(
                 enX = self.enX,
                 enY = self.enPred,
                 enE = self.enObs,
                 # kwargs
                 prior = self.prior_enX,
                 enAdj = enAdj
-            )
-
-            # Update the state ensemble and weights
-            if self.step is not None:
-                self.enX_proposal = self.enX + self.step
-            if hasattr(self, 'w_step'):
-                self.W = self.current_W + self.w_step
-                self.enX_proposal = np.dot(self.prior_enX, (np.eye(self.ne) + self.W/np.sqrt(self.ne - 1)))
-
+            ))
 
             # Ensure limits are respected
             limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
@@ -540,10 +532,10 @@ class GNEnRML(AssimilationScheme):
         Relative misfit change treated as converged (default 0.01).
 
     The ``margis`` flavour is backed by ``margIS_update``, ported from an
-    older layout. It delivers its result via ``self.W_step`` (capital W) --
-    the matrix-form ensemble update, distinct from the ``w_step`` most other
-    flavours use -- which this method's own ``calc_analysis`` (below) handles
-    with its own reconstruction branch. Run against real data it produces a
+    older layout. It returns a matrix-form ensemble transform step
+    (``AnalysisResult(W_step=...)``, starting from ``W = I``) rather than the
+    weight step most other flavours use; ``propose_state`` reconstructs the
+    state for either. Run against real data it produces a
     large, sensible misfit reduction, but is still one run on one case with
     no committed reference pinning it -- see its module docstring
     (:mod:`pipt.update_schemes.analysis.margis`) for what was fixed in the
@@ -666,28 +658,14 @@ class GNEnRML(AssimilationScheme):
             else:
                 enAdj = None
 
-            self.step = self.update(
+            # The step length gamma scales whatever kind of step comes back.
+            self.enX_proposal = self.propose_state(self.update(
                 enX=self.enX,
                 enY=self.enPred,
                 enE=self.enObs,
                 prior=self.prior_enX,
                 enAdj=enAdj
-            )
-
-            if self.step is not None:
-                self.enX_proposal = self.enX + self.gamma * self.step
-            # Vector update following e.g. Evensen et al. 2019, for the
-            # additive-anomaly flavours (subspace_update and friends).
-            if hasattr(self, 'w_step'):
-                self.W = self.current_W + self.gamma * self.w_step
-                self.enX_proposal = np.dot(self.prior_enX, (np.eye(self.ne) + self.W / np.sqrt(self.ne - 1)))
-            # Matrix update following e.g. Raanes et al. 2019, for flavours
-            # that deliver a multiplicative ensemble-transform matrix instead
-            # (margIS_update: W_0 = I, not the w_step branch's W_0 = 0).
-            if hasattr(self, 'W_step'):
-                self.W = self.current_W + self.gamma * self.W_step
-                X_p = self.prior_enX @ self.proj * np.sqrt(self.ne - 1)
-                self.enX_proposal = np.mean(self.prior_enX, axis=1, keepdims=True) + np.dot(X_p, self.W)
+            ), step_scale=self.gamma)
 
             limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
             self.enX_proposal.clip_matrix(limits)

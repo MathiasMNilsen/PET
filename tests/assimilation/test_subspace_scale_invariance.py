@@ -25,8 +25,7 @@ class Scheme:
 
 def _w_step(pred, obs, scale):
     scheme = Scheme(scale, pred.shape[1])
-    subspace_update(scheme).update(np.zeros((3, pred.shape[1])), pred, obs)
-    return scheme.w_step
+    return subspace_update(scheme).update(np.zeros((3, pred.shape[1])), pred, obs).w_step
 
 
 def test_weights_are_invariant_to_the_units_of_the_data():

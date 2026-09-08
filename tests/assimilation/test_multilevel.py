@@ -129,10 +129,10 @@ def test_multilevel_alias_points_at_the_ensemble():
 def test_multilevel_run_completes_and_updates_the_state(ml_scheme):
     """The whole point: it runs, and the update is actually applied.
 
-    `hybrid_update` delivers its result by assigning `self.step` and returns
-    nothing, so `self.step = self.update(...)` overwrote it with None and every
-    update was silently discarded. Comparing against the prior catches that
-    directly -- the same failure mode ES had.
+    `hybrid_update` used to deliver its result by assigning `self.step` and
+    returning nothing, so `self.step = self.update(...)` overwrote it with
+    None and every update was silently discarded. It returns the per-level
+    steps now; comparing against the prior would catch either failure.
     """
     prior = [np.array(level, dtype=float) for level in ml_scheme.ensemble.prior_enX]
 

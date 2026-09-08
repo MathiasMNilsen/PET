@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from pipt.update_schemes.analysis.base import AnalysisBase
+from pipt.update_schemes.analysis.base import AnalysisBase, AnalysisResult
 import pipt.misc_tools.analysis_tools as at
 
 
@@ -46,7 +46,8 @@ class subspace_update(AnalysisBase):
 
         Returns
         -------
-        None
+        AnalysisResult
+            The weight-space step ``w_step`` (ne, ne).
         """
         scheme = self.scheme
         ny, ne = enY.shape
@@ -88,8 +89,8 @@ class subspace_update(AnalysisBase):
         deltaM = X3 @ self.solve(lam_term, X3.T @ scheme.current_W)  # shape: (ne, ne)
         deltaD = X3 @ self.solve(lam_term, X2.T @ enRes)           # shape: (ne, ne)
 
-        scheme.w_step = (
+        w_step = (
             -scheme.current_W / (1 + scheme.lam)
             - (deltaD - deltaM) / (1 + scheme.lam)
         )
-        return None
+        return AnalysisResult(w_step=w_step)

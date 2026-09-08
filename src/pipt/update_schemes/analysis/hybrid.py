@@ -6,7 +6,7 @@ import numpy as np
 from scipy.linalg import solve
 from pipt.misc_tools import analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
-from pipt.update_schemes.analysis.base import AnalysisBase
+from pipt.update_schemes.analysis.base import AnalysisBase, AnalysisResult
 
 class hybrid_update(AnalysisBase):
     '''
@@ -63,7 +63,6 @@ class hybrid_update(AnalysisBase):
 
         # Calculate each row of step individually to avoid memory issues.
         step = [np.empty(enXcentered[l].shape) for l in range(scheme.tot_level)]
-        scheme.step = step
         # Generate row batches: at most 1000 rows at a time, and at least one,
         # so a single-row state does not produce an empty range.
         nrows = state_scaling.shape[0]
@@ -79,3 +78,5 @@ class hybrid_update(AnalysisBase):
             for l in range(scheme.tot_level):
                 enRes = self.solve(scale_data[l], enE[l] - enY[l])
                 step[l][row, :] = np.dot(state_scaling[row, None] * kg, enRes)
+
+        return AnalysisResult(step=step)

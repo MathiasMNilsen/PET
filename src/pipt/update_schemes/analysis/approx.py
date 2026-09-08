@@ -1,9 +1,8 @@
 """EnRML (IES) without the prior increment term."""
 
 import numpy as np
-import warnings
 
-from pipt.update_schemes.analysis.base import AnalysisBase
+from pipt.update_schemes.analysis.base import AnalysisBase, AnalysisResult
 import pipt.misc_tools.analysis_tools as at
 
 
@@ -100,7 +99,7 @@ class approx_update(AnalysisBase):
                     Y = Y_anom_proj
                 )
                 Cxy_loc = T_loc * (scx[:, None]*X_anom @ Y_anom_proj.T)
-                return Cxy_loc @ X2                         # shape: (nx, ne)
+                return AnalysisResult(step=Cxy_loc @ X2)    # shape: (nx, ne)
 
             elif y_proj == 'ensemble':
                 Y_anom_proj = X2 @ D_anom                   # shape: (ne, ne)
@@ -109,7 +108,7 @@ class approx_update(AnalysisBase):
                     Y = Y_anom_proj
                 )
                 step = (T_loc * scx[:, None]*X_anom) @ Y_anom_proj
-                return step                                 # shape: (nx, ne)
+                return AnalysisResult(step=step)            # shape: (nx, ne)
 
         # DISTANCE-BASED LOCALIZATION
         elif localization.name == 'distance_loc':
@@ -124,27 +123,17 @@ class approx_update(AnalysisBase):
 
             T_loc = localization()                          # shape: (nx, nd) -- sparse localisation mask
             K_loc = T_loc.multiply(A @ X)                   # shape: (nx, nd) -- elementwise sparse × dense
-            return K_loc @ D_anom                           # shape: (nx, ne)
+            return AnalysisResult(step=K_loc @ D_anom)      # shape: (nx, ne)
 
-        # LOCAL ANALYSIS
-        elif localization.name == 'localanalysis':
-            # NOT IMPLEMENTED YET AFTER REFACTORING
-            warnings.warn(
-                "Local analysis is not currently implemented."
+        # LOCAL ANALYSIS / PARALLEL UPDATE: not implemented after the
+        # refactoring. Used to warn and return None, which left the scheme
+        # with no step and the posterior equal to the prior.
+        elif localization.name in ('localanalysis', 'parallel_update'):
+            raise NotImplementedError(
+                f"approx_update: localization {localization.name!r} is not implemented."
             )
-            # TODO: Implement local analysis
-            pass
-
-        # PARALLEL UPDATE
-        elif localization.name == 'parallel_update':
-            # NOT IMPLEMENTED YET AFTER REFACTORING
-            warnings.warn(
-                "Parallel update is not currently implemented."
-            )
-            # TODO: Implement parallel update
-            pass
 
         # NO LOCALIZATION
         else:
             X3 = (VrT.T * Sr[None, :]) @ X2                 # shape: (ne, ne); column-scale instead of a dense diag
-            return scx[:, None] * X_anom @ X3               # shape: (nx, ne)
+            return AnalysisResult(step=scx[:, None] * X_anom @ X3)   # shape: (nx, ne)

@@ -662,6 +662,24 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Analyses return their result instead of writing it onto the scheme.**
+  `update()` now returns an `AnalysisResult` holding exactly one of `step`
+  (state space), `w_step` (ensemble-weight space, `W_0 = 0`) or `W_step`
+  (ensemble-transform space, `W_0 = I`), and the scheme base turns any of them
+  into the trial state in one place, `propose_state(result, step_scale)`.
+  Before, `subspace_update` and `margIS_update` assigned `scheme.w_step` /
+  `scheme.W_step` and returned `None`, `hybrid_update` assigned
+  `scheme.step`, and four copies of `calc_analysis` chose a reconstruction
+  with `hasattr` chains -- attributes that were never cleared, so the branch
+  taken depended on what an earlier flavour had left behind, and a single
+  letter (`w_step` vs `W_step`) selected a different formula. A plain array
+  is still accepted as a state-space step, so an analysis written the way
+  the tutorial shows keeps working. Numbers are unchanged: the goldens for
+  all thirteen scheme/analysis pairs pass untouched. The `approx` analysis
+  now raises `NotImplementedError` for the `localanalysis` and
+  `parallel_update` localizations instead of warning and returning nothing,
+  which left the posterior equal to the prior.
+
 - **QA/QC works again, on the current data structures.** `QAQC` was still
   written against the pre-refactor layout (lists of dicts for observations,
   variances and predictions), and the scheme handed it `ensemble.obs_data`

@@ -18,6 +18,7 @@ dependence entirely.
 #──────────────────────────────────────────────────────────────────────────────────────
 from pipt.ensembles import AssimilationEnsemble as Ensemble
 from pipt.update_schemes.esmda import ESMDA
+from pipt.update_schemes.analysis.base import AnalysisResult
 from pipt.misc_tools import analysis_tools as at
 from geostat.decomp import Cholesky
 from pipt.update_schemes.analysis.hybrid import hybrid_update
@@ -201,27 +202,21 @@ class esmda_hybrid(ESMDA):
                 )
                 self.E[l] = np.dot(self.ml_enObs[l], self.proj[l])
 
-        # Calculate update step. `hybrid_update` delivers its result by
-        # assigning `self.step` and returns nothing, so assigning the return
-        # value here would overwrite the step it just computed with None --
-        # which silently discarded every update.
-        self.step = None
-        returned = self.update(
+        # Calculate the update step: one state-space step per fidelity level.
+        result = AnalysisResult.coerce(self.update(
             enX = self.enX,
             enY = self.enPred,
             enE = self.ml_enObs
-        )
-        if returned is not None:
-            self.step = returned
-        if self.step is not None:
-            limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX[0].indices}
-            # A scheme-local proposal, one entry per fidelity level.
-            enX_proposal = []
-            for l in range(self.tot_level):
-                level = self.enX[l] + self.step[l]
-                level.clip_matrix(limits)
-                enX_proposal.append(level)
-            self.enX_proposal = enX_proposal
+        ))
+        self.step = result.step
+        limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX[0].indices}
+        # A scheme-local proposal, one entry per fidelity level.
+        enX_proposal = []
+        for l in range(self.tot_level):
+            level = self.enX[l] + self.step[l]
+            level.clip_matrix(limits)
+            enX_proposal.append(level)
+        self.enX_proposal = enX_proposal
 
     def score_and_commit(self):
         """Score the forecast that followed the analysis, then commit the step.

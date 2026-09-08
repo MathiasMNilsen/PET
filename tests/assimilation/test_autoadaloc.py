@@ -142,13 +142,13 @@ def test_approx_update_with_autoadaloc():
 
     # Step with localization
     approx = approx_update(FakeScheme(AutoAdaptiveLocalization(loc_info)))
-    step_loc = approx.update(enX, enY, enE)
+    step_loc = approx.update(enX, enY, enE).step
 
     # Step without localization
     approx_no_loc = approx_update(
         FakeScheme(type('localization', (object,), {'name': None})())
     )
-    step_no_loc = approx_no_loc.update(enX, enY, enE)
+    step_no_loc = approx_no_loc.update(enX, enY, enE).step
 
     # Calculate step manually without localization
     scy = np.sqrt(Cdd)

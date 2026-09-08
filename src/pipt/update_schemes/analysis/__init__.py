@@ -29,7 +29,7 @@ and re-exporting them here would have formed an import cycle. Now that schemes
 hold an analysis rather than inheriting one, they live together.
 """
 
-from .base import AnalysisBase
+from .base import AnalysisBase, AnalysisResult
 from .approx import approx_update
 from .full import full_update
 from .hybrid import hybrid_update
@@ -43,6 +43,7 @@ from .registry import (
 
 __all__ = [
     "AnalysisBase",
+    "AnalysisResult",
     "approx_update",
     "full_update",
     "subspace_update",

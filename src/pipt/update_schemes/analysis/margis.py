@@ -100,7 +100,7 @@ flavours. Treat it as plausible, not verified.
 import numpy as np
 import pandas as pd
 
-from pipt.update_schemes.analysis.base import AnalysisBase
+from pipt.update_schemes.analysis.base import AnalysisBase, AnalysisResult
 
 
 def _row_datatypes(df):
@@ -174,4 +174,4 @@ class margIS_update(AnalysisBase):
         Delta = deltaM + deltaD
 
 
-        scheme.W_step = np.linalg.solve(S, Delta) / (1 + scheme.lam)
+        return AnalysisResult(W_step=np.linalg.solve(S, Delta) / (1 + scheme.lam))

@@ -54,13 +54,13 @@ def test_rescaling_one_variable_rescales_only_its_rows_of_the_step(analysis):
     rows = slice(3, 6)      # the variable whose units we change
     c = 100.0
 
-    step = analysis(Scheme(prior, std, cov, ne)).update(enX, enY, enE, prior=prior)
+    step = analysis(Scheme(prior, std, cov, ne)).update(enX, enY, enE, prior=prior).step
 
     prior_c, enX_c, std_c = prior.copy(), enX.copy(), std.copy()
     prior_c[rows] *= c
     enX_c[rows] *= c
     std_c[rows] *= c
-    step_c = analysis(Scheme(prior_c, std_c, cov, ne)).update(enX_c, enY, enE, prior=prior_c)
+    step_c = analysis(Scheme(prior_c, std_c, cov, ne)).update(enX_c, enY, enE, prior=prior_c).step
 
     np.testing.assert_allclose(step_c[rows], c * step[rows], rtol=1e-9)
     np.testing.assert_allclose(step_c[:3], step[:3], rtol=1e-9)
