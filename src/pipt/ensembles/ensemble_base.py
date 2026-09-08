@@ -26,6 +26,19 @@ from pipt.ensembles.local_analysis import LocalAnalysisMixin
 __all__ = ["AssimilationEnsemble"]
 
 
+class NoLocalization:
+    """Stands in for a localization when the config asks for none.
+
+    Analyses branch on ``localization.name``; ``None`` means no localization.
+    A module-level class rather than an anonymous one so the ensemble that
+    holds it can be pickled -- ``emergency_dump`` and the restart file both
+    pickle the ensemble, and an anonymous class made that fail exactly when
+    a run had crashed.
+    """
+
+    name = None
+
+
 class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalAnalysisMixin, BaseEnsemble):
     """
     Class for organizing/initializing misc. variables and simulator for an
@@ -170,8 +183,7 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
                     prior_info=self.prior_info,
                 )
             else:
-                # Create a dummy localization object with name None
-                self.localization = type('localization', (object,), {'name': None})()
+                self.localization = NoLocalization()
 
             # Initialize local analysis
             if 'localanalysis' in self.keys_da:

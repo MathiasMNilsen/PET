@@ -483,6 +483,17 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A crashed realisation no longer crashes the run.** The forecast handed
+  `_replace_failed_simulations` the list of member inputs where it expected
+  the state matrix, so the first failed member raised `AttributeError` on
+  `.shape` instead of being replaced. It now receives the trial state, and a
+  crashed member takes both the prediction and the state of the successful
+  member drawn to replace it, so the two stay a matched pair.
+- **The emergency dump could not pickle the ensemble** when the config asked
+  for no localization: the stand-in was an instance of an anonymous class
+  created with `type(...)`. It is now a module-level `NoLocalization` class,
+  so `emergency_dump` and the restart file work on the runs that need them.
+
 - **The `approx` and `full` analyses now apply the state scaling.** Both read
   a `scale_state` attribute that nothing ever set, so the per-row prior
   standard deviation the ensemble computes as `state_scaling` was silently

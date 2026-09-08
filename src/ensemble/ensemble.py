@@ -278,9 +278,12 @@ class BaseEnsemble:
                     )
                 ########################################################################################################
 
-                # Replace crashed sims with successful ones,
-                # and replace the corresponding state in the ensemble if needed
-                sim_output, sim_input, success = self._replace_failed_simulations(sim_output, sim_input, level, is_multilevel)
+                # Replace crashed sims with successful ones, and give the
+                # crashed members the state of the member that replaced them,
+                # so state and prediction stay a matched pair. This mutates
+                # the state passed in, which is the trial state the caller is
+                # forecasting and will commit.
+                sim_output, enX, success = self._replace_failed_simulations(sim_output, enX, level, is_multilevel)
 
                 if (not is_multilevel) and getattr(self.sim, 'compute_adjoints', False):
                     sim_output, en_adj = zip(*sim_output)
