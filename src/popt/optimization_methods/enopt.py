@@ -275,7 +275,11 @@ class EnOpt(OptimizerBase):
 
         if hessian is not None:
             grad_cov = self.bound_handler.hess_from_unit_cube(hessian)
-            self.cov_step = self.alpha_cov * grad_cov + self.beta * self.cov
+            # Momentum on the covariance step, as for the state step (beta is
+            # documented as the momentum parameter). `beta * self.cov` here
+            # shrank the covariance by (1 - beta) every accepted step whatever
+            # the gradient said.
+            self.cov_step = self.alpha_cov * grad_cov + self.beta * self.cov_step
             self.cov = ot.get_sym_pos_semidef(self.cov - self.cov_step)
 
         if self.xk.size == 1 and hasattr(self.optimizer, "step_size"):
@@ -309,10 +313,10 @@ class EnOpt(OptimizerBase):
         return opt.Steihaug(delta0=3.0)
 
     def _apply_optimizer_backtracking(self, shrink=0.5):
-        try:
-            self.optimizer.apply_backtracking(shrink)
-        except TypeError:
-            self.optimizer.apply_backtracking()
+        # Every step rule takes the factor. The TypeError fallback that used
+        # to sit here halved Adam, AdaMax and Steihaug on the pre-trial call
+        # with shrink = 1.0, i.e. before the first attempt of every iteration.
+        self.optimizer.apply_backtracking(shrink)
 
     def _get_restart_state(self) -> dict:
         return {

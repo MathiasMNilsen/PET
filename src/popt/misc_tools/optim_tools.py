@@ -133,14 +133,14 @@ def clip_state(x, bounds):
         The state after truncation
     """
 
-    any_not_none = any(any(item) for item in bounds)
-    if any_not_none:
-        lb = np.array(bounds)[:, 0]
-        lb = np.where(lb is None, -np.inf, lb)
-        ub = np.array(bounds)[:, 1]
-        ub = np.where(ub is None, -np.inf, ub)
-        x = np.clip(x, lb, ub)
-    return x
+    if bounds is None or len(bounds) == 0:
+        return x
+    # None means "no bound on this side". The previous version tested
+    # `lb is None` on a whole array (always False), defaulted the *upper*
+    # bound to -inf, and skipped clipping altogether when every bound was 0.
+    lb = np.array([-np.inf if lo is None else lo for lo, _ in bounds], dtype=float)
+    ub = np.array([np.inf if hi is None else hi for _, hi in bounds], dtype=float)
+    return np.clip(x, lb, ub)
 
 
 def save_optimize_results(intermediate_result, folder=None):

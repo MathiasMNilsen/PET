@@ -483,6 +483,22 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **popt: five verified bugs in the numerical subroutines.** Steihaug's
+  boundary step divided only the square root by the squared direction length,
+  so every step that hit the trust region had the wrong length. Adam, AdaMax
+  and Steihaug did not take the backtracking factor, and EnOpt's `TypeError`
+  fallback halved them on the pre-trial call with factor 1.0, before the
+  first attempt of every iteration; every step rule now takes `shrink`.
+  EnOpt's covariance step used `beta * cov` where `beta` is documented as
+  momentum, shrinking the covariance by `1 - beta` on every accepted step
+  whatever the gradient said; it is `beta * cov_step` now, like the state
+  step (no effect at the default `beta = 0`). `LineSearch` passed its
+  `lsmaxiter` option under a key the line searches never read, so the cap was
+  always 10. Newton-CG fell off its loop without a `return` when it reached
+  the iteration cap, handing `None` to a caller that took its norm. And
+  `clip_state` tested `lb is None` on a whole array, defaulted the upper bound
+  to `-inf`, and skipped clipping when every bound was 0.
+
 - **Distance localization placed kernels with their axes swapped.** Kernels
   are built `(nx, ny)`-major like the field, but placement unpacked them as
   `(ky, kx)`. Square, symmetric kernels away from the edges came out right by

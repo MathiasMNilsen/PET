@@ -113,7 +113,7 @@ class LineSearch(OptimizerBase):
             'c2': options.get('c2', 0.9),               # Curvature condition constant
             'rho': options.get('rho', 0.5),             # Step size reduction factor for backtracking
             'amax': self.step_size_max,                 # Max step size for line search
-            'lsmaxiter': options.get('lsmaxiter', 10),  # Max line search iterations
+            'maxiter': options.get('lsmaxiter', 10),    # Max line search iterations (the subroutines read 'maxiter')
             'logger': self.logger,                      # Logger instance
 
         }

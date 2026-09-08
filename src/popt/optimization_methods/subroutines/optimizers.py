@@ -272,11 +272,11 @@ class Adam:
         new_control = control - step  # steepest descent
         return new_control, step
 
-    def apply_backtracking(self):
+    def apply_backtracking(self, shrink=0.5):
         """
-        Apply backtracking by reducing step size temporarily.
+        Apply backtracking by scaling the step size temporarily.
         """
-        self._step_size = 0.5*self._step_size
+        self._step_size = shrink*self._step_size
 
     def restore_parameters(self):
         """
@@ -473,15 +473,18 @@ class Steihaug:
         dot_pj_dj = np.dot(pj, dj)
         len_dj_sqrd = np.dot(dj, dj)
 
-        tau = -dot_pj_dj + np.sqrt(
-            dot_pj_dj ** 2 - len_dj_sqrd * (np.dot(pj, pj) - self.delta ** 2)) / len_dj_sqrd
+        # Positive root of ||pj + tau dj||^2 = delta^2. The whole numerator is
+        # divided by ||dj||^2; dividing only the square root, as this once
+        # did, put every boundary-hitting step at the wrong length.
+        tau = (-dot_pj_dj + np.sqrt(
+            dot_pj_dj ** 2 - len_dj_sqrd * (np.dot(pj, pj) - self.delta ** 2))) / len_dj_sqrd
         return tau
 
-    def apply_backtracking(self):
+    def apply_backtracking(self, shrink=0.5):
         """
-        Apply backtracking by reducing step size temporarily.
+        Apply backtracking by scaling the trust radius temporarily.
         """
-        self.delta = 0.5 * self.delta
+        self.delta = shrink * self.delta
 
     def restore_parameters(self):
         """

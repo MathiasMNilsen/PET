@@ -409,7 +409,7 @@ def newton_cg(gk, Hk=None, maxiter=None, **kwargs):
         maxiter = 20*gk.size # Same dfault as in scipy
 
     tol = min(0.5, np.sqrt(la.norm(gk)))*la.norm(gk)
-    z = 0
+    z = np.zeros_like(gk, dtype=float)
     r = gk
     d = -r
 
@@ -442,6 +442,12 @@ def newton_cg(gk, Hk=None, maxiter=None, **kwargs):
 
         b = np.dot(r, r)/np.dot(rold, rold)
         d = -r + b*d
+
+    # Out of iterations: return the best direction so far. Falling off the
+    # loop used to return None, which the caller then took the norm of.
+    logger('Maximum number of CG iterations reached, returning current direction')
+    logger('')
+    return z if maxiter > 0 else -gk
 
 
 def solve_trust_region_subproblem(xk, fk, gk, Hk, radius, method='iterative', **kwargs):
