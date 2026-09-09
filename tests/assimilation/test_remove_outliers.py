@@ -39,16 +39,19 @@ class Host(OutlierMixin):
         self.ne = NE
         self.rng = np.random
         self.logger = lambda *args, **kwargs: None
-        self.sim_data = _frame(pred_cells, is_ensemble=True)
         self.data_df = _frame(TRUTH, is_ensemble=False)
         self.data_var_df = _frame({s: 1.0 for s in STEPS}, is_ensemble=False)
         self.data_layout = DataLayout.from_frame(self.data_df)
         self.obs_vector = self.data_layout.vector(self.data_df)
         self.pred_data = PredictedData.from_frame(self.data_layout, _frame(pred_cells, is_ensemble=True), NE)
+        # The full forecast as the members returned it: one list of records per member.
+        self.member_outputs = [[[{"obs": pred_cells[s][j]} for s in STEPS] for j in range(NE)]]
+        self._sim_data = None
+        self.sim_data = None
         # Adjoint of member j is 10*j in every entry, so the member it came
-        # from can be read straight off the array.
-        adj = np.tile(10.0 * np.arange(NE), (NX, 1))
-        self.adjoints = _frame({s: adj for s in STEPS}, is_ensemble=True) if with_adjoints else None
+        # from can be read straight off the array: (nd, nx, ne).
+        self.adjoints = np.tile(10.0 * np.arange(NE), (len(STEPS), NX, 1)) if with_adjoints else None
+        self.member_adjoints = None
 
 
 def _state():
@@ -68,12 +71,11 @@ def test_adjoints_follow_the_resampled_member():
     assert k != 0
     np.testing.assert_array_equal(new_enX[:, 0], enX[:, k])
     np.testing.assert_array_equal(new_enX[:, 1:], enX[:, 1:])
-    for step in STEPS:
-        np.testing.assert_array_equal(host.adjoints.loc[step, "obs"][:, 0], 10.0 * k)
-        np.testing.assert_array_equal(
-            host.adjoints.loc[step, "obs"][:, 1:], np.tile(10.0 * np.arange(1, NE), (NX, 1))
-        )
+    np.testing.assert_array_equal(host.adjoints[:, :, 0], 10.0 * k)
+    np.testing.assert_array_equal(host.adjoints[:, :, 1:], np.tile(10.0 * np.arange(1, NE), (len(STEPS), NX, 1)))
+    for i, step in enumerate(STEPS):
         assert host.pred_data.to_frame().loc[step, "obs"][0] == pred_cells[step][k]
+        assert host.member_outputs[0][0][i]["obs"] == pred_cells[step][k]      # the raw outputs follow too
 
 
 def test_without_adjoints_the_state_and_predictions_are_still_resampled():
@@ -95,15 +97,19 @@ def test_no_outliers_returns_the_same_state_object():
     assert host.remove_outliers(enX) is enX
 
 
-def test_empty_cells_of_the_full_forecast_are_left_alone_when_members_are_resampled():
-    """The full forecast frame carries None where a data type has no value at a
-    report point; the outlier filter used to call .ndim on them."""
+def test_a_forecast_loaded_as_a_frame_is_resampled_cell_by_cell():
+    """A forecast read from a restart file exists only as a frame; its empty
+    cells are None and the filter used to call .ndim on them."""
     pred_cells = _predictions(outlier_member=0)
     host = Host(pred_cells, with_adjoints=False)
+    host.member_outputs = None
+    host.sim_data = _frame(pred_cells, is_ensemble=True)
     host.sim_data.loc["t2", "obs"] = None
 
     np.random.seed(1)
     new_enX = host.remove_outliers(_state())
 
-    assert int(new_enX[0, 0]) != 0
+    k = int(new_enX[0, 0])
+    assert k != 0
+    assert host.sim_data.loc["t1", "obs"][0] == pred_cells["t1"][k]
     assert host.sim_data.loc["t2", "obs"] is None

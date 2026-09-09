@@ -190,7 +190,7 @@ class IterativeEnRML(AssimilationScheme):
         else:
             # Check for adjoint
             if hasattr(self, 'adjoints'):
-                enAdj = self.adjoints.to_matrix(is_jacobian=True) # In this case: Shape (ny, nx, ne)
+                enAdj = self.adjoints   # (nd, nx, ne), None without adjoints
             else:
                 enAdj = None
 

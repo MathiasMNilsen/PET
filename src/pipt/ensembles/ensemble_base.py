@@ -220,7 +220,8 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
     # ------------------------------------------------------------------
     # Checkpointing (the scheme's RestartMixin calls these)
     # ------------------------------------------------------------------
-    RESTART_ATTRIBUTES = ('enX', 'prior_enX', 'pred_data', 'sim_data', 'scale_data', 'Am', 'proj', 'iteration')
+    RESTART_ATTRIBUTES = ('enX', 'prior_enX', 'pred_data', 'member_outputs', 'member_adjoints', 'adjoints',
+                          'scale_data', 'Am', 'proj', 'iteration')
     """What a resume must restore on the ensemble: what iterations change (the
     state, its forecast), and what construction drew or derived from a draw
     (the prior, the observation scaling, the scaled prior's SVD), so a resumed

@@ -73,7 +73,9 @@ class BaseEnsemble:
 
         # Initialize some attributes
         self.pred_data = None
-        self.sim_data = None
+        self.member_outputs = None   # per level, what each member's simulation returned
+        self.member_adjoints = None  # one adjoint frame per member, when the simulator computes them
+        self._sim_data = None        # the frame view of member_outputs, built on first use
         self.enX_temp = None
         self.enX = None
         self.idX = {}
@@ -174,8 +176,8 @@ class BaseEnsemble:
         Per level: the state becomes one input dict per member
         (:meth:`_simulator_input`), the members run on one of three backends
         (:meth:`_run_members`), crashed members are replaced, adjoints are
-        split off (:meth:`_collect_adjoints`), and the outputs become one
-        ensemble frame (:meth:`_collect_sim_data`).
+        split off, and the outputs are kept as returned (``member_outputs``);
+        the frame view (``sim_data``) is built from them on demand.
 
         Parameters
         ----------
@@ -184,8 +186,9 @@ class BaseEnsemble:
         """
 
         nparallel = int(self.sim.input_dict.get('parallel', 1))
-        self.sim_data = []
-        self.member_outputs = []   # per level: what each member's simulation returned, as returned
+        self.member_outputs = []
+        self.member_adjoints = None
+        self._sim_data = None
 
         # Simulators run each realisation in its own `En_<member>` folder and
         # create it with `os.mkdir`, which fails rather than reuses if the
@@ -239,13 +242,10 @@ class BaseEnsemble:
                 sim_output, enX, success = self._replace_failed_simulations(sim_output, enX, level, is_multilevel)
 
                 if (not is_multilevel) and getattr(self.sim, 'compute_adjoints', False):
-                    sim_output = self._collect_adjoints(sim_output)
+                    sim_output, adjoints = zip(*sim_output)
+                    self.member_adjoints = list(adjoints)
 
                 self.member_outputs.append(list(sim_output))
-                self.sim_data.append(self._collect_sim_data(sim_output))
-
-        if len(self.sim_data) == 1:
-            self.sim_data = self.sim_data[0]
 
         # `treat_modeling_error` corrects `pred_data`, which does not exist
         # until the caller has filtered `sim_data`. It is invoked from
@@ -299,26 +299,22 @@ class BaseEnsemble:
             **progbar_settings,
         )
 
-    def _collect_adjoints(self, sim_output):
-        """Split (prediction, adjoint) pairs: keep the adjoints as an ensemble frame, return the predictions."""
-        sim_output, en_adj = zip(*sim_output)
+    @property
+    def sim_data(self):
+        """The full forecast as a frame (one per level), built from the member outputs on first use.
 
-        # Merge adjoint to ensemble adjoint dataframe (PETDataFrame)
-        self.adjoints = PETDataFrame.merge_dataframes(list(en_adj))
+        Nothing on the analysis path reads it; saving, inspection and popt's
+        objective functions do, so it is built when one of them asks and
+        cached until the next forecast.
+        """
+        if self._sim_data is None and self.member_outputs:
+            frames = [self._collect_sim_data(outputs) for outputs in self.member_outputs]
+            self._sim_data = frames[0] if len(frames) == 1 else frames
+        return self._sim_data
 
-        # Filter adjoints for the correct data types
-        try:
-            self.adjoints = self.adjoints[self.data_df.columns]
-        except Exception:
-            self.adjoints = self.adjoints[self.sim.datatype]
-
-        if self.keys_en.get('scale_data', False) and hasattr(self, 'data_df'):
-            self.adjoints.scale(
-                type='max-min',
-                minimum=0,
-                maximum=self.data_df.scale_max - self.data_df.scale_min
-            )
-        return sim_output
+    @sim_data.setter
+    def sim_data(self, value):
+        self._sim_data = value
 
     def _collect_sim_data(self, sim_output):
         """One ensemble frame from the members' outputs, each a list of dicts or a DataFrame, scaled like the data."""

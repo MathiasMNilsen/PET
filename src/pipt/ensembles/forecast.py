@@ -47,6 +47,7 @@ class ForecastMixin:
 
         self.calc_prediction(enX)
         self.pred_data = self._predicted_data()
+        self.adjoints = self._adjoint_array()
 
         # Multilevel runs correct each level towards the reference level's mean.
         if getattr(self, "multilevel", None) is not None:
@@ -71,6 +72,29 @@ class ForecastMixin:
         levels = [PredictedData.from_members(self.data_layout, members, position=position, scale=scale)
                   for members in self.member_outputs]
         return levels if getattr(self, "multilevel", None) is not None else levels[0]
+
+    def _adjoint_array(self):
+        """The members' adjoints as ``(nd, nx, ne)`` in layout order, scaled with the data; ``None`` without adjoints.
+
+        Each member's adjoint is a frame whose cells hold the sensitivity of
+        that cell's values to the ``nx`` state variables. Only observed cells
+        are taken, so the array lines up with ``pred_data`` row for row.
+        """
+        members = self.member_adjoints
+        if not members:
+            return None
+        cells = {row: [np.asarray(member.loc[row.label, row.datatype], dtype=float).reshape(row.size, -1)
+                       for member in members] for row in self.data_layout.rows}
+        nx = next(iter(cells.values()))[0].shape[1]
+        out = np.empty((self.data_layout.nd, nx, len(members)))
+        for row, blocks in cells.items():
+            for j, block in enumerate(blocks):
+                out[row.rows, :, j] = block
+        if self.data_df.is_scaled:
+            span = self.data_df.scale_max - self.data_df.scale_min
+            for row in self.data_layout.rows:
+                out[row.rows] = (out[row.rows] - 0) / span[row.datatype]
+        return out
 
     def _record_positions(self):
         """Where each observed label sits in a member's records: the simulator's ``true_order``, else the label itself."""
@@ -317,17 +341,25 @@ class OutlierMixin:
 
         self.pred_data = self.pred_data.take_members(idx)
 
-        # The full forecast is still a frame. Cells with no data are None and
-        # are left alone (na_action), instead of failing on `.ndim`.
-        def filter_outliers(cell):
-            return cell[..., idx] if cell.ndim > 1 else cell[idx]
-        self.sim_data = self.sim_data.map(filter_outliers, na_action='ignore')
+        # The full forecast follows the members: reorder the raw outputs and
+        # let the frame view be rebuilt when next asked for. A forecast loaded
+        # from a file exists only as a frame; its cells with no data are None
+        # and are left alone (na_action), instead of failing on `.ndim`.
+        if getattr(self, "member_outputs", None):
+            self.member_outputs = [[members[i] for i in idx] for members in self.member_outputs]
+            self._sim_data = None
+        elif getattr(self, "sim_data", None) is not None:
+            def filter_outliers(cell):
+                return cell[..., idx] if cell.ndim > 1 else cell[idx]
+            self.sim_data = self.sim_data.map(filter_outliers, na_action='ignore')
 
         # The adjoint belongs to the member it was evaluated at, so it moves
         # with the state and the predictions -- a member whose gradient came
         # from a different member is not a member of anything.
         if getattr(self, "adjoints", None) is not None:
-            self.adjoints = self.adjoints.map(filter_outliers, na_action='ignore')
+            self.adjoints = self.adjoints[..., idx]
+            if getattr(self, "member_adjoints", None):
+                self.member_adjoints = [self.member_adjoints[i] for i in idx]
 
         return enX[:, idx]
 
