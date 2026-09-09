@@ -853,6 +853,7 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   named helpers with identical behaviour.
 
 ### Removed
+- `misc.read_input_csv`'s module-level readers (`read_data_df`, `read_var_df`, `read_data_csv`, `read_var_csv`, `convert_to_array`, `to_array_if_sequence`, 470 lines): nothing called them; `DataReader` is the reader.
 - `BaseEnsemble.load()` and the `if self.restart is False:` guards around every scheme's and the ensemble's initialisation, which were always true. Construction now always initialises; a checkpoint is overlaid afterwards when `run_assimilation()` starts.
 
 - `opencv-python` is no longer a dependency; QA/QC was its only user.
