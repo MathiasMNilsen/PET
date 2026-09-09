@@ -45,14 +45,3 @@ def test_missing_localization_name_raises():
     with pytest.raises(ValueError, match="no 'name'"):
         build_localization_instance({}, None, None, None, 10)
 
-
-def test_a_state_array_keeps_its_indices_through_pickling():
-    """`indices` and `state_axis` were absent on an array read back from a checkpoint."""
-    import pickle
-    from misc.structures.structures import PETStateArray
-
-    array = PETStateArray(np.arange(6.0).reshape(3, 2), indices={"x": (0, 3)})
-    back = pickle.loads(pickle.dumps(array))
-    assert isinstance(back, PETStateArray)
-    assert back.indices == {"x": (0, 3)} and back.state_axis == 0
-    np.testing.assert_array_equal(np.asarray(back), np.asarray(array))

@@ -1,5 +1,5 @@
 """
-Comprehensive tests for PETDataFrame and PETStateArray.
+Comprehensive tests for PETDataFrame and StateLayout.
 
 This suite preserves:
 - Exact numerical correctness
@@ -15,7 +15,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from misc.structures.structures import PETDataFrame, PETStateArray
+from misc.structures import StateLayout
+from misc.structures.structures import PETDataFrame
 
 
 # ---------------------------------------------------------------------------
@@ -382,101 +383,65 @@ class TestScaling:
 
 
 # ---------------------------------------------------------------------------
-# PETStateArray
+# StateLayout
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def state_array():
-    data = np.arange(1, NX * NPARAMS * NE + 1, dtype=float)
-    data = data.reshape(NX * NPARAMS, NE)
-
-    indices = {
-        f"key{i+1}": (i*NX, (i+1)*NX)
-        for i in range(NPARAMS)
-    }
-
-    return PETStateArray(data, indices=indices)
+def state():
+    data = np.arange(1, NX * NPARAMS * NE + 1, dtype=float).reshape(NX * NPARAMS, NE)
+    layout = StateLayout({f"key{i+1}": (i * NX, (i + 1) * NX) for i in range(NPARAMS)})
+    return data, layout
 
 
-# ---------------------------------------------------------------------------
-# PETStateArray: Basic
-# ---------------------------------------------------------------------------
+class TestStateLayout:
+    def test_shapes_and_variables(self, state):
+        data, layout = state
+        assert layout.nx == NX * NPARAMS and layout.variables == tuple(f"key{i+1}" for i in range(NPARAMS))
+        assert layout.rows("key2") == slice(NX, 2 * NX)
 
-class TestStateArrayBasic:
-
-    def test_shapes(self, state_array):
-        assert state_array.shape == (NX * NPARAMS, NE)
-
-    def test_dict_conversion(self, state_array):
-        d = state_array.to_dict()
+    def test_dict_conversion_is_a_view_of_the_rows(self, state):
+        data, layout = state
+        d = layout.to_dict(data)
         assert all(v.shape == (NX, NE) for v in d.values())
+        np.testing.assert_array_equal(d["key2"], data[NX:2 * NX])
 
-    def test_roundtrip(self, state_array):
-        rebuilt = PETStateArray.from_list_of_dicts(
-            state_array.to_list_of_dicts()
-        )
-        assert np.allclose(rebuilt, state_array)
+    def test_member_dicts_round_trip_through_from_dict(self, state):
+        data, layout = state
+        members = layout.member_dicts(data)
+        assert len(members) == NE and members[0]["key1"].shape == (NX,)
+        rebuilt, rebuilt_layout = StateLayout.from_dict(
+            {key: np.column_stack([m[key] for m in members]) for key in layout.variables})
+        np.testing.assert_array_equal(rebuilt, data)
+        assert rebuilt_layout == layout
 
-    def test_transpose(self, state_array):
-        t = state_array.T
-        assert t.shape == (NE, NX * NPARAMS)
-        assert t.indices == state_array.indices
-        assert t.state_axis == 1
+    def test_from_dict_keeps_only_the_first_ne_columns_when_asked(self, state):
+        data, layout = state
+        matrix, _ = StateLayout.from_dict(layout.to_dict(data), ne=2)
+        np.testing.assert_array_equal(matrix, data[:, :2])
+        with pytest.raises(ValueError):
+            StateLayout.from_dict({})
 
-
-# ---------------------------------------------------------------------------
-# PETStateArray Operators (FULL COVERAGE)
-# ---------------------------------------------------------------------------
-
-class TestStateArrayOperators:
-
-    def _check(self, result, ref, expected):
-        assert isinstance(result, PETStateArray)
-        assert result.indices == ref.indices
-        assert result.state_axis == ref.state_axis
-        assert np.allclose(result, expected)
-
-    def test_all_ops(self, state_array):
-        a = np.asarray(state_array)
-        b = np.ones_like(a) * 2
-
-        # scalar ops
-        self._check(state_array + 5, state_array, a + 5)
-        self._check(5 + state_array, state_array, 5 + a)
-        self._check(state_array - 3, state_array, a - 3)
-        self._check(1000 - state_array, state_array, 1000 - a)
-        self._check(state_array * 2, state_array, a * 2)
-        self._check(2 * state_array, state_array, 2 * a)
-        self._check(state_array / 2, state_array, a / 2)
-        self._check(1000 / state_array, state_array, 1000 / a)
-        self._check(state_array // 3, state_array, a // 3)
-        self._check(state_array ** 2, state_array, a ** 2)
-
-        # array ops
-        self._check(state_array + b, state_array, a + b)
-        self._check(state_array - b, state_array, a - b)
-        self._check(state_array * b, state_array, a * b)
-
-        # unary
-        self._check(-state_array, state_array, -a)
-        self._check(+state_array, state_array, +a)
-        self._check(abs(state_array), state_array, np.abs(a))
-
-        # chained
-        self._check(
-            (state_array + 1) * 2 - 0.5,
-            state_array,
-            (a + 1) * 2 - 0.5,
-        )
-
-
+    def test_clip_by_variable_pair_and_list(self, state):
+        data, layout = state
+        by_variable = data.copy()
+        layout.clip(by_variable, {"key1": (2.0, 4.0), "key2": (None, None)})
+        np.testing.assert_array_equal(by_variable[:NX], np.clip(data[:NX], 2.0, 4.0))
+        np.testing.assert_array_equal(by_variable[NX:], data[NX:])
+        everywhere = data.copy()
+        layout.clip(everywhere, (0.0, 3.0))
+        assert everywhere.max() == 3.0
+        as_list = data.copy()
+        layout.clip(as_list, [(None, 1.0)] + [(None, None)] * (NPARAMS - 1))
+        assert as_list[:NX].max() == 1.0 and np.array_equal(as_list[NX:], data[NX:])
+        with pytest.raises(ValueError):
+            layout.clip(data.copy(), "no")
 
 
 # ---------------------------------------------------------------------------
-# PETStateArray: generation from prior info
+# StateLayout: generation from prior info
 # ---------------------------------------------------------------------------
 
-class TestGenerateFromPriorInfo:
+class TestFromPriorInfo:
     """A prior with more than one variable used to raise ``KeyError``: the
     second variable's offset was read from an ``idX`` entry that did not exist
     yet, so no multi-variable prior could be generated at all."""
@@ -488,22 +453,16 @@ class TestGenerateFromPriorInfo:
         return {"mean": [mean], "variance": [variance], "nx": 1, "ny": 1, "nz": 1}
 
     def test_variables_are_stacked_with_consecutive_indices(self):
-        prior_info = {
-            "a": self._scalar(1.0, 0.1),
-            "b": self._scalar(2.0, 0.2),
-            "c": self._scalar(3.0, 0.3),
-        }
+        prior_info = {"a": self._scalar(1.0, 0.1), "b": self._scalar(2.0, 0.2), "c": self._scalar(3.0, 0.3)}
         np.random.seed(0)
-        enX = PETStateArray.generate_from_prior_info(prior_info, ne=NE, save=False)
-
+        enX, layout = StateLayout.from_prior_info(prior_info, ne=NE, save=False)
         assert enX.shape == (3, NE)
-        assert enX.indices == {"a": (0, 1), "b": (1, 2), "c": (2, 3)}
+        assert layout.indices == {"a": (0, 1), "b": (1, 2), "c": (2, 3)}
 
     def test_indices_address_the_rows_of_their_own_variable(self):
         prior_info = {"a": self._scalar(1.0, 1e-12), "b": self._scalar(2.0, 1e-12)}
         np.random.seed(0)
-        enX = PETStateArray.generate_from_prior_info(prior_info, ne=NE, save=False)
-
-        as_dict = enX.to_dict()
+        enX, layout = StateLayout.from_prior_info(prior_info, ne=NE, save=False)
+        as_dict = layout.to_dict(enX)
         np.testing.assert_allclose(as_dict["a"], 1.0, atol=1e-4)
         np.testing.assert_allclose(as_dict["b"], 2.0, atol=1e-4)

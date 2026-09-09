@@ -5,7 +5,6 @@ from types import SimpleNamespace
 import numpy as np
 
 from ensemble.ensemble import BaseEnsemble
-from misc.structures import PETStateArray
 
 NE, NX = 6, 3
 
@@ -18,7 +17,7 @@ def _host():
 def _members():
     # Column j of the state holds j; member j's output holds j too, so the
     # member that replaced a crash can be read off both.
-    enX = PETStateArray(np.tile(np.arange(NE, dtype=float), (NX, 1)), indices={"x": (0, NX)})
+    enX = np.tile(np.arange(NE, dtype=float), (NX, 1))
     outputs = [[{"d": np.array([float(j)])}] for j in range(NE)]
     return enX, outputs
 

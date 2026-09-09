@@ -16,7 +16,8 @@ from p_tqdm import p_map
 import logging
 
 # Internal imports
-from misc.structures.structures import PETDataFrame, PETStateArray
+from misc.structures.structures import PETDataFrame
+from misc.structures.state import StateLayout
 from misc.sampling import random_stream
 
 # NOTE: pipt.misc_tools is imported lazily inside the methods that need it.
@@ -130,21 +131,19 @@ class BaseEnsemble:
                 self.ne = int(self.ne)
 
             # Generate prior ensemble
-            self.enX = PETStateArray.generate_from_prior_info(
+            self.enX, layout = StateLayout.from_prior_info(
                 self.prior_info,
                 self.ne,
-                save=self.keys_en.get('save_prior', True),
                 rng=self.rng,
+                save=self.keys_en.get('save_prior', True),
             )
-            self.idX = self.enX.indices
-            self.list_states = list(self.enX.indices.keys())
         else:
             # State variable imported as a Numpy save file
             file = self.keys_en['importstaticvar'] if 'importstaticvar' in self.keys_en else self.keys_en['importstate']
             file = np.load(file, allow_pickle=True)
-            self.enX = PETStateArray.from_dict({key: file[key] for key in file.files}, ne=int(self.ne))
-            self.idX = self.enX.indices
-            self.list_states = list(self.enX.indices.keys())
+            self.enX, layout = StateLayout.from_dict({key: file[key] for key in file.files}, ne=int(self.ne))
+        self.idX = layout.indices
+        self.list_states = list(layout.variables)
 
         if 'multilevel' in self.keys_en:
             self.multilevel = extract.extract_multilevel_info(self.keys_en['multilevel'])
@@ -209,14 +208,12 @@ class BaseEnsemble:
             ne = self.multilevel['ml_ne']
             levels = tqdm(range(len(ne)), desc='Fidelity level', position=1, **progbar_settings)
             assert isinstance(enX, list)
-            if not all(isinstance(x, PETStateArray) for x in enX):
-                enX = [PETStateArray(x, indices=self.idX) for x in enX]
+            enX = [np.asarray(x) for x in enX]
         else:
             levels = range(1)
             ne = [self.ne]
             is_multilevel = False
-            if not isinstance(enX, PETStateArray):
-                enX = PETStateArray(enX, indices=self.idX)
+            enX = np.asarray(enX)
 
         # Loop over levels, if not multilevel, this loop will only run once.
         for level in levels:
@@ -271,7 +268,7 @@ class BaseEnsemble:
     # ------------------------------------------------------------------
     def _simulator_input(self, enX, ne):
         """One dict per member, as ``run_fwd_sim`` takes it, with any auxiliary input attached."""
-        sim_input = enX.to_list_of_dicts()
+        sim_input = self.state_layout.member_dicts(enX)
         if self.aux_input is not None:
             for n in range(ne):
                 sim_input[n]['aux_input'] = self.aux_input[n]
@@ -298,6 +295,11 @@ class BaseEnsemble:
             disable=self.disable_tqdm,
             **progbar_settings,
         )
+
+    @property
+    def state_layout(self) -> StateLayout:
+        """The state's variable layout, read off ``idX`` -- the one place the row ranges live."""
+        return StateLayout(self.idX)
 
     @property
     def sim_data(self):

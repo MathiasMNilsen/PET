@@ -115,7 +115,7 @@ class QAQC:
     sim : object, optional
         Simulator; used only for an optional ``write_to_grid`` method.
     ini_state : dict, optional
-        The prior state, ``{parameter: (n, ne) array}``, as ``enX.to_dict()``
+        The prior state, ``{parameter: (n, ne) array}``, as ``state_layout.to_dict(enX)``
         returns it; defines the parameter groups and the ensemble size.
     localization : object, optional
         The scheme's localization. Only the auto-adaptive kind is used, by

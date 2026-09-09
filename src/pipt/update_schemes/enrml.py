@@ -205,8 +205,8 @@ class IterativeEnRML(AssimilationScheme):
             ), step_scale=self._step_scale())
 
             # Ensure limits are respected
-            limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
-            self.enX_proposal.clip_matrix(limits)
+            limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.idX}
+            self.state_layout.clip(self.enX_proposal, limits)
 
     def update_step(self) -> StepReport:
         """Run one iteration, retrying until an attempt improves the misfit.

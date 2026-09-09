@@ -207,7 +207,7 @@ class EnKF(AssimilationScheme):
 
             # Ensure limits are respected
             limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.idX.keys()}
-            self.enX_proposal.clip_matrix(limits)
+            self.state_layout.clip(self.enX_proposal, limits)
 
     # ------------------------------------------------------------------
     # AssimilationScheme contract

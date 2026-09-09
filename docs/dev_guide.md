@@ -10,7 +10,7 @@ package lives under `src/`.
 | `ensemble` | The foundation both toolboxes build on: the base ensemble (prior generation, forecast orchestration), checkpoint/restart, logging. It must not import `pipt` or `popt` at module level; `tests/test_import_hygiene.py` enforces this. |
 | `pipt` | Data assimilation. Schemes in `update_schemes/`, analysis flavours in `update_schemes/analysis/`, the assimilation ensemble in `ensembles/`, localization in `localization/`, numerical helpers in `misc_tools/`. |
 | `popt` | Optimisation. Optimizers in `optimization_methods/`, the ensembles that estimate gradients in `ensembles/`, cost functions in `cost_functions/`. |
-| `misc` | Data structures (`PETDataFrame`, `PETStateArray`), the observed-data reader, and vendored Eclipse grid and output readers used by external simulator wrappers. |
+| `misc` | Data structures (`PETDataFrame` as the table view, `DataLayout`/`PredictedData` for the data matrices, `StateLayout` for the state's variable rows), the observed-data reader, and vendored Eclipse grid and output readers used by external simulator wrappers. |
 | `input_output` | Config parsing (`.toml`, `.yaml`, and the legacy `.pipt`/`.popt` text format) and report-point handling. |
 | `simulator` | Small analytical simulators used by the tests and tutorials. Reservoir simulators live in the external SimulatorWrap repository. |
 | `pet_cli` | The `pet` command: `validate`, `convert`, `migrate`, `version`. |

@@ -75,11 +75,11 @@ class MultilevelEnsemble(Ensemble):
     def _ext_scaling(self):
         """Compute state scaling from the unpartitioned prior.
 
-        The base implementation reads ``prior_enX.indices``, which does not
-        exist once the prior is a list of per-level blocks.
+        Once the prior is a list of per-level blocks, the scaling is still
+        defined over the whole state matrix.
         """
         self.state_scaling = at.calc_scaling(
-            self._flat_prior_enX, self._flat_prior_enX.indices, self.prior_info
+            self._flat_prior_enX, self.idX, self.prior_info
         )
         self.Am = None
 
@@ -210,12 +210,12 @@ class esmda_hybrid(ESMDA):
             enE = self.ml_enObs
         ))
         self.step = result.step
-        limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX[0].indices}
+        limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.idX}
         # A scheme-local proposal, one entry per fidelity level.
         enX_proposal = []
         for l in range(self.tot_level):
             level = self.enX[l] + self.step[l]
-            level.clip_matrix(limits)
+            self.state_layout.clip(level, limits)
             enX_proposal.append(level)
         self.enX_proposal = enX_proposal
 

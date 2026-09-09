@@ -336,6 +336,7 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
     data_layout = _ensemble_attr("data_layout")
     obs_vector = _ensemble_attr("obs_vector")
     obs_variance = _ensemble_attr("obs_variance")
+    state_layout = _ensemble_attr("state_layout")
     prior_enX = _ensemble_attr("prior_enX")
     prior_info = _ensemble_attr("prior_info")
     save_folder = _ensemble_attr("save_folder")
@@ -783,14 +784,14 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
             logger=self.logger,
             prior_info=self.prior_info,
             sim=self.sim,
-            ini_state=self.prior_enX.to_dict(),
+            ini_state=self.state_layout.to_dict(self.prior_enX),
             localization=self.localization,
             folder=Path(self.save_folder or ".") / "QAQC",
         )
 
     def _set_qaqc(self) -> None:
         # QA/QC reads predictions cell by cell; hand it the frame view.
-        self.qaqc.set(self.pred_data.to_frame(), self.enX.to_dict(), self.lam)
+        self.qaqc.set(self.pred_data.to_frame(), self.state_layout.to_dict(self.enX), self.lam)
 
     def _run_prior_quality_assurance(self) -> None:
         if self.qaqc is None or "qa" not in self.keys_da:
@@ -818,7 +819,7 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
 
         Returns
         -------
-        PETStateArray
+        np.ndarray
             The state to forecast. Weight-space results also advance
             ``self.W`` from ``self.current_W``; the scheme commits ``W`` to
             ``current_W`` when it accepts the step.
@@ -850,11 +851,11 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
     def _save_posterior_results(self) -> None:
         """Save posterior state and forecast, falling back to pickle if needed."""
         try:
-            np.savez(self._save_path(self.POSTERIOR_STATE_FILE), **self.enX.to_dict())
+            np.savez(self._save_path(self.POSTERIOR_STATE_FILE), **self.state_layout.to_dict(self.enX))
             self.sim_data.to_pickle(self._save_path(self.POSTERIOR_FORECAST_FILE))
         except Exception:
             with open(self._save_path(self.POSTERIOR_STATE_FILE), "wb") as file:
-                pickle.dump(self.enX.to_dict(), file)
+                pickle.dump(self.state_layout.to_dict(self.enX), file)
             with open(self._save_path(self.POSTERIOR_FORECAST_FILE), "wb") as file:
                 pickle.dump(self.sim_data, file)
 
@@ -960,10 +961,10 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
     def _state_debug_dict(self) -> dict[str, Any]:
         if getattr(self.ensemble, "multilevel", None) is not None:
             return {
-                f"state_level{level}": self.enX[level].to_dict()
+                f"state_level{level}": self.state_layout.to_dict(self.enX[level])
                 for level in range(self.ensemble.tot_level)
             }
-        return self.enX.to_dict()
+        return self.state_layout.to_dict(self.enX)
 
     @staticmethod
     def _as_list(value: Any) -> list[Any]:

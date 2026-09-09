@@ -134,12 +134,12 @@ class ESMDA(AssimilationScheme):
 
         # A specialised ensemble may already have established these -- the
         # multilevel one partitions enX into per-level blocks and sets both
-        # itself, and `enX.indices` does not exist on that shape. Only fill
+        # itself. Only fill
         # them in when the collaborator has not.
         if getattr(self.ensemble, 'prior_enX', None) is None:
             self.ensemble.prior_enX = deepcopy(self.enX)
         if getattr(self.ensemble, 'list_states', None) is None:
-            self.ensemble.list_states = list(self.enX.indices)
+            self.ensemble.list_states = list(self.idX)
         self.ensemble.list_datatypes = self.keys_da['datatype']
 
         # At the moment, the iterative loop is threated as an iterative smoother an thus we check if assim. indices
@@ -294,8 +294,8 @@ class ESMDA(AssimilationScheme):
 
 
             # Ensure limits are respected
-            limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.enX.indices}
-            self.enX_proposal.clip_matrix(limits)
+            limits = {key: self.prior_info[key].get('limits', (None, None)) for key in self.idX}
+            self.state_layout.clip(self.enX_proposal, limits)
 
     def score_and_commit(self):
         """Score the forecast that followed the analysis, then commit the step.
