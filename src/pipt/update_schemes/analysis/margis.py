@@ -103,28 +103,6 @@ import pandas as pd
 from pipt.update_schemes.analysis.base import AnalysisBase, AnalysisResult
 
 
-def _row_datatypes(df):
-    """Datatype label for each row ``df.to_matrix()`` produces, in that order.
-
-    ``PETDataFrame.to_matrix()`` flattens time-major, interleaving data types
-    within each time step, and drops any all-missing (time, datatype) cell --
-    so datatype rows are neither contiguous nor evenly spaced, and cannot be
-    recovered by striding. This mirrors ``to_matrix()``'s own filtering and
-    per-cell array expansion exactly, over the ``(index, datatype)`` labels
-    ``to_series()`` already carries, so the result lines up one-to-one with
-    ``to_matrix()``'s rows.
-    """
-    labels = []
-    for (_, datatype), val in df.to_series().items():
-        if not np.any(pd.notna(np.atleast_1d(val))):
-            continue
-        if (not df.is_ensemble) and isinstance(val, np.ndarray):
-            labels.extend([datatype] * len(val))
-        else:
-            labels.append(datatype)
-    return labels
-
-
 class margIS_update(AnalysisBase):
     """
     MargIES update from Stordal et.al.
@@ -151,7 +129,8 @@ class margIS_update(AnalysisBase):
         Y = Y @ scheme.proj * np.sqrt(ne - 1)
 
         # One term of Eq. 8/9 per data type, not per individual point.
-        row_labels = np.asarray(_row_datatypes(scheme.data_df))
+        # The layout knows the data type of every row of the data vector.
+        row_labels = scheme.data_layout.row_datatypes()
         data_types = pd.unique(row_labels)
         s = 1 #should be default option with possibility to change in setup
         nu = ne-1 #should be default option with possibility to change in setup

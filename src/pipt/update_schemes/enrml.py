@@ -179,7 +179,7 @@ class IterativeEnRML(AssimilationScheme):
     def calc_analysis(self):
         """Compute the trial state: the analysis step, scaled and clipped."""
         # Get Ensemble of predicted data
-        self.enPred = self.pred_data.to_matrix()
+        self.enPred = self.pred_data.matrix
 
         if 'localanalysis' in self.keys_da:
             self.ensemble.local_analysis_update()

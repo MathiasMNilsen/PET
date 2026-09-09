@@ -163,9 +163,9 @@ class EnKF(AssimilationScheme):
         """
         # Augment observed and predicted data
         if extract.is_enabled(self.keys_da.get('emp_cov', False)):
-            self.enPred = self.pred_data.to_matrix()
+            self.enPred = self.pred_data.matrix
         else:
-            self.enPred = self.pred_data.to_matrix()
+            self.enPred = self.pred_data.matrix
 
             #self.cov_data = at.gen_covdata(
             #    self.datavar,

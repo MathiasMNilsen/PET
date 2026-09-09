@@ -17,6 +17,8 @@ from copy import deepcopy
 from typing import Any
 
 import numpy as np
+import pandas as pd
+from misc.structures import PredictedData
 
 import pipt.misc_tools.analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
@@ -44,11 +46,9 @@ class ForecastMixin:
             return
 
         self.calc_prediction(enX)
-        self.pred_data = self.sim_to_pred_data(self.sim_data)
+        self.pred_data = self._predicted_data()
 
         # Multilevel runs correct each level towards the reference level's mean.
-        # This needs `pred_data`, so it happens here rather than inside
-        # `calc_prediction`, which only produces `sim_data`.
         if getattr(self, "multilevel", None) is not None:
             self.treat_modeling_error()
 
@@ -58,6 +58,36 @@ class ForecastMixin:
             self.post_process_forecast()
 
         self._save_forecast_debug()
+
+    def _predicted_data(self):
+        """The forecast as the analyses see it: the layout's rows, filled from each member's output.
+
+        One container per level for a multilevel ensemble. Scaling follows the
+        observations: when ``data_df`` was max-min scaled, so are these, with
+        the same minimum and maximum per data type.
+        """
+        scale = (self.data_df.scale_min, self.data_df.scale_max) if self.data_df.is_scaled else None
+        position = self._record_positions()
+        levels = [PredictedData.from_members(self.data_layout, members, position=position, scale=scale)
+                  for members in self.member_outputs]
+        return levels if getattr(self, "multilevel", None) is not None else levels[0]
+
+    def _record_positions(self):
+        """Where each observed label sits in a member's records: the simulator's ``true_order``, else the label itself."""
+        order = getattr(self.sim, "true_order", None)
+        if order is None:
+            return None
+        positions = pd.Index(order[1]).get_indexer(list(self.data_layout.labels))
+        missing = [label for label, pos in zip(self.data_layout.labels, positions) if pos < 0]
+        if missing:
+            raise ValueError(f"the simulator reports no values at observed labels {missing!r}")
+        return dict(zip(self.data_layout.labels, positions))
+
+    def treat_modeling_error(self) -> None:
+        """Shift every coarser level so each row's ensemble mean matches the finest level's."""
+        reference = self.pred_data[-1].matrix.mean(axis=1)
+        for level in self.pred_data[:-1]:
+            level.matrix += (reference - level.matrix.mean(axis=1))[:, None]
 
     # ------------------------------------------------------------------
     # Saving helpers
@@ -101,7 +131,7 @@ class ForecastMixin:
         with open(self.RESTART_RESULTS_FILE, "rb") as file:
             self.sim_data = pickle.load(file)
 
-        self.pred_data = self.sim_to_pred_data(self.sim_data)
+        self.pred_data = self._container_from_frame(self.sim_to_pred_data(self.sim_data))
 
         # Consumed once; it then lives with the other results under the name a
         # saved forecast gets (in the working directory when saving is off).
@@ -111,14 +141,18 @@ class ForecastMixin:
         return True
 
     def _apply_prediction_scaling(self) -> None:
+        """Multiply the predictions of the data types named by ``scale`` by its factor."""
         if "scale" not in self.keys_da:
             return
 
         scale_keys, scale_factor = self.keys_da["scale"]
-        for prediction in self.pred_data:
-            for key in prediction:
-                if key in scale_keys:
-                    prediction[key] *= scale_factor
+        if isinstance(scale_keys, str):
+            scale_keys = [scale_keys]
+        levels = self.pred_data if isinstance(self.pred_data, list) else [self.pred_data]
+        for level in levels:
+            for datatype in scale_keys:
+                for rows in level.rows_of(datatype):
+                    level.matrix[rows] *= scale_factor
 
     def _save_forecast_debug(self) -> None:
         if "saveforecast" not in self.sim.input_dict:
@@ -132,6 +166,12 @@ class ForecastMixin:
 
         with open(self._save_path(self.SIM_RESULTS_FILE), "wb") as file:
             pickle.dump(forecast, file)
+
+    def _container_from_frame(self, frame):
+        """A ``PredictedData`` (one per level) from a prediction frame, for paths that still produce frames."""
+        if isinstance(frame, list):
+            return [PredictedData.from_frame(self.data_layout, level, self.ne) for level in frame]
+        return PredictedData.from_frame(self.data_layout, frame, self.ne)
 
     def sim_to_pred_data(self, pred: Any) -> Any:
         '''
@@ -157,7 +197,15 @@ class ForecastMixin:
     # Post-processing
     # ------------------------------------------------------------------
     def post_process_forecast(self) -> None:
-        """Post-process predicted data after a forecast run."""
+        """Compress and rescale seismic predictions after a forecast run.
+
+        This path still works on the prediction frame -- built here from
+        ``sim_data``, as before -- and is wrapped into the container at the
+        end. Moving the compression to a per-data-type transform at fill time
+        is the next step of the data-structure work; it needs a test first.
+        """
+        self.pred_data = self.sim_to_pred_data(self.sim_data)
+
         compress_columns = self.sparse_info["compress_data"]
         if not isinstance(compress_columns, list):
             compress_columns = [compress_columns]
@@ -166,6 +214,8 @@ class ForecastMixin:
         self._apply_sim2seis_scaling(pred_data_tmp)
         self._apply_sparse_compression(pred_data_tmp)
         self._save_reconstructed_forecast_if_requested()
+
+        self.pred_data = self._container_from_frame(self.pred_data)
 
     def _apply_sim2seis_scaling(self, pred_data_tmp: Any) -> None:
         if not os.path.exists("scale_results.pkl"):
@@ -255,7 +305,7 @@ class OutlierMixin:
         because the caller owns the state being forecast.
         """
         outlier_idx, non_outlier_idx = at.get_outlier_index(
-            self.pred_data, self.data_df, self.data_var_df,
+            self.pred_data.matrix, self.obs_vector, self._variance_array(),
         )
         if len(outlier_idx) == 0:
             return enX
@@ -265,11 +315,12 @@ class OutlierMixin:
             idx[outlier] = new_idx
             self.logger(f"Replaced outlier {outlier} with member {new_idx}")
 
-        # Filter outliers from dataframes. Cells with no data are None and are
-        # left alone (na_action), instead of failing on `.ndim`.
+        self.pred_data = self.pred_data.take_members(idx)
+
+        # The full forecast is still a frame. Cells with no data are None and
+        # are left alone (na_action), instead of failing on `.ndim`.
         def filter_outliers(cell):
             return cell[..., idx] if cell.ndim > 1 else cell[idx]
-        self.pred_data = self.pred_data.map(filter_outliers, na_action='ignore')
         self.sim_data = self.sim_data.map(filter_outliers, na_action='ignore')
 
         # The adjoint belongs to the member it was evaluated at, so it moves
@@ -279,3 +330,9 @@ class OutlierMixin:
             self.adjoints = self.adjoints.map(filter_outliers, na_action='ignore')
 
         return enX[:, idx]
+
+    def _variance_array(self):
+        """The observation variances in layout order: ``(nd,)``, or ``(nd, ne)`` for an empirical ensemble."""
+        if self.data_var_df.is_ensemble:
+            return self.data_layout.matrix(self.data_var_df, self.ne)
+        return self.data_layout.vector(self.data_var_df)

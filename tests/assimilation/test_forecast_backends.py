@@ -19,7 +19,7 @@ def _forecast(tmp_path, monkeypatch, parallel):
     cfg_sim["parallel"] = parallel
     ensemble = AssimilationEnsemble(cfg_da, cfg_ens, VanDerPolOscillator(cfg_sim))
     ensemble.forecast(ensemble.enX)
-    return ensemble.pred_data.to_matrix()
+    return ensemble.pred_data.matrix
 
 
 @pytest.mark.slow

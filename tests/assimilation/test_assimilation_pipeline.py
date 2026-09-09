@@ -187,7 +187,7 @@ def assert_assimilation_quality(ensemble, misfit_threshold=60.0):
     # Data misfit check
     dm = compute_data_misfit(
         observed=ensemble.vecObs,
-        predicted=ensemble.pred_data.to_matrix(),
+        predicted=ensemble.pred_data.matrix,
         cov=np.diag(ensemble.cov_data),
     )
 

@@ -499,6 +499,7 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   PIPT and POPT rather than duplicated.
 
 ### Fixed
+- The `scale` option of `[dataassim]` (multiply the predictions of named data types by a factor) never did anything: it iterated the characters of the column names. It now scales the named rows of the prediction matrix.
 - ES-MDA's restart branch referenced an undefined `loop_ind`; the step to resume at now comes from the restored iteration counter.
 - `LineSearch(recompute_jac=n)` crashed with `TypeError` on its first retry: the gradient was cleared but not recomputed before the next search direction.
 - popt's `save_prediction` option raised `AttributeError`: the base ensemble read `self.ensemble.keys_da`, an attribute it never had. The folder now comes from the ensemble's own options (`savefolder` or `save_folder`, default `Predictions`) and is created before writing.
@@ -681,6 +682,7 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   first branch.
 
 ### Changed
+- Predictions are a `PredictedData` container -- the `(nd, ne)` matrix in `DataLayout` order plus the layout -- filled directly from what each member's simulation returned, scaled as the observations were. The schemes read `pred_data.matrix`; nothing on the analysis path flattens a frame any more. `pred_data.to_frame()` is the frame view (QA/QC, inspection); `sim_data`, the full forecast, is still a frame and still what gets saved. Observations and predictions now share one row order by construction, so an unobserved cell can no longer leave the observation vector shorter than the prediction matrix. The multilevel model-error correction and outlier detection work on the matrices. In `savedata` files, `pred_data` is the matrix rather than a list of records. The seismic compression path (`post_process_forecast`) still runs on the frame and is wrapped into the container afterwards.
 - `BaseEnsemble.calc_prediction` is orchestration over four named steps: `_simulator_input` (one dict per member), `_run_members` (the serial, HPC and process-pool backends), `_collect_adjoints` and `_collect_sim_data` (the output coercion and scaling). Same operations in the same order; the characterisation goldens are unchanged, and a new test pins the pooled backend against the serial one.
 - `OptimizerBase` owns what the four optimizers each repeated: `minimize`, the starting evaluation (now at the start of `run_optimization()` rather than in the constructor, so an optimizer can be built without evaluating anything), the callback, result recording and saving, the iteration log, and the projected-gradient convergence check (`gtol`). `enopt.py`, `linesearch.py`, `trust_region.py` and `smcopt.py` lost about 500 lines between them. Results are unchanged: 21 deterministic cases across all optimizers, search directions and step rules give bit-identical `x`, `fun`, `nit`, `nfev`, `njev` and `nhev`.
 - `LineSearch` results no longer carry `hess` after the first step: the Hessian on hand belonged to the previous iterate and was reported against the new `x`.

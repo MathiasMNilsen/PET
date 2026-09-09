@@ -1114,12 +1114,13 @@ def get_outlier_index(
 
     Parameters
     ----------
-    pred : PETDataFrame
-        Predicted data ensemble. Each cell must contain an ndarray whose last axis indexes the ensemble member (shape (..., ne)).
-    data : PETDataFrame
-        Observed data. Converted to a 1-D vector via `to_matrix()`.
-    data_var : PETDataFrame or np.ndarray or None, optional
-        Data variance. If not provided, the ensemble variance of the predicted data is used. If provided, must be compatible with pred.
+    pred : array_like, shape (nd, ne)
+        Predicted data ensemble, one column per member.
+    data : array_like, shape (nd,)
+        Observed data, in the same row order.
+    data_var : array_like or None, optional
+        Data variance, ``(nd,)`` or ``(nd, ne)`` for an empirical ensemble. If not provided, the ensemble
+        variance of the predicted data is used.
     tresh : float, optional
         Outlier threshold in numbers of standard deviations. Default is 4.
 
@@ -1130,21 +1131,14 @@ def get_outlier_index(
     members : np.ndarray
         Array of ensemble member indices, with outliers replaced by randomly selected non-outlier members.
     """
-    Y = pred.to_matrix()  # (nd, ne)
-    d = data.to_matrix(squeeze=False)  # (nd, 1)
-
-    # Ensure d is a column vector
-    if d.ndim == 1:
-        d = d[:, np.newaxis]
+    Y = np.asarray(pred, dtype=float)  # (nd, ne)
+    d = np.asarray(data, dtype=float).reshape(-1, 1)  # (nd, 1)
 
     # Determine variance for normalization
     if data_var is not None:
-        if isinstance(data_var, type(pred)):
-            var = data_var.to_matrix(squeeze=False)
-        else:
-            var = np.asarray(data_var)
-            if var.ndim == 1:
-                var = var[:, np.newaxis]
+        var = np.asarray(data_var, dtype=float)
+        if var.ndim == 1:
+            var = var[:, np.newaxis]
     else:
         var = np.var(Y, axis=1, ddof=1)[:, np.newaxis]
 

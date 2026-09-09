@@ -185,6 +185,7 @@ class BaseEnsemble:
 
         nparallel = int(self.sim.input_dict.get('parallel', 1))
         self.sim_data = []
+        self.member_outputs = []   # per level: what each member's simulation returned, as returned
 
         # Simulators run each realisation in its own `En_<member>` folder and
         # create it with `os.mkdir`, which fails rather than reuses if the
@@ -240,6 +241,7 @@ class BaseEnsemble:
                 if (not is_multilevel) and getattr(self.sim, 'compute_adjoints', False):
                     sim_output = self._collect_adjoints(sim_output)
 
+                self.member_outputs.append(list(sim_output))
                 self.sim_data.append(self._collect_sim_data(sim_output))
 
         if len(self.sim_data) == 1:
@@ -464,14 +466,4 @@ class BaseEnsemble:
                 sim_output[list_crash[index]] = deepcopy(sim_output[element])
 
         return sim_output, enX, success
-
-
-
-    def treat_modeling_error(self):
-        ref_pred_data = self.pred_data[-1]
-        for col in ref_pred_data.columns:
-            for idx in ref_pred_data.index:
-                ref_mean = ref_pred_data.loc[idx, col].mean(axis=-1)
-                for level in range(self.tot_level - 1):
-                    self.pred_data[level].at[idx, col] += (ref_mean - self.pred_data[level].loc[idx, col].mean(axis=-1))
 

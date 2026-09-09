@@ -333,6 +333,8 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
     multilevel = _ensemble_attr("multilevel")
     ne = _ensemble_attr("ne")
     pred_data = _ensemble_attr("pred_data")
+    data_layout = _ensemble_attr("data_layout")
+    obs_vector = _ensemble_attr("obs_vector")
     prior_enX = _ensemble_attr("prior_enX")
     prior_info = _ensemble_attr("prior_info")
     save_folder = _ensemble_attr("save_folder")
@@ -580,7 +582,9 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
 
     @staticmethod
     def _as_matrix(pred) -> "np.ndarray":
-        """A forecast as an ``(nd, ne)`` matrix, given either form."""
+        """A forecast as an ``(nd, ne)`` matrix: a ``PredictedData``, a legacy frame, or an array."""
+        if hasattr(pred, "matrix"):
+            return pred.matrix
         return pred.to_matrix() if hasattr(pred, "to_matrix") else np.asarray(pred)
 
     def record_prior_score(self) -> None:
@@ -784,7 +788,8 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
         )
 
     def _set_qaqc(self) -> None:
-        self.qaqc.set(self.pred_data, self.enX.to_dict(), self.lam)
+        # QA/QC reads predictions cell by cell; hand it the frame view.
+        self.qaqc.set(self.pred_data.to_frame(), self.enX.to_dict(), self.lam)
 
     def _run_prior_quality_assurance(self) -> None:
         if self.qaqc is None or "qa" not in self.keys_da:
@@ -934,6 +939,8 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
                 save_attr = getattr(self, save_type)
                 if isinstance(save_attr, (pd.DataFrame, PETDataFrame)):
                     save_dict[save_type] = save_attr.to_dict(orient="records")
+                elif hasattr(save_attr, "matrix"):
+                    save_dict[save_type] = save_attr.matrix   # PredictedData: the (nd, ne) matrix
                 else:
                     save_dict[save_type] = save_attr
             elif save_type == "state":

@@ -251,7 +251,7 @@ class ESMDA(AssimilationScheme):
         where $N_a$ being the total number of assimilation steps.
         """
         # Get Ensemble matrix of predicted data
-        self.enPred = self.pred_data.to_matrix()
+        self.enPred = self.pred_data.matrix
 
         # The prior misfit used to be computed here, behind an `iteration == 0`
         # branch. The base scores it through `score()` before the loop now,

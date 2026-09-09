@@ -5,6 +5,7 @@ statement, so it never ran and a resampled member kept a stranger's gradient."""
 import numpy as np
 import pandas as pd
 
+from misc.structures import DataLayout, PredictedData
 from misc.structures.structures import PETDataFrame
 from pipt.ensembles.forecast import OutlierMixin
 
@@ -38,10 +39,12 @@ class Host(OutlierMixin):
         self.ne = NE
         self.rng = np.random
         self.logger = lambda *args, **kwargs: None
-        self.pred_data = _frame(pred_cells, is_ensemble=True)
         self.sim_data = _frame(pred_cells, is_ensemble=True)
         self.data_df = _frame(TRUTH, is_ensemble=False)
         self.data_var_df = _frame({s: 1.0 for s in STEPS}, is_ensemble=False)
+        self.data_layout = DataLayout.from_frame(self.data_df)
+        self.obs_vector = self.data_layout.vector(self.data_df)
+        self.pred_data = PredictedData.from_frame(self.data_layout, _frame(pred_cells, is_ensemble=True), NE)
         # Adjoint of member j is 10*j in every entry, so the member it came
         # from can be read straight off the array.
         adj = np.tile(10.0 * np.arange(NE), (NX, 1))
@@ -70,7 +73,7 @@ def test_adjoints_follow_the_resampled_member():
         np.testing.assert_array_equal(
             host.adjoints.loc[step, "obs"][:, 1:], np.tile(10.0 * np.arange(1, NE), (NX, 1))
         )
-        assert host.pred_data.loc[step, "obs"][0] == pred_cells[step][k]
+        assert host.pred_data.to_frame().loc[step, "obs"][0] == pred_cells[step][k]
 
 
 def test_without_adjoints_the_state_and_predictions_are_still_resampled():
@@ -83,7 +86,7 @@ def test_without_adjoints_the_state_and_predictions_are_still_resampled():
     assert host.adjoints is None
     assert int(new_enX[0, 0]) != 0
     for step in STEPS:
-        assert host.pred_data.loc[step, "obs"][0] == TRUTH[step]
+        assert host.pred_data.to_frame().loc[step, "obs"][0] == TRUTH[step]
 
 
 def test_no_outliers_returns_the_same_state_object():
@@ -92,16 +95,15 @@ def test_no_outliers_returns_the_same_state_object():
     assert host.remove_outliers(enX) is enX
 
 
-def test_empty_cells_are_left_alone_when_members_are_resampled():
-    """Frames carry None where a data type has no value at a report point;
-    the outlier filter used to call .ndim on them."""
+def test_empty_cells_of_the_full_forecast_are_left_alone_when_members_are_resampled():
+    """The full forecast frame carries None where a data type has no value at a
+    report point; the outlier filter used to call .ndim on them."""
     pred_cells = _predictions(outlier_member=0)
     host = Host(pred_cells, with_adjoints=False)
-    host.pred_data.loc["t2", "obs"] = None
     host.sim_data.loc["t2", "obs"] = None
 
     np.random.seed(1)
     new_enX = host.remove_outliers(_state())
 
     assert int(new_enX[0, 0]) != 0
-    assert host.pred_data.loc["t2", "obs"] is None
+    assert host.sim_data.loc["t2", "obs"] is None

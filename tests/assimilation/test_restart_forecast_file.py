@@ -59,10 +59,8 @@ def test_a_restart_uses_the_file_once_and_files_it_with_the_results(ensemble_wit
     ensemble.restart = True
     ensemble.forecast(ensemble.enX)
 
-    expected = ensemble.sim_to_pred_data(placed)
-    for index in expected.index:
-        for column in expected.columns:
-            np.testing.assert_array_equal(np.asarray(ensemble.pred_data.loc[index, column]), np.asarray(expected.loc[index, column]))
+    expected = ensemble._container_from_frame(ensemble.sim_to_pred_data(placed))
+    np.testing.assert_array_equal(ensemble.pred_data.matrix, expected.matrix)
     assert not Path(ForecastMixin.RESTART_RESULTS_FILE).exists()
     filed_under = Path(ensemble.save_folder or ".") / ForecastMixin.SIM_RESULTS_FILE
     assert filed_under.exists()

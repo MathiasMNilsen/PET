@@ -164,7 +164,7 @@ class esmda_hybrid(ESMDA):
         # Get ensemble predictions at all levels
         self.enPred = []
         for l in range(self.tot_level):
-            enPred_level = self.pred_data[l].to_matrix()
+            enPred_level = self.pred_data[l].matrix
             self.enPred.append(enPred_level)
 
         # Initialize GeoStat class for generating realizations
