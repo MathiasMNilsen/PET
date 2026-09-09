@@ -248,3 +248,18 @@ class TestNPZHandling:
 
 
 
+
+
+def test_the_ensemble_observation_vector_matches_the_frame_flatten(tmp_path, monkeypatch):
+    """`obs_vector` replaces `data_df.to_matrix()` on every scheme; the two must agree."""
+    from input_output import read_config
+    from pipt.ensembles import AssimilationEnsemble
+    from simulator.vanderpol import VanDerPolOscillator
+    from test_numerical_characterisation import _write_config, _write_synthetic_case
+
+    monkeypatch.chdir(tmp_path)
+    report_points = _write_synthetic_case(ne=8)
+    cfg_da, cfg_sim, cfg_ens = read_config.read(_write_config("layout", "esmda", "approx", report_points, ne=8))
+    ensemble = AssimilationEnsemble(cfg_da, cfg_ens, VanDerPolOscillator(cfg_sim))
+    np.testing.assert_array_equal(ensemble.obs_vector, ensemble.data_df.to_matrix())
+    assert ensemble.data_layout.nd == ensemble.obs_vector.shape[0]

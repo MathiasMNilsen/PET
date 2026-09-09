@@ -12,6 +12,7 @@ import os.path
 import numpy as np
 from scipy.linalg import cholesky
 from misc.sampling import gen_real
+from misc.structures import DataLayout
 
 from ensemble import BaseEnsemble, NullLogger, PetLogger
 import misc.read_input_csv as rcsv
@@ -150,6 +151,11 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
                         minimum=0,
                         maximum=(self.data_df.scale_max - self.data_df.scale_min)**2
                 )
+
+        # The order every data matrix uses, and the observations in it. Built
+        # after scaling, so the vector holds what the analyses compare against.
+        self.data_layout = DataLayout.from_frame(self.data_df)
+        self.obs_vector = self.data_layout.vector(self.data_df)
 
         self.keys_da['datatype'] = reader.datatype
         self.keys_da['truedataindex'] = reader.truedataindex

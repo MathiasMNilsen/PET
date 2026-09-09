@@ -139,7 +139,7 @@ class IterativeEnRML(AssimilationScheme):
 
         # Get the perturbed observations and scaling
         self.data_random_state = cp.deepcopy(np.random.get_state())
-        self.vecObs = self.data_df.to_matrix()
+        self.vecObs = self.ensemble.obs_vector
         self.enObs = self.ensemble.perturb_observations(self.vecObs)
         self.ensemble._ext_scaling()
 

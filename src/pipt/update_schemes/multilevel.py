@@ -70,7 +70,7 @@ class MultilevelEnsemble(Ensemble):
         self.list_datatypes = self.keys_da['datatype']
 
         self.cov_data = at.construct_data_cov(self.data_var_df)
-        self.vecObs = self.data_df.to_matrix()
+        self.vecObs = self.obs_vector
 
     def _ext_scaling(self):
         """Compute state scaling from the unpartitioned prior.

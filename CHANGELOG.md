@@ -443,6 +443,7 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `SmcOpt`) override them exactly as before.
 
 ### Added
+- `misc.structures.DataLayout`: the order of the data vector, derived once from the observed frame (label-major, then data type, empty cells skipped). The ensemble builds it after scaling and exposes `obs_vector`, which the schemes now use in place of `data_df.to_matrix()`; the frame remains as the view (`DataLayout.to_frame`). First step of replacing frame flattening on the analysis path.
 - `seed` option in the ensemble config (`[ensemble] seed = 7` for pipt, `options['seed']` for popt). Every draw a run makes -- prior realisations, perturbed observations, outlier and crash replacement, the auto-adaptive localization's shuffle, popt's control perturbations -- now comes from the ensemble's `rng`: a private `numpy.random.RandomState(seed)` when a seed is given, so the run reproduces on its own and leaves NumPy's global state untouched; otherwise the global stream, exactly as before, so `np.random.seed(...)` before a run keeps working and every reference number is unchanged. The geostat sampler PET used for these draws is replicated draw for draw in `misc.sampling.gen_real`, which takes the stream as an argument; geostat remains a dependency for its covariance builder.
 
 - **Every scheme takes a ready-made `ensemble=`.** The default collaborator

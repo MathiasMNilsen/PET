@@ -152,7 +152,7 @@ class EnKF(AssimilationScheme):
             self.trunc_energy = 0.98
 
         # Get the perturbed observations and observation scaling
-        self.vecObs = self.data_df.to_matrix()
+        self.vecObs = self.ensemble.obs_vector
         self.enObs = self.ensemble.perturb_observations(self.vecObs)
         self.ensemble._ext_scaling()
 
