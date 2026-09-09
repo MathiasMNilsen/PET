@@ -335,6 +335,7 @@ class AssimilationScheme(AnalysisBindingMixin, RestartMixin, ABC):
     pred_data = _ensemble_attr("pred_data")
     data_layout = _ensemble_attr("data_layout")
     obs_vector = _ensemble_attr("obs_vector")
+    obs_variance = _ensemble_attr("obs_variance")
     prior_enX = _ensemble_attr("prior_enX")
     prior_info = _ensemble_attr("prior_info")
     save_folder = _ensemble_attr("save_folder")

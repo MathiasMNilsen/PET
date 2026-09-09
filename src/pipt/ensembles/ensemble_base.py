@@ -156,6 +156,7 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
         # after scaling, so the vector holds what the analyses compare against.
         self.data_layout = DataLayout.from_frame(self.data_df)
         self.obs_vector = self.data_layout.vector(self.data_df)
+        self.obs_variance = self._observation_variance()
 
         self.keys_da['datatype'] = reader.datatype
         self.keys_da['truedataindex'] = reader.truedataindex
@@ -240,6 +241,23 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
             setattr(self, name, value)
         self.restart = True
 
+    def _observation_variance(self):
+        """The observation variances in layout order: ``(nd,)``, or ``(nd, ne)`` for an empirical error ensemble.
+
+        A variance that is NaN for an observed cell is an error here. It used
+        to be dropped when the covariance was assembled, which left the
+        covariance one entry shorter than the observation vector.
+        """
+        if self.data_var_df.is_ensemble:
+            variance = self.data_layout.matrix(self.data_var_df, self.ne)
+        else:
+            variance = self.data_layout.vector(self.data_var_df)
+        if np.isnan(variance).any():
+            bad = [(row.label, row.datatype) for row in self.data_layout.rows
+                   if np.isnan(np.atleast_1d(variance[row.rows])).any()]
+            raise ValueError(f"the data variance is NaN for observed cells {bad!r}")
+        return variance
+
     def perturb_observations(self, vecObs):
         '''
         Generate the perturbed observed data ensemble
@@ -262,7 +280,7 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
                 # enObs: samples from N(0,Cd)
                 enObs = cholesky(self.cov_data).T @ self.rng.randn(self.cov_data.shape[0], self.ne)
             else:
-                enObs = self.data_var_df.to_matrix()
+                enObs = self.obs_variance   # (nd, ne): the empirical error ensemble
 
             # Center the ensemble of perturbed observed data
             # enObs = vecObs[:, np.newaxis] - enObs
@@ -271,8 +289,7 @@ class AssimilationEnsemble(ForecastMixin, OutlierMixin, CompressionMixin, LocalA
 
         else:
             if not hasattr(self, 'cov_data'):  # if cd is not loaded
-                cov = at.construct_data_cov(self.data_var_df)
-                self.cov_data = cov[~np.isnan(cov)]
+                self.cov_data = self.obs_variance
 
             enObs, self.scale_data = gen_real(
                 mean = vecObs,

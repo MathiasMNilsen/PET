@@ -329,7 +329,7 @@ class OutlierMixin:
         because the caller owns the state being forecast.
         """
         outlier_idx, non_outlier_idx = at.get_outlier_index(
-            self.pred_data.matrix, self.obs_vector, self._variance_array(),
+            self.pred_data.matrix, self.obs_vector, self.obs_variance,
         )
         if len(outlier_idx) == 0:
             return enX
@@ -362,9 +362,3 @@ class OutlierMixin:
                 self.member_adjoints = [self.member_adjoints[i] for i in idx]
 
         return enX[:, idx]
-
-    def _variance_array(self):
-        """The observation variances in layout order: ``(nd,)``, or ``(nd, ne)`` for an empirical ensemble."""
-        if self.data_var_df.is_ensemble:
-            return self.data_layout.matrix(self.data_var_df, self.ne)
-        return self.data_layout.vector(self.data_var_df)

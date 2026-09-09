@@ -263,3 +263,23 @@ def test_the_ensemble_observation_vector_matches_the_frame_flatten(tmp_path, mon
     ensemble = AssimilationEnsemble(cfg_da, cfg_ens, VanDerPolOscillator(cfg_sim))
     np.testing.assert_array_equal(ensemble.obs_vector, ensemble.data_df.to_matrix())
     assert ensemble.data_layout.nd == ensemble.obs_vector.shape[0]
+
+
+def test_the_observation_variance_matches_the_frame_flatten_and_rejects_nan(tmp_path, monkeypatch):
+    """`obs_variance` replaces construct_data_cov, whose NaN filter silently shortened the covariance."""
+    from input_output import read_config
+    from pipt.ensembles import AssimilationEnsemble
+    from simulator.vanderpol import VanDerPolOscillator
+    from test_numerical_characterisation import _write_config, _write_synthetic_case
+
+    monkeypatch.chdir(tmp_path)
+    report_points = _write_synthetic_case(ne=8)
+    cfg_da, cfg_sim, cfg_ens = read_config.read(_write_config("variance", "esmda", "approx", report_points, ne=8))
+    ensemble = AssimilationEnsemble(cfg_da, cfg_ens, VanDerPolOscillator(cfg_sim))
+    np.testing.assert_array_equal(ensemble.obs_variance, ensemble.data_var_df.to_matrix())
+    assert ensemble.obs_variance.shape == ensemble.obs_vector.shape
+
+    label, column = ensemble.data_var_df.index[2], ensemble.data_var_df.columns[0]
+    ensemble.data_var_df.at[label, column] = np.nan
+    with pytest.raises(ValueError, match="variance is NaN"):
+        ensemble._observation_variance()

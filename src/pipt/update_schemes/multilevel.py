@@ -69,7 +69,7 @@ class MultilevelEnsemble(Ensemble):
         self.assim_index = [self.keys_da['obsname'], self.keys_da['assimindex'][0]]
         self.list_datatypes = self.keys_da['datatype']
 
-        self.cov_data = at.construct_data_cov(self.data_var_df)
+        self.cov_data = self.obs_variance
         self.vecObs = self.obs_vector
 
     def _ext_scaling(self):

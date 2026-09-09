@@ -43,6 +43,7 @@ class Host(OutlierMixin):
         self.data_var_df = _frame({s: 1.0 for s in STEPS}, is_ensemble=False)
         self.data_layout = DataLayout.from_frame(self.data_df)
         self.obs_vector = self.data_layout.vector(self.data_df)
+        self.obs_variance = self.data_layout.vector(self.data_var_df)
         self.pred_data = PredictedData.from_frame(self.data_layout, _frame(pred_cells, is_ensemble=True), NE)
         # The full forecast as the members returned it: one list of records per member.
         self.member_outputs = [[[{"obs": pred_cells[s][j]} for s in STEPS] for j in range(NE)]]

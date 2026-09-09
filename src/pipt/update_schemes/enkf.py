@@ -11,7 +11,6 @@ from pipt.update_schemes.core import AssimilationScheme, StepReport, restart_opt
 from pipt.update_schemes.analysis.approx import approx_update
 from pipt.update_schemes.analysis.subspace import subspace_update
 # Misc. tools used in analysis schemes
-from pipt.misc_tools import analysis_tools as at
 import pipt.misc_tools.extract_tools as extract
 
 
@@ -172,7 +171,7 @@ class EnKF(AssimilationScheme):
             #    self.assim_index,
             #    self.list_datatypes
            # )
-            self.cov_data = at.construct_data_cov(self.data_var_df)
+            self.cov_data = self.ensemble.obs_variance
 
             self.data_random_state = deepcopy(np.random.get_state())
             self.enObs, self.scale_data = gen_real(
